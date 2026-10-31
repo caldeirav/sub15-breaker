@@ -1,6 +1,8 @@
-# Human review to unblock the harness PR
+# Accepted banking-harness review checklist
 
 **Accepted by @caldeirav on 2026-10-31.** The owner explicitly authorized recording acceptance and merging the PR in this conversation. This is owner-reported acceptance of the local harness/evidence scope; no raw browser-review transcript was supplied. The steps below remain the reproducible checklist, not a claim that an agent performed human validation. Agent quality and historical failed statuses remain unchanged.
+
+Delivery: [PR #26](https://github.com/caldeirav/sub15-breaker/pull/26) is merged. No repeat sign-off or model rerun is requested for this accepted block. New features require separate evidence and acceptance; [block 03a](block-03a.json) subsequently received its own scoped @caldeirav acceptance, not an extension of this block's approval.
 
 **Acceptance target:** the harness faithfully executes, records and evaluates every declared case—not that the acting model wins every task. The owner approved [harness policy v3](../banking-harness-acceptance-v3.md). Agent quality remains visible and #25 is a nonblocking follow-up. The named human sign-off for this block is now recorded in [block-02.json](block-02.json).
 

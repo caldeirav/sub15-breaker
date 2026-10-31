@@ -4,15 +4,17 @@
 
 Compare gateway-side generative verification (A) with one compact binary-classifier pass (B) before a **structured banking action** changes synthetic state. Reuse pinned AgentDojo tasks/tools/checkers; do not build another financial dataset. The local harness-v3 scope is accepted, but the end-to-end target is not implemented: tools still dispatch in memory and historical source runs retain their original FAILED statuses. The [scope](../docs/project-scope.md) and [plan](../docs/implementation-plan.md) are normative for new work; command-only Bash modules are legacy compatibility.
 
-## Trust and execution contract
+## Target trust and execution contract (not yet implemented)
 
 All read/write tools traverse the authenticated gateway to an isolated per-trial gVisor Actor service. Bind principal, trial, Actor generation, action/idempotency ID, canonical typed tool/arguments, trusted intent/policy/input versions, expected state version and deadline. Agent/tool text cannot choose trusted context. Hidden benchmark checks, reference solutions and attacker goals are evaluator-only.
+
+This is a target requirement: the accepted harness uses the [pinned in-memory environment](../docs/golden-data.md), not this distributed path. The owner confirmed [03a's record-only contracts](../docs/banking-contracts-03a.md) before coding; implementation, technical validation and fresh @caldeirav human acceptance exist, but actual gateway/Actor integration does not. Additional authority/business scope needs separate clarification and acceptance.
 
 Validate schemas, capabilities, bounds and identity deterministically before one authoritative A/B decision. Deny errors, malformed/oversize/ambiguous inputs, stale state/generation, model/calibration mismatch and unavailable authority. Admission and mutation must enforce atomic state-version checks and idempotency; unknown writes require receipt reconciliation, not automatic retries. Prevent direct/alternate-route access and replay. No host shell, privileged executor or live bank fallback.
 
 Denial, durable Actor-scoped latch, acknowledged stop and authenticated fresh-generation reset are distinct events. Stop failure retains the latch. Prior effects are not rolled back. Verify runtime/isolation, cleanup and independent mutation/egress evidence rather than trusting an ActorTemplate or HTTP status alone.
 
-## Model and calibration
+## Planned verifier model and calibration
 
 Mode A and B use the same trusted action/context and enforcement boundary. B performs one non-generative forward pass; it is not the legacy command-only risk model. Fine-tune a compact binary encoder with explicit unsafe-class semantics on independently reviewed policy/action/context data. A relevance checkpoint is not a safety artifact. Bind model, tokenizer, input schema, policy, split hashes, calibration and threshold in immutable manifests.
 

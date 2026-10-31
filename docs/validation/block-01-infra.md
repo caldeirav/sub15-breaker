@@ -1,10 +1,10 @@
 # Block 01: infrastructure manual acceptance
 
-**Human acceptance: PASSED (user-reported, 2026-10-31). Ready for PR publication after final automated checks.**
+**Historical block-01 acceptance: PASSED (user-reported, 2026-10-31), merged in [PR #18](https://github.com/caldeirav/sub15-breaker/pull/18).** This is a reproducible infrastructure checklist, not an outstanding PR or acceptance of the banking tool path. Current evidence is indexed in [the validation guide](README.md).
 
 Tester: the repository owner, using the independent-terminal checklist supplied in this conversation. The owner confirmed: “All tests passed successfully.” This records the user's sign-off, not an agent-inferred result. No raw manual transcript was supplied. Source-level safeguards below rely on their automated regression tests rather than an assertion that every failure was separately injected by hand.
 
-Scope: pinned Podman/Kind/Cilium/agentgateway/Substrate foundation and non-executing network/enforcement fixtures. No real shell execution, model training, Actor reset, or Actor termination is accepted by this block.
+Scope: pinned Podman/Kind/Cilium/agentgateway/Substrate foundation and non-executing network/enforcement fixtures. No banking Actor tool execution, model training, Actor reset or stop is accepted by this block. The fixture's `command` field is sentinel transport, not the proposed banking action schema.
 
 ## Recorded automated results (2026-10-31)
 
@@ -78,7 +78,7 @@ kubectl exec -n breaker-enforcement client -- python -B /probe/http_probe.py "ht
 kubectl exec -n breaker-enforcement deployment/fixture-recorder -- python -B -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8080/records').read().decode())"
 ```
 
-Expected: first request 200 with `executed:false`; the other two non-2xx. Exactly one new receipt between the two record snapshots. These sentinels are not Bash commands and must not be replaced with golden destructive payloads.
+Expected: first request 200 with `executed:false`; the other two non-2xx. Exactly one new receipt between the two record snapshots. Keep these non-executing sentinels; do not substitute arbitrary commands or real banking actions.
 
 ## Findings -> regressions -> sign-off
 

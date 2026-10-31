@@ -1,6 +1,6 @@
 # Independent review: approved banking metric-v2 local contract
 
-**Scope history:** this review used the original v2 agent-win-rate gate. The owner subsequently approved [harness acceptance v3](../banking-harness-acceptance-v3.md), where correctly scored agent failure is not blocking. The observations, source validation and all failed source-run statuses below remain unchanged; current human acceptance uses [the harness checklist](block-02-harness-review.md).
+**Scope history:** this review used the original v2 agent-win-rate gate. The owner subsequently accepted [harness v3](../banking-harness-acceptance-v3.md) and PR #26 merged. Correctly scored agent failure is not blocking. All source outcomes/statuses below remain unchanged; recording-time pending states are not current blockers. See [the acceptance record](block-02.json) and [validation index](README.md).
 
 Reviewer: separate read-only agent session `ses_e6e514755ffegn5uhaYFQsZmSV`, 2026-10-31. User explicitly requested independent re-review. This is **agent review, not human sign-off**.
 

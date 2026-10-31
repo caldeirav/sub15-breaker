@@ -1,0 +1,39 @@
+{
+  "block": "03a-banking-action-trusted-context-contracts",
+  "scope": "shared-contracts-json-schema-and-record-only-structural-fixtures",
+  "requirements": {
+    "status": "confirmed",
+    "evidence": "Owner explicitly selected contracts+fixtures without live integration, exact decimal strings, service-owned structural registry policy, all 11 reused tool schemas, and HMAC-SHA-256 private per-registry fixture commitments before implementation. Separate read-only review was authorized."
+  },
+  "automated": {
+    "status": "passed",
+    "evidence": "228 offline tests pass, including 83 contract tests and Draft 2020-12 negative cross-validation. CODE-only MLflow a7cc4f2497d24a819edfd1d2e57b1e22 (experiment 2) matches all 26 controls: 12 allow, 1 deny, 12 error, 1 unknown. Exact matrix, stage/source/score readback and schema/source hashes verified. Zero model, banking-tool or real-execution calls."
+  },
+  "independent_agent_review": {
+    "status": "passed",
+    "reviewer": "Read-only agent session ses_e6dc59cbdffeSjkAlyLM40uNHu",
+    "date": "2026-10-31",
+    "evidence": "Re-review confirmed both P2 findings fixed: exported receipt conditionals and exact CODE score provenance/uniqueness. Independently verified 228 tests, all 7 source hashes/schema bundle, 26 matched persisted cases and stages/assessments, zero execution spans and preserved failures. Scoped technical approval only, not human sign-off."
+  },
+  "manual": {
+    "status": "passed",
+    "tester": "@caldeirav",
+    "date": "2026-10-31",
+    "mlflow_run_id": "23d8ef48c8934bd380914cd8965f20e5",
+    "mlflow_trace_id": "tr-5a12526a63df8fdfa673a5a545a3404e",
+    "evidence": "After receiving the detailed walkthrough for MLflow run a7cc4f2497d24a819edfd1d2e57b1e22, the owner reported: Eveerything match, get my acceptance through my handle @caldeirav and let's merge this and commit. This is explicit owner-reported human acceptance of block 03a shared contracts and record-only fixtures, and authorization to commit/publish/merge after final checks. No raw manual transcript or per-case inspection list was supplied. It does not approve financial authorization, caller authentication, real gateway/Actor execution, production key management, durable state, models/calibration or latency."
+  },
+  "regressions": {
+    "status": "passed",
+    "evidence": "Wire-version/full 26-case path regression, strict/duplicate/nonfinite/size/context/stale/tamper/money/default-resource/float-loss tests, replay/concurrency/capacity and unknown receipt semantics. Cross-validator cases reject false execution/uncertainty; audit rejects wrong HUMAN/CODE owner, duplicate namespace scores and empty/missing/duplicate fixture plans."
+  },
+  "documentation": {
+    "status": "passed",
+    "evidence": "docs/banking-contracts-03a.md, docs/validation/block-03a-contracts.md and current scope/plan/index distinguish implemented fixtures from live admission and list schema-vs-runtime limits. Documentation-only commit b5b630c was pushed before implementation."
+  },
+  "history": {
+    "initial_failed_run": "86aceab640b44f8e9bf4aae7fdf9747a remains FAILED for family/proposal version mismatch; corrected with regressions",
+    "intermediate_run": "414f6f05f99c4b0384dac4cec3eac66a preserved; review found schema/export and score-source gaps subsequently fixed",
+    "live_harness": "No src/feasibility implementation or golden/judge behavior changed; new jsonschema declaration is test-only, using the already locked package version"
+  }
+}

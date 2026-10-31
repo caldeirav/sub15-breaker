@@ -1,3 +1,5 @@
+# Legacy command-only prototype, not a banking risk-verifier image.
+# See docs/legacy-compatibility.md; banking role-specific images remain future work.
 FROM python:3.12-slim-bookworm
 COPY --from=ghcr.io/astral-sh/uv:0.8.22 /uv /uvx /bin/
 
