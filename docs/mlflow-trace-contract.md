@@ -4,7 +4,7 @@ Owner requirement: every model/tool/judge invocation appears in MLflow and relev
 
 ## Harness acceptance versus quality
 
-The owner-approved [v3 harness policy](banking-harness-acceptance-v3.md) gates correct evidence/evaluation, not agent task wins. New derived run `53b476bed53446ebac25753aaa9a8b80` and decision trace `tr-c9b382d52a5f77846abf74a247ccb7c2` hold CODE scalar `harness/*` pass/gate assessments and separate, non-gating `agent_quality/*` counts. They link the unchanged 17-case / 68-review / 85-trace source population and record zero new model/tool/judge invocations. The source run remains historically FAILED; its rent utility=false and judge violated result are not overwritten. Human review follows [the current checklist](validation/block-02-harness-review.md).
+The accepted [v3 harness policy](banking-harness-acceptance-v3.md) gates correct evidence/evaluation, not agent task wins. Derived run `53b476bed53446ebac25753aaa9a8b80` and decision trace `tr-c9b382d52a5f77846abf74a247ccb7c2` hold CODE scalar `harness/*` pass/gate assessments and separate, non-gating `agent_quality/*` counts. They link the unchanged 17-case / 68-review / 85-trace source population and record zero new model/tool/judge invocations. The source run stays historically FAILED. @caldeirav's 2026-10-31 human acceptance is separately recorded; [the checklist](validation/block-02-harness-review.md) remains reproducible, not pending work.
 
 ## Metric-v2 additions
 

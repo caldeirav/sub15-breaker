@@ -1,10 +1,8 @@
 # Block 02: banking feasibility acceptance
 
-**Current PR review:** use [the harness-v3 checklist](block-02-harness-review.md), not the historical win-rate gates below. The owner approved separating harness correctness from agent quality; #25 is nonblocking. Original runs and previous acceptance decisions remain history.
+**Historical v1 checklist, not current instructions.** The local harness was subsequently accepted by @caldeirav and merged in PR #26 under [harness v3](../banking-harness-acceptance-v3.md). Use [the accepted checklist](block-02-harness-review.md) and [validation index](README.md). #20 is resolved; #25 is nonblocking. Original rows and recording-time review states below remain history, not a request to reaccept this block or require all agents to win.
 
-**Historical v1 checklist, superseded for current review.** Use [the v2 guide with exact run/trace links](block-02-v2-review.md) and [independent v2 review](block-02-v2-independent-review.md). #20 is resolved for metric semantics; fresh v2 main remains FAILED for a separate rent-agent capability finding (#25), and human acceptance remains pending. The older evidence/checklist below is retained as history, not a request to decide #20 again.
-
-**Status: not accepted; PR publication and progression blocked.** A separate [independent agent review](block-02-independent-review.md) completed with changes required. It is not independent human acceptance; block-01 approval does not approve this feature.
+**Recorded disposition at this revision: not accepted.** The initial [independent review](block-02-independent-review.md) found changes required; later fixes, technical review and human acceptance are separately recorded. This earlier result is not retroactively passed.
 
 ## Evidence
 

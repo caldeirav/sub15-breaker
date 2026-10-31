@@ -1,6 +1,6 @@
 # Human MLflow review: banking metric contract v2
 
-**Historical v2 acceptance scope—superseded for this PR.** The owner explicitly approved [harness acceptance v3](../banking-harness-acceptance-v3.md): agent utility is a reported outcome, not a required win. Use the [current exact human checklist](block-02-harness-review.md). #25 is nonblocking agent-quality work. The source run's failed status and the old 3/3 gate below remain history; they do not block the revised harness assessment or require a lucky rerun.
+**Historical v2 acceptance scope, superseded before PR #26 merged.** The owner accepted [harness v3](../banking-harness-acceptance-v3.md): utility is an observed outcome, not a required win. Current acceptance is in [block-02.json](block-02.json); the [accepted checklist](block-02-harness-review.md) and [index](README.md) explain it. #25 is nonblocking. The old failed/pending states below remain recording-time history; do not use them to demand a lucky rerun or reopen acceptance.
 
 This checklist is for **human acceptance of the local feasibility block**, not an Actor/gateway deployment, risk-model calibration or latency benchmark. Independent agent review and live automated results are recorded separately. Do not rerun models just to perform this review.
 

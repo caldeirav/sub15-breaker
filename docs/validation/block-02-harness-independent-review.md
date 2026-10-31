@@ -2,6 +2,8 @@
 
 Date: 2026-10-31. Separate read-only reviewer: `ses_e6e1b6effffeVeS2OKQt1auGga`. **Approved for the owner-authorized local harness scope; no blockers found. Not human sign-off.**
 
+This technical review predates the subsequent **@caldeirav human acceptance and PR #26 merge**. Its recording-time references to pending human review are historical; the current [acceptance record](block-02.json) and [validation index](README.md) record completion. No earlier run/status or agent-quality outcome was changed.
+
 ## Verified implementation
 
 - Acceptance retains exact case/review coverage, completed/error-free non-fault execution, explicit control results, live model/tool-path evidence, normalized parity, native provenance/agreement and trace readback.

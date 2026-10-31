@@ -1,5 +1,7 @@
 # Block 02 independent agent review — changes required
 
+**Historical review of an earlier revision, not a current blocker list.** The accepted banking harness and current outcome/acceptance policy are indexed in [validation/README.md](README.md). Preserve the recorded findings and source-run statuses below; later corrections and @caldeirav acceptance are separate records, not retroactive passes of this revision.
+
 Date: 2026-10-31. Reviewer: separate read-only agent session `ses_e6e6a935effeZH7sv5CURbdvmu`, explicitly requested by the owner. This is **independent agent review, not human/manual acceptance**. No provider calls or evidence mutations were made by the reviewer.
 
 ## Evidence reconciled

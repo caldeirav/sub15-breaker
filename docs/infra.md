@@ -1,8 +1,10 @@
 # Local infrastructure and validation
 
-This is block 01 of the [implementation roadmap](https://github.com/caldeirav/sub15-breaker/issues/14). It establishes a reproducible local control plane and tests network/gateway behavior with **non-executing fixtures**. It does not implement the shell executor, per-trial Actor reset, learned safety weights, or Actor termination. Do not run the destructive golden suite yet.
+This is block 01 of the [implementation roadmap](https://github.com/caldeirav/sub15-breaker/issues/14), accepted and merged in PR #18. It establishes a local control plane and **non-executing** network/gateway fixtures. It does not implement the banking Actor service/reset, risk verifier or Actor stop. The accepted [banking harness](banking-feasibility.md) runs independently in memory; no cluster setup is required to use its current golden tasks.
 
 **Banking scope update:** the [current target](project-scope.md) reuses simulated banking tools rather than building a generic shell executor. This foundation remains valid infrastructure evidence, but it does not deploy a banking Actor service, transactional state/reset or a banking gateway verifier. The [local pilot](banking-feasibility.md) bypasses that distributed boundary by design and is not infrastructure acceptance. Follow the revised [block dependencies](implementation-plan.md) before enabling real workloads; no live bank APIs or payment credentials are needed.
+
+The existing `check_env.sh --research` readiness profile still includes the **legacy command-only sidecar**; it is not a banking-harness doctor. Do not start that sidecar, set shell reset URLs or deploy `k8s/` placeholders just to run the banking harness. Workload migration has separate gates; [the manifest inventory](../k8s/README.md) identifies what is illustrative rather than deployable.
 
 ## Supported profile and trust boundaries
 
@@ -107,9 +109,9 @@ The harness checks positive forwarding/body integrity (including Unicode), polic
 
 These are integration controls for the pinned HTTP fixture path. They do not prove Actor network isolation, trained-model semantics, all proxy framing/timeout cases, or sub-15ms latency. Those remain acceptance work in [#1](https://github.com/caldeirav/sub15-breaker/issues/1) and [#4](https://github.com/caldeirav/sub15-breaker/issues/4). `k8s/` research examples are not deployed automatically. Their executor/model image placeholders remain intentional blockers.
 
-## Manual acceptance before publishing the block PR
+## Recorded block-01 acceptance and future revalidation
 
-Run the automated checks first, then independently perform the manual checks in [`validation/block-01-infra.md`](validation/block-01-infra.md). Leave manual acceptance pending until the human tester supplies results. Capture nonsecret evidence, turn confirmed findings into regression tests, rerun affected checks, and update the docs before publishing the PR or starting the next feature block. See [#17](https://github.com/caldeirav/sub15-breaker/issues/17).
+The original automated/manual checklist is retained in [`validation/block-01-infra.md`](validation/block-01-infra.md); PR #18 is already merged, not awaiting publication. Relevant infrastructure changes need fresh automated and independent human checks, regression coverage and docs before their own PR. Existing block-01 approval cannot approve a banking Actor/gateway feature. See [#17](https://github.com/caldeirav/sub15-breaker/issues/17).
 
 For block 01, the repository owner reported all independent-terminal tests passed on 2026-10-31. That user-reported acceptance is recorded separately from the automated results; no raw manual transcript was supplied. Final automated checks and the publication guard must still pass before opening the PR. The same acceptance process applies to later blocks.
 
