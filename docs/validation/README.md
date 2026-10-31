@@ -26,7 +26,7 @@ Their “pending,” “not accepted” and older case/test counts describe what
 
 ## Future blocks
 
-Block 03a is **not implemented or accepted**. Clarify its proposed scope/requirements with the owner first. Every new block needs its own automated checks, independent review, regressions, documentation and named human/date/evidence before its scoped PR. Never reuse block-01/block-02 acceptance for a new runtime or security claim.
+Block 03a's [record-only implementation](../banking-contracts-03a.md) followed explicit owner clarification, automated/independent technical validation and **fresh human acceptance by @caldeirav on 2026-10-31** in [block-03a.json](block-03a.json). [Its checklist](block-03a-contracts.md) remains reproducible. Every later block still needs its own named human/date/evidence; never reuse prior approval for a new runtime or security claim.
 
 The publication guard is an attestation-field check, not proof that a test was performed:
 

@@ -14,12 +14,13 @@ The supported research domain is **AgentDojo simulated banking**. The local eval
 | [Trace contract](mlflow-trace-contract.md) | Model/tool/judge coverage and per-trace score ownership |
 | [Harness acceptance v3](banking-harness-acceptance-v3.md) | Active acceptance policy: correct evaluation, not universal agent success |
 | [Human checklist](validation/block-02-harness-review.md) / [acceptance record](validation/block-02.json) | @caldeirav's scoped acceptance and reproducible inspection steps |
-| [Implementation plan](implementation-plan.md) / [next iteration](next-iteration.md) | Remaining blocks and proposed 03a scope, pending requirements clarification |
+| [Implementation plan](implementation-plan.md) / [next iteration](next-iteration.md) | Remaining blocks and accepted record-only 03a scope |
+| [Block 03a contracts](banking-contracts-03a.md) | Owner-confirmed choices, shared types, schema semantics and record-only fixture evidence |
 | [Infrastructure](infra.md) | Separate accepted control plane and non-executing fixtures |
 | [Legacy compatibility](legacy-compatibility.md) | Old modules/examples that are not the supported banking path |
 | [Documentation alignment audit](documentation-audit.md) | What was reviewed/corrected, immutable evidence and validation boundaries |
 
-For block 03a, the specification and proposal describe a **target**, not a delivered security boundary. Do not implement unresolved money/policy/authority choices without owner clarification. Preserve golden evaluator references outside acting-model and verifier inputs.
+Block 03a's requirements were clarified before coding. Its record-only implementation has independent technical approval and fresh human acceptance by @caldeirav on 2026-10-31, but is not a delivered security boundary. No live-pilot integration or financial authorization is included. Additional business/security scope still needs clarification; hidden golden answers remain evaluator-only.
 
 ## Frozen experiment protocols and historical evidence
 

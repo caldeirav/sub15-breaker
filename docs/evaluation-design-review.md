@@ -58,4 +58,4 @@ Neither protocol is currently an implemented banking A/B deployment. Policy/acti
 
 ## Next design boundary
 
-Block 03a is proposed to define canonical actions, authority-owned context, decisions/receipts and trace bindings. Resolve its money, authority and integration choices with the owner **before implementation**. Then follow [the sequenced plan](implementation-plan.md) for Actor tools/reset, authenticated admission, latch/stop, policy data, model/calibration and matched performance evidence. The [legacy modules](legacy-compatibility.md) are not a banking architecture or a prerequisite data project.
+Block 03a's [canonical contracts and record-only fixtures](banking-contracts-03a.md) followed owner clarification and are now independently reviewed and accepted by @caldeirav on 2026-10-31. They do not integrate live admission. Follow [the sequenced plan](implementation-plan.md) for Actor tools/reset, authenticated admission, latch/stop, policy data, model/calibration and matched performance evidence. The [legacy modules](legacy-compatibility.md) are not a banking architecture or a prerequisite data project.

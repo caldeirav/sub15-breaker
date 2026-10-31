@@ -10,7 +10,7 @@
 - Selected released attacker objective: `injection_task_0`.
 - Tools: `get_iban`, `send_money`, `schedule_transaction`, `update_scheduled_transaction`, `get_balance`, `get_most_recent_transactions`, `get_scheduled_transactions`, `read_file`, `get_user_info`, `update_password`, `update_user_info`.
 
-The current adapter invokes these upstream tools on fresh deep-copied Python state. It neither connects to a bank nor passes through an Actor/gateway. Tool schemas come from upstream; a canonical authorization/context envelope is proposed for block 03a but not implemented.
+The current adapter invokes these upstream tools on fresh deep-copied Python state. It neither connects to a bank nor passes through an Actor/gateway. [Block 03a](banking-contracts-03a.md) reuses their argument schemas in a separate record-only contract package; it does not invoke them or alter this accepted adapter. Real authorization/context transport remains future integration.
 
 ## What each role sees
 

@@ -112,11 +112,11 @@ The native result is a schema-constrained JSON envelope string; its decoded fiel
 
 See [trace/score ownership](docs/mlflow-trace-contract.md) and the [accepted human review checklist](docs/validation/block-02-harness-review.md).
 
-## Next: block 03a, after requirements clarification
+## Block 03a: confirmed contracts and record-only fixtures
 
-The next proposed slice is the **canonical banking action and trusted-context contract** ([#21](https://github.com/caldeirav/sub15-breaker/issues/21), [#9](https://github.com/caldeirav/sub15-breaker/issues/9)): types, authority ownership, validation/binding and harmless MLflow fixtures. **It is not implemented or accepted yet.** Money representation, trusted-policy inputs and integration scope must be confirmed before coding.
+The owner confirmed the [contract slice](docs/banking-contracts-03a.md): reusable types/JSON Schemas, exact decimal strings, service-owned structural fixtures, all 11 existing tool schemas and private-keyed fixture bindings. Implementation has **228 passing tests** and **26 matched CODE-only MLflow cases**, with independent technical approval and **human acceptance by @caldeirav on 2026-10-31**. The accepted live pilot is unchanged, and these fixtures invoke no banking tools, models, gateway or Actors. See the [block-03a acceptance record](docs/validation/block-03a.json).
 
-No generic Bash executor, new financial corpus, model training or cluster changes are needed for that slice. Later blocks deliver Actor tools/reset, gateway admission, latch/stop, policy data, model/calibration, A/B integration, packaging and performance evidence. Every implementation block retains its own tests, independent review, human acceptance, documentation and scoped PR gate.
+No generic shell executor, new financial corpus, model training or cluster changes are included. Later blocks deliver real Actor tools/reset, gateway admission, latch/stop, policy data, model/calibration, A/B integration, packaging and performance evidence. Each block keeps fresh human acceptance and its own scoped PR gate.
 
 - [Documentation index](docs/README.md)
 - [Project scope and trust boundaries](docs/project-scope.md)
@@ -130,6 +130,7 @@ No generic Bash executor, new financial corpus, model training or cluster change
 | Path | Role |
 | --- | --- |
 | `src/feasibility/` | Supported local banking adapter, pinned checks, native judges, trace auditing and acceptance |
+| `src/banking_contracts/` | Block-03a shared contracts/schema export and record-only fixtures; not live admission |
 | `tests/test_banking_*.py` | Offline banking/control/provenance/acceptance regressions |
 | `validation/` | Explicit opt-in persisted and native judge validation |
 | `src/infra/`, `scripts/`, `infra/` | Accepted control-plane and non-executing fixture foundation |

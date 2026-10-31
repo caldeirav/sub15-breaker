@@ -1,6 +1,6 @@
 # Banking documentation alignment audit
 
-Scope: repository documentation after accepted/merged [PR #26](https://github.com/caldeirav/sub15-breaker/pull/26), before any block-03a implementation. This is documentation maintenance, not a change to the accepted harness, golden definitions, native judge rubric, dependencies or historical attestations.
+Scope: documentation-only commit [`b5b630c`](https://github.com/caldeirav/sub15-breaker/commit/b5b630c), pushed before block-03a implementation. That maintenance changed no harness, golden definitions, dependencies or attestations. Subsequent [block-03a feature work](banking-contracts-03a.md) is a separate scope; checks below describe the documentation commit, not a claim that later code is absent.
 
 ## Findings corrected
 

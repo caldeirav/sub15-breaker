@@ -6,16 +6,16 @@ Block 02's **local banking evaluation harness** was accepted by @caldeirav and m
 
 Focus on **#21 + #9**, with the interface portions of #19/#22/#23. Define the contract before hosting tools or training a model; otherwise admission, mutation and model input will bind different facts.
 
-**Status: proposed, not implemented.** The owner requested requirements clarification before implementation. The items below are scope/acceptance goals, not settled wire formats or authority rules.
+**Status: implemented record-only and accepted by @caldeirav on 2026-10-31.** The owner selected contracts+fixtures without live integration, exact decimal strings, service-owned structural policy fixtures, all 11 tool schemas and private-keyed HMAC commitments. See [the implementation/evidence](banking-contracts-03a.md). No HTTP service, actual authentication, financial approval, Actor or model integration is delivered. Later blocks require their own acceptance.
 
-### Confirm before coding
+### Clarification record (completed before coding)
 
 - Deliver schemas/context-resolver/record-only fixtures alone, or also opt-in integration with the accepted live pilot? A real HTTP service, gateway policy or Actor deployment is not implied.
 - Choose exact finite money representation, precision and currency/unit assumptions at the new boundary, with an explicit compatibility adapter for existing upstream float amounts. Do not silently round or infer currency from an IBAN.
 - Define the trusted context/policy fixture source and which facts may authorize an action. User intent is distinct from untrusted invoice text; hidden benchmark expected answers must not become guard inputs.
 - Confirm tool coverage and initial policy depth: structural/capability limits versus financial authorization rules. A digest/binding fixture is not an authenticated admission service or durable idempotency store.
 
-Pending those answers, do not add contract implementation, enforce a guessed banking policy or change the existing evaluation behavior.
+The owner chose the narrow recommended options. Financial authorization, real key management/authentication, durable state and live integration remain outside this block; do not add guessed rules or alter accepted evaluation behavior. Additional scope requires fresh clarification.
 
 ### Deliverables
 

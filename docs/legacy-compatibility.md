@@ -18,4 +18,4 @@ The accepted [infrastructure fixture](infra.md) is separate: its `command` field
 
 Historical instructions and dataset comparisons are available in [the pre-cleanup revision](https://github.com/caldeirav/sub15-breaker/tree/1e32c54eec0cfe060013487789924baa57470894). They are not current setup recommendations. No destructive command examples should be executed on the host or privileged workloads.
 
-For current use, start with [the banking runbook](banking-feasibility.md), [golden environment](golden-data.md) and [project scope](project-scope.md). Block 03a will define the new contract **after owner requirements clarification**; it does not silently reinterpret any legacy payload as a banking authorization.
+For current use, start with [the banking runbook](banking-feasibility.md), [golden environment](golden-data.md) and [project scope](project-scope.md). The separately [accepted 03a record-only types](banking-contracts-03a.md) followed owner clarification and fresh @caldeirav acceptance; they do not reinterpret a legacy payload as banking authorization or integrate the old sidecar.

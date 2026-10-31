@@ -107,4 +107,4 @@ The [human checklist](validation/block-02-harness-review.md), [acceptance record
 
 ## Next step
 
-Block 03a proposes typed action/trusted-context contracts and harmless trace fixtures. It is **not implemented yet**. Confirm unresolved requirements in [the proposal](next-iteration.md) before coding; Actor hosting, gateway enforcement, training and performance follow their later gates.
+Block 03a's [typed contracts and harmless trace fixtures](banking-contracts-03a.md) are implemented, independently reviewed and accepted by @caldeirav on 2026-10-31. They leave this live harness unchanged. Actor hosting, gateway enforcement, financial policy, training and performance follow their later gates in [the plan](next-iteration.md).
