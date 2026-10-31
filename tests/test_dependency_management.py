@@ -96,3 +96,14 @@ def test_setup_refuses_stale_lock_before_cluster_changes(infra_scripts):
     assert result.returncode == 1
     assert "run uv lock" in result.stderr
     assert Path(env["CALL_LOG"]).read_text().splitlines() == ["uv lock --check"]
+
+
+def test_shell_syntax_check_does_not_ignore_later_scripts(infra_scripts):
+    scripts, env = infra_scripts
+    source = Path(__file__).resolve().parents[1] / "scripts/test.sh"
+    shutil.copyfile(source, scripts / "test.sh")
+    (scripts / "aaa-valid.sh").write_text("#!/bin/bash\nexit 0\n")
+    (scripts / "zzz-invalid.sh").write_text("#!/bin/bash\nif then\n")
+    result = subprocess.run(["/bin/bash", str(scripts / "test.sh")], env=env, capture_output=True, text=True)
+    assert result.returncode != 0
+    assert "zzz-invalid.sh" in result.stderr and "syntax error" in result.stderr

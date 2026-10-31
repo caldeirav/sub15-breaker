@@ -1,0 +1,21 @@
+{
+  "block": "01-infrastructure-foundation",
+  "automated": {
+    "status": "passed",
+    "evidence": "2026-10-31: 58 tests passed on each of Python 3.11/3.12/3.13. Clean-cluster full readiness passed at 07:29:48Z; 6 network controls passed at 07:31:44Z; 20 non-executing gateway cases, including authorizer outage/recovery, passed at 07:34:17Z. Local reports: .infra/clusters/breaker-substrate/{readiness,network-check,enforcement-check}.json. Repeat setup and owned-cluster reuse were also exercised. GitHub CI results are tracked separately on the PR; this record describes local validation."
+  },
+  "manual": {
+    "status": "passed",
+    "tester": "Repository owner (human sign-off reported in this conversation)",
+    "date": "2026-10-31",
+    "evidence": "After receiving the independent-terminal checklist, the repository owner confirmed: All tests passed successfully. The checklist covered cluster/control-plane/ATE API readiness, ingress/egress controls, authenticated approval and denial with recorder counts, Service/Pod-IP bypass, authorizer outage/recovery, and repeat setup. This is user-reported acceptance; no raw manual transcript was supplied. It does not certify shell execution, Actor isolation/reset, model quality, or latency."
+  },
+  "regressions": {
+    "status": "passed",
+    "evidence": "58 tests pass on Python 3.11, 3.12, and 3.13. tests/test_infra.py and tests/test_dependency_management.py cover confirmed bootstrap, ownership, readiness, fixture, timeout, checkout-integrity, and shell-check findings. Independent code review confirmed the fixes; human acceptance remains separate."
+  },
+  "documentation": {
+    "status": "passed",
+    "evidence": "README.md, docs/infra.md, docs/validation/block-01-infra.md"
+  }
+}

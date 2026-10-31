@@ -99,6 +99,11 @@ ipython_config.py
 # Commit uv.lock and .python-version; ignore only local environments and caches.
 .uv-cache/
 
+# Local infrastructure tools, upstream checkout, kubeconfig, and validation evidence
+.tools/
+.infra/
+mlruns/
+
 # poetry
 #   Similar to Pipfile.lock, it is generally recommended to include poetry.lock in version control.
 #   This is especially recommended for binary packages to ensure reproducibility, and is more

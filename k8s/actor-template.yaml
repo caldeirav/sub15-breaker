@@ -1,5 +1,6 @@
 # ActorTemplate is an ATE API object, not a Kubernetes CRD. Configure the
-# atespace, image and sandboxConfig for your installed Substrate release.
+# atespace and image for the pinned Substrate release. The selected pool sets
+# the sandbox class; ActorTemplate no longer accepts sandboxConfig.
 metadata:
   atespace: breaker
   name: breaker-executor
@@ -9,6 +10,10 @@ workerSelector:
 containers:
   - name: executor
     image: REPLACE_WITH_ISOLATED_EXECUTOR_IMAGE
-sandboxConfig:
-  sandboxClass: SANDBOX_CLASS_GVISOR
-  configName: gvisor
+resources:
+  limits:
+    cpuMillicores: 1000
+    memoryBytes: 268435456
+snapshotConfig:
+  goldenSnapshotConfig:
+    mode: GOLDEN_SNAPSHOT_MODE_DISABLED
