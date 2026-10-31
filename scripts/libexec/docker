@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Scoped compatibility adapter for the pinned Substrate installer only.
+# Never install globally or change the user's Docker CLI/configuration.
+set -euo pipefail
+exec podman "$@"

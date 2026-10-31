@@ -1,13 +1,24 @@
-# Replace workerImage with the ateom image built for your Substrate release.
-apiVersion: ate.dev/v1alpha1
+# Research workload example for the pinned Substrate v1.0.0-rc.1 API.
+# Replace workerImage with that release's digest-pinned ateworker-gvisor image.
+apiVersion: ate.dev/v1
 kind: WorkerPool
 metadata:
   name: breaker
   namespace: default
+  labels:
+    workload: breaker
 spec:
   replicas: 1
-  sandboxClass: gvisor
-  workerImage: REPLACE_WITH_ATEOM_IMAGE
+  sandboxClasses:
+    - name: gvisor
+      configRef:
+        name: gvisor-default
+  workerImage: REPLACE_WITH_ATEWORKER_GVISOR_IMAGE
   template:
-    labels:
-      workload: breaker
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: "2"
+        memory: 2Gi

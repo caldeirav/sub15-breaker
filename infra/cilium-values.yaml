@@ -1,0 +1,8 @@
+# Retain kube-proxy: avoid socket-LB/cgroup ambiguity in nested Podman/Kind.
+kubeProxyReplacement: false
+ipam:
+  mode: kubernetes
+operator:
+  replicas: 1
+image:
+  pullPolicy: IfNotPresent
