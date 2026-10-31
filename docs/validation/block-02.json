@@ -1,0 +1,54 @@
+{
+  "block": "02-banking-feasibility",
+  "acceptance_scope": "local-banking-evaluation-harness",
+  "acceptance_policy": "banking-harness-acceptance-v3",
+  "automated": {
+    "status": "passed",
+    "evidence": "Derived MLflow assessment 53b476bed53446ebac25753aaa9a8b80 passed all 10 harness gates on unchanged source e56a427a9592460f81f246bc3c0d6e29: 17 golden outcomes recomputed, 12 controls, 68 native reviews and 85 persisted source case/review traces, with unchanged runtime/metric/judge modules and lock. Zero new model/tool/judge calls. Source remains historically FAILED; task outcomes are not relabeled."
+  },
+  "agent_quality": {
+    "gating": false,
+    "benign_utility": "2/3",
+    "total_live_utility": "3/5",
+    "finding": "Rent remained 1100 instead of 1200 after premature clarification; utility=false and native verdict=violated remain unchanged.",
+    "follow_up": "#25 remains open, nonblocking for this harness PR"
+  },
+  "contract_resolution": {
+    "issue": 20,
+    "status": "resolved",
+    "evidence": "Owner-approved banking-metrics-v2 criteria and native judge/evidence provenance remain unchanged. Acceptance v3 changes harness scope only, not the golden criteria or observed outcomes."
+  },
+  "independent_agent_review": {
+    "status": "passed",
+    "reviewer": "Read-only agent session ses_e6e1b6effffeVeS2OKQt1auGga",
+    "date": "2026-10-31",
+    "scope": "Owner-approved local harness acceptance, source integrity, golden recheck and persisted evidence; not human or deployed-safety approval",
+    "evidence": "docs/validation/block-02-harness-independent-review.md. Independently verified all 10 gates, 17 golden recomputations, 85 source traces, protected source/lock and preserved source status/negative outcomes. No blockers found. Prior metric-v2 review remains recorded separately."
+  },
+  "manual": {
+    "status": "passed",
+    "tester": "@caldeirav",
+    "date": "2026-10-31",
+    "scope": "local-banking-evaluation-harness under banking-harness-acceptance-v3",
+    "evidence": "The repository owner explicitly accepted this harness scope in the conversation: 'You can accept with my github handle @caldeirav as of now. Then let's merge the PR'. This is owner-reported acceptance of the supplied checklist/evidence, not an independently observed browser transcript. Assessment 53b476bed53446ebac25753aaa9a8b80, source e56a427a9592460f81f246bc3c0d6e29 and focused b2660081b92c46beb7a579acfdd9f92a remain the evidence. Agent quality stays 2/3 benign; no Actor/gateway, calibrated safety or latency acceptance is implied."
+  },
+  "regressions": {
+    "status": "passed",
+    "evidence": "145 offline tests passed with uv lock/sync/package checks, shell syntax and whitespace. New tests retain infrastructure/provenance/control failures as blocking while allowing correctly evaluated failed/attacked agents, verifying live paths, oracle-only scope and rejection of forged golden success. Existing focused native regression b2660081b92c46beb7a579acfdd9f92a passed 12 rows; native results were not rerun or rewritten."
+  },
+  "trace_score_audit": {
+    "status": "passed",
+    "evidence": "Derived decision trace tr-c9b382d52a5f77846abf74a247ccb7c2 has harness/* and separate non-gating agent_quality/* CODE scores. Source audit verifies 85 case/review traces with original oracle/effect/native judge columns unchanged."
+  },
+  "history": {
+    "source_main": "e56a427a9592460f81f246bc3c0d6e29 remains FAILED with original benign_agent_feasibility=false",
+    "original_parent": "f994d093234a40579e9919a5a67eb5c8 remains FAILED/review_required with 33/34 disagreement",
+    "retracted_regression": "0f76c1521c0f42608506559f800977ff remains historically FINISHED; acceptance retracted for hidden scorer error",
+    "citation_failure": "36c7755f246242259cd0cac8df16a0c8 remains FAILED: 12 semantic matches, 11 valid citations",
+    "registry_failure": "36de1727cdae485ab48fc2b73cb258b6 remains FAILED: one missing row / registry SCORER_ERROR"
+  },
+  "documentation": {
+    "status": "passed",
+    "evidence": "Harness-v3 policy, README, scope/plan/spec, trace contract and current human/independent checklists separate evaluation correctness, observed agent quality and historical statuses. Human publication gate remains intact."
+  }
+}
