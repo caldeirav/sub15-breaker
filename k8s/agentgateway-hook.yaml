@@ -1,0 +1,49 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: breaker-gateway
+spec:
+  gatewayClassName: agentgateway
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 8080
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: breaker-execute
+spec:
+  parentRefs:
+    - name: breaker-gateway
+  rules:
+    - matches:
+        - path:
+            type: Exact
+            value: /execute
+          method: POST
+      backendRefs:
+        - name: isolated-executor
+          port: 8080
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: breaker-authorization
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: breaker-execute
+  traffic:
+    extAuth:
+      failureMode: FailClosed
+      backendRef:
+        name: decision-sidecar
+        port: 8000
+      forwardBody:
+        maxSize: 16Ki
+      http:
+        path: '"/authorize"'
+        allowedRequestHeaders:
+          - content-type

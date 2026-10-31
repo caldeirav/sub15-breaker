@@ -1,0 +1,9 @@
+# Sidecar build context: exclude credentials and local artifacts.
+**
+!pyproject.toml
+!uv.lock
+!.python-version
+!src/
+!src/**
+**/__pycache__/
+**/*.py[cod]

@@ -1,0 +1,13 @@
+# Replace workerImage with the ateom image built for your Substrate release.
+apiVersion: ate.dev/v1alpha1
+kind: WorkerPool
+metadata:
+  name: breaker
+  namespace: default
+spec:
+  replicas: 1
+  sandboxClass: gvisor
+  workerImage: REPLACE_WITH_ATEOM_IMAGE
+  template:
+    labels:
+      workload: breaker

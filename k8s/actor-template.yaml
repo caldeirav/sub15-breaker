@@ -1,0 +1,14 @@
+# ActorTemplate is an ATE API object, not a Kubernetes CRD. Configure the
+# atespace, image and sandboxConfig for your installed Substrate release.
+metadata:
+  atespace: breaker
+  name: breaker-executor
+workerSelector:
+  matchLabels:
+    workload: breaker
+containers:
+  - name: executor
+    image: REPLACE_WITH_ISOLATED_EXECUTOR_IMAGE
+sandboxConfig:
+  sandboxClass: SANDBOX_CLASS_GVISOR
+  configName: gvisor
