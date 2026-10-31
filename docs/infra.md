@@ -2,6 +2,8 @@
 
 This is block 01 of the [implementation roadmap](https://github.com/caldeirav/sub15-breaker/issues/14). It establishes a reproducible local control plane and tests network/gateway behavior with **non-executing fixtures**. It does not implement the shell executor, per-trial Actor reset, learned safety weights, or Actor termination. Do not run the destructive golden suite yet.
 
+**Banking scope update:** the [current target](project-scope.md) reuses simulated banking tools rather than building a generic shell executor. This foundation remains valid infrastructure evidence, but it does not deploy a banking Actor service, transactional state/reset or a banking gateway verifier. The [local pilot](banking-feasibility.md) bypasses that distributed boundary by design and is not infrastructure acceptance. Follow the revised [block dependencies](implementation-plan.md) before enabling real workloads; no live bank APIs or payment credentials are needed.
+
 ## Supported profile and trust boundaries
 
 The initial validation environment is macOS/Apple Silicon, a rootful Podman machine with cgroup v2, and a dedicated single-node Kind cluster. The scripts support downloading macOS/Linux arm64/amd64 binaries, but other host combinations need their own live validation. Allow at least 8 GiB VM RAM (16+ recommended), several CPU cores, and substantial free disk for cluster/control-plane images and Go caches. No KVM is needed for the intended gVisor path; microVMs and native-host MPS are not part of this profile.
