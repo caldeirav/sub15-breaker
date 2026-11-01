@@ -224,8 +224,9 @@ def review_html(packet):
     return '''<!doctype html><meta charset="utf-8"><title>V2 goal fidelity review</title>
 <style>body{font:16px system-ui;max-width:1000px;margin:32px auto}article{border:1px solid #ccc;padding:16px;margin:16px 0}pre{white-space:pre-wrap}textarea{width:95%}</style>
 <h1>Review proposed goal paraphrases</h1><p>Judge whether ALL permissions, restrictions, conditions, temporal qualifiers and money-flow directions are preserved. Placeholder validity is NOT semantic approval. Unknown is welcome. Do not assign action-safety labels.</p>
-<label>Reviewer <input id="reviewer" required></label><h2>Document prompt samples</h2><p>Compare clarity, plausible document content, facts versus injected instructions, and repetition. These templates have not yet been rendered into training scenarios.</p><label>Document prompt choice <select id="prompt"><option>pending</option><option>structured</option><option>control</option><option>neither</option></select></label><div id="documents"></div><h2>Goal paraphrases</h2><div id="items"></div><button id="save">Download review JSON</button><script>
+<label>Reviewer <input id="reviewer" required></label><h2>Document prompt samples</h2><p id="document-help">Compare clarity, plausible document content, facts versus injected instructions, and repetition. These templates have not yet been rendered into training scenarios.</p><label>Document prompt choice <select id="prompt"><option>pending</option><option>structured</option><option>control</option><option>neither</option><option>code_facts</option></select></label><div id="documents"></div><h2>Goal paraphrases</h2><div id="items"></div><button id="save">Download review JSON</button><script>
 const packet='''+payload+''';const controls=[];
+if(packet.document_boundary==='code_facts'){document.getElementById('prompt').value='code_facts';document.getElementById('prompt').disabled=true;document.getElementById('document-help').textContent='The owner selected code-rendered factual blocks and Gemini untrusted notes. These full-document pilot samples are historical comparison only, not approved factual sources. Review the goal paraphrases below.'}
 for(const row of packet.document_examples||[]){const a=document.createElement('article');const t=document.createElement('pre');t.textContent=row.candidate_id+'\\nBody: '+row.body_template+'\\n\\nUntrusted note: '+row.untrusted_note_template+'\\n\\nStructural issues: '+JSON.stringify(row.issues);a.append(t);document.getElementById('documents').append(a)}
 for(const row of packet.candidates){const a=document.createElement('article');const t=document.createElement('pre');t.textContent=row.candidate_id+'\\n\\nOriginal: '+row.source_goal+'\\n\\nProposed: '+row.proposed_goal+'\\n\\nStructural issues: '+JSON.stringify(row.issues);a.append(t);const select=document.createElement('select');for(const value of ['pending','approved','rejected','unknown']){const o=document.createElement('option');o.value=o.textContent=value;select.append(o)}if(row.issues.length)select.disabled=true;const note=document.createElement('textarea');note.placeholder='Reason or semantic concern';a.append(select,note);document.getElementById('items').append(a);controls.push({row,select,note})}
 document.getElementById('save').onclick=()=>{const reviewer=document.getElementById('reviewer').value.trim();if(!reviewer){alert('Enter reviewer');return}const value={schema_version:'banking-v2-goal-review-v1',packet_sha256:packet.packet_sha256,reviewer,reviewed_at:new Date().toISOString(),document_prompt_selection:document.getElementById('prompt').value,decisions:controls.map(({row,select,note})=>({candidate_id:row.candidate_id,decision:row.issues.length?'rejected':select.value,rationale:note.value}))};const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(value,null,2)],{type:'application/json'}));a.download='banking-v2-goal-review.json';a.click();URL.revokeObjectURL(a.href)};
@@ -239,8 +240,10 @@ def import_review(packet,review):
             not isinstance(review.get("reviewer"),str) or not review["reviewer"].strip() or not review.get("reviewed_at")):
         raise ValueError("v2_goal_review_binding_required")
     datetime.fromisoformat(review["reviewed_at"].replace("Z","+00:00"))
-    if review.get("document_prompt_selection","pending") not in {"pending","structured","control","neither"}:
+    if review.get("document_prompt_selection","pending") not in {"pending","structured","control","neither","code_facts"}:
         raise ValueError("v2_document_prompt_review_decision")
+    if packet.get("document_boundary")=="code_facts" and review.get("document_prompt_selection")!="code_facts":
+        raise ValueError("v2_document_boundary_review_conflict")
     candidates={row["candidate_id"]:row for row in packet["candidates"]}
     decisions=review.get("decisions",[])
     if len(decisions)!=len(candidates) or {row["candidate_id"] for row in decisions}!=set(candidates):raise ValueError("v2_goal_review_cardinality")
@@ -255,13 +258,31 @@ def import_review(packet,review):
     return accepted
 
 
+def code_facts_review_packet(source):
+    if source.get("packet_sha256")!=digest({key:value for key,value in source.items() if key!="packet_sha256"}):
+        raise ValueError("v2_goal_packet_changed")
+    value=deepcopy(source);value.pop("packet_sha256")
+    value.update(source_packet_sha256=source["packet_sha256"],document_boundary="code_facts")
+    value["packet_sha256"]=digest(value);return value
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--audit",type=Path);parser.add_argument("--decision",type=Path);parser.add_argument("--budget",type=Path)
     parser.add_argument("--output",type=Path,required=True);parser.add_argument("--execute-authorized-pilot",action="store_true")
     parser.add_argument("--corrected-wire",action="store_true",help="Separately authorized new pilot IDs/manifest; never repeat the original pilot")
     parser.add_argument("--review-packet",type=Path);parser.add_argument("--import-goal-review",type=Path)
+    parser.add_argument("--prepare-code-facts-review",action="store_true")
     args=parser.parse_args()
+    if args.prepare_code_facts_review:
+        if not args.review_packet:parser.error("--review-packet is required")
+        raw=args.review_packet.read_bytes();packet=code_facts_review_packet(json.loads(raw))
+        args.output.mkdir(parents=True,exist_ok=False,mode=0o700)
+        (args.output/"source-packet.original.json").write_bytes(raw)
+        (args.output/"goal-review-packet.json").write_text(json.dumps(packet,indent=2)+"\n")
+        (args.output/"goal-review.html").write_text(review_html(packet))
+        for path in args.output.iterdir():path.chmod(0o600)
+        print(json.dumps(dict(review_file=str(args.output/"goal-review.html"),candidates=len(packet["candidates"]),model_requests=0)));return
     if args.import_goal_review:
         packet=json.loads(args.review_packet.read_text());raw=args.import_goal_review.read_bytes();review=json.loads(raw)
         accepted=import_review(packet,review);args.output.mkdir(parents=True,exist_ok=False,mode=0o700)

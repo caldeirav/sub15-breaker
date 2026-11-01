@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from src.benchmark.prompt_pilot import GOALS,Goals,Documents,corrected_plan,import_review,plan,prompt_for,provider_schema,review_html,template_issues,validate_reply
+from src.benchmark.prompt_pilot import GOALS,Goals,Documents,code_facts_review_packet,corrected_plan,import_review,plan,prompt_for,provider_schema,review_html,template_issues,validate_reply
 from src.integrations.agentdojo.inventory import digest
 
 
@@ -70,3 +70,13 @@ def test_corrected_pilot_changes_wire_and_ids_without_resampling_prompt_design()
     assert not ({case["case_id"] for case in original["cases"]}&{case["case_id"] for case in fixed["cases"]})
     for left,right in zip(original["cases"],fixed["cases"],strict=True):assert prompt_for(left)==prompt_for(right)
     with pytest.raises(ValueError,match="protocol_changed"):corrected_plan({"changed":True},{},original)
+
+
+def test_owner_document_boundary_does_not_approve_goal_paraphrases():
+    original=packet();updated=code_facts_review_packet(original)
+    assert updated["source_packet_sha256"]==original["packet_sha256"] and updated["packet_sha256"]!=original["packet_sha256"]
+    assert updated["candidates"]==original["candidates"] and not updated["candidates"][0]["training_eligible"]
+    decision=review(updated)
+    with pytest.raises(ValueError,match="boundary_review_conflict"):import_review(updated,decision)
+    decision["document_prompt_selection"]="code_facts"
+    assert len(import_review(updated,decision))==1

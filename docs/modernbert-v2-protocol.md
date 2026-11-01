@@ -47,8 +47,10 @@ The owner selected these decisions during v2 planning:
    declared synthetic generalization, not a new official AgentDojo test or proof
    of realistic deployment safety. Keep original benchmark cases no-fit and label
    all repeated original scoring as development/transfer evidence.
-2. Allow Gemini to propose **untrusted documents, attack wording and goal
-   paraphrases**. Code supplies all factual constraints and labels. Goal
+2. Allow Gemini to propose **untrusted notes/attack wording and goal
+   paraphrases**. After the pilot, the owner selected code-rendered factual
+   document blocks instead of full Gemini documents. Code supplies all factual
+   constraints and labels. Goal
    paraphrases require explicit human semantic-fidelity approval before a later
    dataset freeze; placeholder checks alone do not establish equivalent authority.
 3. Retain the10% observed validation false-block constraint, and apply it separately
@@ -107,6 +109,40 @@ expected final states or labeling rationales enter the model input. Synthetic
 entities should look the same across populations while remaining disjoint.
 
 ## 4. Gemini prompt and quality gates
+
+### Selected boundary after the pilot
+
+The corrected full-document pilot produced28 structurally valid documents:
+20/32 generic-control outputs and8/32 structured outputs. Rejections were mostly
+word bounds and repeated/misplaced placeholders. Samples also confused invoices,
+completed payments and refunds. This does not isolate model quality from the
+prompt/interface; more instructions did not establish a better data source.
+All32 goal candidates passed structural checks and remain semantically unreviewed.
+
+The owner therefore selected **code-authored factual blocks**, with Gemini limited
+to untrusted notes/attack wording and human-vetted goal paraphrases. Neither
+full-document prompt is approved for bulk factual generation. Keep rejected pilot
+outputs rejected; do not relax their original limits or repair them after seeing
+results. No additional paid prompt pilot is needed for the selected code-fact
+renderer.
+
+`training_documents.py` implements typed invoice, rent-notice, historical-payment
+and standing-order blocks. It reuses canonical Money validation, fixes document
+status/scope, and serializes generated note text as a string so it cannot overwrite
+fact keys. History/order blocks must match one actual materialized state record;
+actual pinned `read_file` execution proves the lossless observation. The renderer
+assigns **no action label** and establishes no native-enforcement result. All of
+the resulting tool-output data remain untrusted under the common banking policy.
+JSON, plain-field and short-letter layouts preserve the same typed facts, rather
+than requiring the classifier to learn only a new JSON document style. Internal
+provenance binds the exact rendered text and state record; it is not a model label.
+
+Future note prompts must use code-selected placeholder values; repetition of a
+known note placeholder need not invalidate otherwise useful prose. Short factual
+blocks need no arbitrary minimum prose length. These are new interface rules,
+not retrospective acceptance of the first pilot's rejected full documents.
+
+### Initial full-document pilot contract (retained for provenance)
 
 V1 asked for generic banking fragments disconnected from instantiated scenarios.
 V2 should request scenario-linked **templates**, not complete labeled examples.
@@ -216,7 +252,8 @@ uv run --locked python -m src.benchmark.training_budget --directory <existing-le
 ```
 
 `src/benchmark/prompt_pilot.py` defaults to printing a proposed plan. An explicit
-`--execute-authorized-pilot` binds the plan before requests, uses the pinned
+`--corrected-wire --execute-authorized-pilot` binds the separately approved plan
+before requests, uses the pinned
 Gemini2.5 Flash profile with HTTP-hook reservations/no retries, retains native
 responses/usage before validation, and settles costs including thought tokens.
 It creates `goal-review.html` and `goal-review-packet.json`. All language candidates
@@ -236,8 +273,22 @@ preserves the original export bytes, and cannot approve structural rejections.
 Even approved goals only become candidates for later selection; importing a review
 does not train or unlock bulk generation. `training_v2.py` implements separate
 five-population source-group/goal-review gates and per-stratum threshold selection.
-The v2 scenario renderer, bulk plan and actual fitting run are subsequent stages,
-not hidden work performed by the prompt pilot.
+The complete v2 scenario/action-bundle generator, bulk plan and actual fitting
+run are subsequent stages, not hidden work performed by the prompt pilot.
+
+After the code-facts decision, prepare a successor review packet that retains the
+original goal candidates but records that document boundary, without approving
+any paraphrase or modifying the original pilot packet:
+
+```sh
+uv run --locked python -m src.benchmark.prompt_pilot \
+  --review-packet <corrected-pilot>/goal-review-packet.json \
+  --prepare-code-facts-review --output <new-goal-review-directory>
+```
+
+Use this successor packet when importing the downloaded review. Full-document
+pilot examples appear only as historical comparison; the reviewer need not
+choose between those prompts again. Every goal decision still defaults pending.
 
 ### Provider-error diagnostics
 

@@ -16,6 +16,12 @@ PROTOCOL=dict(version="banking-training-protocol-v2",status="staged; bulk-and-fi
     original_corpus_fit=False,original_corpus_role="inspected-development-transfer-diagnostic",
     goal_paraphrases="human-semantic-fidelity-review-required",challenge_open_after="export_calibration_threshold_freeze")
 
+# A separate successor proposal; do not change the already hash-bound pilot.
+BULK_PROTOCOL=dict(PROTOCOL,version="banking-training-protocol-v2-bulk-proposal-v1",
+    document_facts="code-authored-typed-blocks",gemini_document_role="untrusted-notes-only",
+    code_document_layouts=["json","plain","letter"],
+    full_document_pilot_outputs="not-approved-as-fact-sources",dataset_ready=False)
+
 
 def verify_populations(rows):
     sources={name:{} for name in ("scenario_group","document_group","source_template_group","entity_group","goal_template_id","input_digest")}
