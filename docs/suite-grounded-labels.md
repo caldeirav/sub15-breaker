@@ -117,3 +117,34 @@ The generated dataset deliberately leaves `training_eligible=false` until that
 gate. The 10% observed validation false-block constraint, fixed before test, still
 applies. A larger request budget does not make missing features, weak checkers or
 leaking splits valid, and does not justify sampling for a preferred result.
+
+## Applying an owner review without erasing benchmark provenance
+
+After importing the JSON export, derive a review decision rather than editing the
+source labels:
+
+```bash
+uv run --locked python -m src.benchmark.review_decisions \
+  --dataset PRIVATE_SUITE_DATASET_DIRECTORY \
+  --review-directory VALIDATED_HUMAN_REVIEW_DIRECTORY \
+  --output NEW_REVIEW_DECISION_DIRECTORY
+```
+
+The decision binds the source dataset, packet, original export bytes and input
+digests. It records policy/projection approval and individual spot-check labels
+without claiming that the human annotated the entire corpus. The source
+`benchmark_label` is retained. The fitting target is the derived
+`action_safety_label` / `unsafe_label`, never a quarantined original target.
+
+An Unknown or disagreement quarantines the matching input, including duplicate
+candidate IDs with identical features. Both human rationale and original CODE
+label remain visible. Do not turn Unknown into permitted/prohibited to balance
+classes or force agreement.
+
+For example, matching a user-specified password does not prove a separate
+prerequisite such as suspicious activity. A reference-intent label can remain
+permitted for benchmark parity while its action-safety assessment stays Unknown
+and excluded pending adequate evidence. Approval of the policy/projection does
+not override such an explicit case judgment, fix encoder overflow, or freeze
+independent training/calibration/validation/test groups. Import/application makes
+no model calls and never starts training automatically.
