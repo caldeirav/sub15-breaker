@@ -25,7 +25,7 @@ POLICY=dict(version="banking-guard-campaign-v3",local_total=2048,gemini_total=51
     retries=0,fallback=False,supersedes=EXTENDED_PILOT["version"],
     prior_policy_sha256=hashlib.sha256(encoded(EXTENDED_PILOT)).hexdigest())
 LOCAL={"actor","llm_guard"}
-EXTERNAL={"gemini_task_judge","gemini_harness_judge"}
+EXTERNAL={"gemini_task_judge","gemini_harness_judge","gemini_data_generation"}
 
 
 def usd(value):
@@ -128,6 +128,35 @@ class CampaignBudget:
         if binding.get("sha256")!=hashlib.sha256(encoded(matrix)).hexdigest():raise RuntimeError("campaign_matrix_changed")
         return matrix
 
+    def freeze_generation_plan(self,plan):
+        """A pre-training scope extension, not a fabricated model-artifact gate."""
+        with self.locked():
+            entries=self.entries();self._baseline(entries)
+            if plan.get("schema_version")!="banking-hybrid-generation-plan-v1" or plan.get("parent_policy_sha256")!=hashlib.sha256(encoded(POLICY)).hexdigest():
+                raise ValueError("generation_parent_policy_required")
+            for key in ("review_decision_sha256","source_dataset_sha256","generator_protocol_sha256","split_recipe_sha256"):
+                if not isinstance(plan.get(key),str) or not re.fullmatch(r"[0-9a-f]{64}",plan[key]):raise ValueError("generation_binding_required")
+            if plan.get("model")!=POLICY["gemini_model"]:raise ValueError("generation_model_profile_mismatch")
+            cases=plan.get("cases",[])
+            if not cases or len({c["case_id"] for c in cases})!=len(cases):raise ValueError("generation_cases_required")
+            for case in cases:
+                if (not isinstance(case["case_id"],str) or not case["case_id"] or case.get("task_id") is not None or
+                        case.get("phase")!="data_generation" or type(case.get("gemini_data_generation")) is not int or case["gemini_data_generation"]!=1):
+                    raise ValueError("generation_case_scope_invalid")
+            if len(cases)+sum(e["role"] in EXTERNAL for e in entries)>POLICY["gemini_total"]:raise ValueError("generation_exceeds_total")
+            path=self.directory/"generation-plan-v1.json"
+            if path.exists():
+                if json.loads(path.read_text())!=plan:raise RuntimeError("generation_plan_changed")
+                self._generation_plan()
+            else:
+                atomic(path,plan);atomic(self.directory/"generation-plan-binding.json",dict(sha256=hashlib.sha256(encoded(plan)).hexdigest()))
+
+    def _generation_plan(self):
+        plan=json.loads((self.directory/"generation-plan-v1.json").read_text())
+        binding=json.loads((self.directory/"generation-plan-binding.json").read_text())
+        if binding["sha256"]!=hashlib.sha256(encoded(plan)).hexdigest():raise RuntimeError("generation_plan_changed")
+        return plan
+
     def _accounted(self,entries,baseline):
         total=usd(baseline["historical_external_hold_usd"])
         for entry in entries[baseline["ledger_prefix_length"]:]:
@@ -147,9 +176,13 @@ class CampaignBudget:
     def reserve(self,*,role,case_id,trace_id,request=None,model=None):
         with self.locked():
             entries=self.entries();baseline=self._baseline(entries)
-            matrix_path=self.directory/"matrix-v3.json"
-            if not matrix_path.exists():raise RuntimeError("reviewed_campaign_matrix_not_frozen")
-            matrix=self._matrix()
+            if role=="gemini_data_generation":
+                if not (self.directory/"generation-plan-v1.json").exists():raise RuntimeError("generation_plan_not_frozen")
+                matrix=self._generation_plan()
+            else:
+                matrix_path=self.directory/"matrix-v3.json"
+                if not matrix_path.exists():raise RuntimeError("reviewed_campaign_matrix_not_frozen")
+                matrix=self._matrix()
             case=next((c for c in matrix["cases"] if c["case_id"]==case_id),None)
             if case is None or role not in LOCAL|EXTERNAL:raise RuntimeError("undeclared_campaign_attempt")
             issued=entries[baseline["ledger_prefix_length"]:]
