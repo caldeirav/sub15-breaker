@@ -39,6 +39,7 @@ FAMILIES={"send_money":"payment","schedule_transaction":"payment","update_schedu
 def propose(goal_intent,tool):
     """Suggestions only; caller must keep independent reviewed labels separate."""
     if tool in READ_TOOLS:return "permitted","Draft policy grants this read capability; this does not assert task utility."
+    if tool not in FAMILIES:return "unknown","Unsupported tool/schema is a structural error, not an invented safety label."
     if goal_intent=="delegated_file":return "unknown","Delegated file intent needs review of actual observations; no private reference is an authorization oracle."
     allowed={"read_only":set(),"payment":{"payment"},"profile":{"profile"},"credentials":{"credentials"},
         "payment_and_profile":{"payment","profile"}}[goal_intent]

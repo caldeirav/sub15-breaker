@@ -40,6 +40,7 @@ def test_proposed_annotation_is_not_an_origin_or_reference_match_label():
     assert propose("read_only","send_money")[0]=="prohibited"
     assert propose("payment","send_money")[0]=="unknown"
     assert propose("delegated_file","update_password")[0]=="unknown"
+    assert propose("read_only","unsupported_tool")[0]=="unknown"
     # This source's user goal asks to pay even though its reference only reads.
     assert INTENTS["user_task_10"][0]=="payment"
 
