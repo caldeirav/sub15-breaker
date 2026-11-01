@@ -27,7 +27,7 @@ from src.banking_service.deploy import Deployment,DIRECTORY,SPACE,STORE_HOST
 from src.banking_service.http import RuntimeClient
 from src.banking_service.validation import runtime_proof
 from src.benchmark.bridge import Bridge,BridgeServer,MCPClient
-from src.benchmark.budget import Budget,PILOT
+from src.benchmark.budget import Budget,PILOT,EXTENDED_PILOT
 from src.benchmark.deployment import configure_bridge,gateway_forward,native_hook,private
 from src.benchmark.native import ControlGuard,Registry,server
 from src.benchmark.privacy import Mask
@@ -117,7 +117,7 @@ def audit_record(record):
             source_id=a.source.source_id if a.source else None) for a in getattr(trace.info,"assessments",[])])
 
 
-def run_case(*,deployment,store,authorization,adapter,bridge,mcp,budget,mask,task_id,control=None):
+def run_case(*,deployment,store,authorization,adapter,bridge,mcp,budget,mask,task_id,control=None,limits=None):
     case_id=("control-"+control if control else "live-"+task_id)
     trial_id="benchmark-"+uuid4().hex
     actor=None;record=None;cleanup=[]
@@ -159,7 +159,8 @@ def run_case(*,deployment,store,authorization,adapter,bridge,mcp,budget,mask,tas
                             entry=budget.reserve(role="actor",case_id=task_id,trace_id=active.trace_id)
                             store.call("/client-event",dict(trial_id=trial_id,kind="model_attempt",payload=entry))
                     try:
-                        result=run(episode.public,model=model,execute=mcp.execute,reserve_model=reserve,limits=Limits(model_attempts=6,tool_attempts=12,seconds=180))
+                        result=run(episode.public,model=model,execute=mcp.execute,reserve_model=reserve,
+                            limits=limits or Limits(model_attempts=6,tool_attempts=12,seconds=180))
                     finally:
                         if not control:model_http.close()
                     final=store.call("/snapshot",dict(trial_id=trial_id))
@@ -233,7 +234,7 @@ def suite_observations(controls,records,mask,*,failure=None):
 
 def external_suite_review(observations,model,budget):
     with mlflow.start_span(name="persisted_suite_evidence",span_type="CHAIN") as suite:
-        suite.set_inputs(dict(protocol=PILOT));suite.set_outputs(observations);suite_id=suite.trace_id
+        suite.set_inputs(dict(protocol=budget.policy));suite.set_outputs(observations);suite_id=suite.trace_id
     persisted=mlflow.get_trace(suite_id)
     if persisted is None:raise RuntimeError("external_review_evidence_not_persisted")
     root=next(s for s in persisted.data.spans if s.parent_id is None)
@@ -246,6 +247,7 @@ def main():
     parser.add_argument("--live",action="store_true",help="Spend the frozen initial local pilot and authorized Gemini review requests")
     parser.add_argument("--image",help="Deploy a newly built digest-bound banking image before controls")
     parser.add_argument("--reuse-completed-case-run",help="Re-audit a persisted completed canary after an audit-only fix; never re-execute it")
+    parser.add_argument("--extended-pilot",action="store_true",help="Owner-authorized 160-total ceiling, retaining all spent requests; one larger fresh rent episode and task13")
     args=parser.parse_args()
     from dotenv import load_dotenv
     load_dotenv(ROOT/".env")
@@ -269,8 +271,11 @@ def main():
     manifest=DIRECTORY/"deployment.json";previous=manifest.read_bytes()
     native_directory=BASE/("run-"+uuid4().hex)
     native_directory.mkdir(mode=0o700)
-    private(native_directory/"pilot.json",PILOT)
-    budget=Budget(BASE/"combined-budget")
+    policy=EXTENDED_PILOT if args.extended_pilot else PILOT
+    if args.extended_pilot and not args.reuse_completed_case_run:raise ValueError("extended_pilot_requires_completed_canary_reuse")
+    private(native_directory/"pilot.json",policy)
+    budget=Budget(BASE/"combined-budget",policy)
+    limits=Limits(model_attempts=16,tool_attempts=24,seconds=480) if args.extended_pilot else Limits(model_attempts=6,tool_attempts=12,seconds=180)
     token=(DIRECTORY/"runtime.token").read_text().strip();mask.secrets.add(token)
     registry=Registry();adapter=BankingAdapter();bridge=Bridge(adapter.catalog,registry,mask)
     from src.infra.common import run as command
@@ -293,7 +298,7 @@ def main():
         private(manifest,config)
         with mlflow.start_run(run_name="benchmark-wiring-live" if args.live else "benchmark-wiring-controls") as parent:
             parent_id=parent.info.run_id
-            mlflow.log_dict(PILOT,"protocol/pilot.json")
+            mlflow.log_dict(policy,"protocol/pilot.json")
             with ExitStack() as stack:
                 store_base=stack.enter_context(deployment.forward("service/banking-store"))
                 store=RuntimeClient(store_base,"Bearer "+token)
@@ -318,7 +323,7 @@ def main():
                     for task_id in TASKS:
                         if any(record["task_id"]==task_id for record in records):continue
                         record=run_case(deployment=deployment,store=store,authorization="Bearer "+token,adapter=adapter,
-                            bridge=bridge,mcp=mcp,budget=budget,mask=mask,task_id=task_id)
+                            bridge=bridge,mcp=mcp,budget=budget,mask=mask,task_id=task_id,limits=limits)
                         records.append(record);private(native_directory/(task_id+".json"),record)
                         if record["status"]!="completed":raise RuntimeError("live_wiring_case_not_completed")
             mlflow.log_dict(dict(controls=controls,records=records),"wiring/persisted-cases.json")

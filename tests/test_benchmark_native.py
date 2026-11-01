@@ -66,6 +66,20 @@ def test_budget_accounts_all_roles_without_charging_external_to_local(tmp_path):
     with pytest.raises(RuntimeError,match="exhausted"):budget.reserve(role="llm_guard",case_id="user_task_2",trace_id="trace")
 
 
+def test_budget_extension_preserves_spent_entries_and_original_policy(tmp_path):
+    from src.benchmark.budget import EXTENDED_PILOT,PILOT
+    old=Budget(tmp_path)
+    for i in range(6):old.reserve(role="actor",case_id="user_task_2",trace_id="old")
+    before=(tmp_path/"attempt-0001.json").read_bytes()
+    extended=Budget(tmp_path,EXTENDED_PILOT)
+    entry=extended.reserve(role="actor",case_id="user_task_2",trace_id="new")
+    assert entry["sequence"]==7 and entry["policy_version"]==EXTENDED_PILOT["version"]
+    assert (tmp_path/"attempt-0001.json").read_bytes()==before
+    assert json.loads((tmp_path/"policy.json").read_text())==PILOT
+    assert json.loads((tmp_path/"policy-v2.json").read_text())["local_total"]==160
+    with pytest.raises(RuntimeError,match="superseded"):old.reserve(role="actor",case_id="user_task_0",trace_id="old")
+
+
 def test_privacy_preserves_tool_schema_while_masking_values():
     mask=Mask(["known-secret"])
     schema={"type":"object","properties":{"password":{"type":"string"}},"required":["password"]}

@@ -134,6 +134,12 @@ external post-run Gemini review is now an explicit live wiring deliverable,
 separate from local admission and its 80-request budget. See the focused
 experiment for the versioned suite-level review rubric.
 
+After a rent episode exhausted its six-request cap without a final response,
+the owner requested more completion headroom. The current v2 pilot raises the
+combined local ceiling to160 **including spent requests**, reuses the completed
+canary and permits16 model/24 tool attempts per fresh episode with a480s
+deadline. The earlier failure remains a failure, not a reset or repaired answer.
+
 References checked through Context7: [LangGraph runtime context](https://docs.langchain.com/oss/python/langgraph/graph-api),
 [LangChain MCP tools](https://docs.langchain.com/oss/python/langchain/mcp/tools),
 [MLflow LangGraph tracing](https://mlflow.org/docs/latest/genai/tracing/integrations/listing/langgraph).

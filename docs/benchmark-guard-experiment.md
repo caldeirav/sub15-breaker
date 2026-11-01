@@ -107,8 +107,10 @@ Review-only timers and synthetic unit logits are not full-path performance
 evidence. Do not claim a speed/latency target at an unmatched quality point.
 
 Every actual actor-model and LLM-guard request, retry and error counts against
-one approved **80-local-request total**. The owner approved revising the old
-allocation to cover both roles. Freeze a revised pilot matrix before live calls;
+one combined actor/guard allowance. The initial **80-local-request total** was
+subsequently extended to **160 including already spent calls** when the owner
+requested enough headroom for comfortable end-to-end completion. Freeze the
+allocation before live calls;
 do not add an independent verifier allowance or reset spent reservations. No
 paid judges, provider fallback, weight downloads or paid-provider calls are
 authorized by this allocation. External Gemini is separately authorized below.
@@ -117,7 +119,7 @@ authorized by this allocation. External Gemini is separately authorized below.
 
 The owner explicitly retained **Gemini as an external post-run reviewer** and
 authorized the calls necessary to validate harness execution capability. This
-authorization is separate from the 80 local actor/guard requests. Use the
+authorization is separate from the combined local actor/guard allowance. Use the
 existing explicit Gemini profile/credentials; no other paid provider, automatic
 fallback, hidden retry, answer repair or repeated judging to obtain agreement.
 Record every reservation, invocation, fault and available usage/cost in MLflow.
@@ -167,6 +169,17 @@ Freeze a further allocation before any LLM-guard/replay/comparison requests.
 No automatic model retries or replacement cases. Stop after a non-completed
 canary/wiring fault; utility=false alone is not a reason to stop or rerun.
 
+The owner subsequently requested a larger budget after the rent episode used
+six calls and reached its cap immediately after executing its update, without a
+final assistant response. **Pilot v2** keeps all ten already spent local requests
+(four canary, six rent), reuses the completed canary without inference, and
+allows one fresh rent episode and the first task13 episode up to16 model and24
+tool attempts each, with a480s cooperative deadline. Its cumulative wiring
+ceiling is42 requests within160;118 remain unallocated for later frozen work.
+`policy.json` and spent entries are immutable; the hash-linked `policy-v2.json`
+supersedes the old allocation without resetting any counter. The prior rent
+budget failure and external reviews remain unchanged.
+
 Before any live request, require real native deterministic allow/block/error
 controls using a released reference mutation on fresh state, all11 remote tool
 schemas, actual gVisor proof and persisted graph/model/tool/guard traces. The
@@ -194,6 +207,11 @@ not repeated, the original failed run remains unchanged, and the new suite
 record cites the source evidence. Client and gateway `CHAT_MODEL` spans describe
 two layers of the same dispatch, not two model requests. Their parentage is
 checked separately against the physical HTTP dispatch count.
+
+Use `--extended-pilot --live --reuse-completed-case-run <original-case-run-id>`
+for the owner-approved v2 allocation. Larger limits are not a guarantee of model
+completion: provider/parse/unknown-effect faults still stop truthfully, and no
+exception or budget cutoff is converted into a final answer.
 
 The command temporarily attaches the additional native Envoy filter and restores
 its prior configuration on exit. A separate benchmark MCP route uses the existing
