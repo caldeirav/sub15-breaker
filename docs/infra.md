@@ -14,14 +14,160 @@ Pins are in [`infra/versions.json`](../infra/versions.json):
 
 | Component | Pin |
 | --- | --- |
+| Podman host / guest | 5.8.9, same source commit; retained existing rootful machine |
+| krunkit / guest OS | 1.3.2 / Fedora CoreOS44.20260928.3.2, guest image pinned by digest |
 | Kind / Kubernetes | v0.33.0 / v1.37.0, node image pinned by digest |
-| kubectl / Helm / Go | v1.37.0 / v3.20.1 / go1.27.3 |
+| kubectl / Helm / Go | v1.37.0 / v3.22.1 / go1.27.3 |
 | Cilium | 1.20.4, kube-proxy retained, Kubernetes IPAM |
 | Gateway API / agentgateway | v1.7.0 / v1.7.0 |
 | Substrate / kubectl-ate | v1.0.0-rc.1, checkout commit pinned |
 | Probe image | Python 3.12 slim Bookworm, multi-architecture digest pinned |
+| LM Studio / mapped MLX engine | 0.4.28+2 / 1.13.1; approved local Instruct model, loaded context8192 |
 
 The Kind configuration enables ClusterTrustBundle, ClusterTrustBundleProjection, PodCertificateRequest, and the certificates v1beta1 API required by this Substrate release. It disables the default CNI so Cilium can enforce NetworkPolicy. **Kind must not wait for NodeReady before Cilium installation**: nodes need the CNI to become ready. The script waits after installation instead.
+
+### Version freshness and actual runtime selection
+
+`infra/versions.json` is a reproducibility pin, not proof of freshness or of the
+running component. `infra/version-policy.json` records reviewed compatibility
+lines, review deadlines and explicit temporary exceptions. Check current release
+metadata without installing anything:
+
+```bash
+uv run --locked python -m src.infra.releases
+```
+
+The scheduled **Infrastructure version freshness** workflow performs the same
+read-only check. New versions, expired exceptions, overdue manual release checks
+and unreachable release metadata fail the relevant check; nothing is upgraded
+automatically. A passing freshness check does not certify a running stack or
+authorize an upgrade. Retaining a supported major/minor is deliberate: do not
+silently jump to Helm4, a Kubernetes prerelease or a new Podman major to get a
+larger version number. Host/VM state, image digests and end-to-end capabilities
+must still be observed and tested after changes.
+
+For the Kubernetes profile, the gateway runtime is the controller-managed
+dataplane container, **not** a standalone `agentgateway` executable found on the
+host PATH. Installing a controller does not create model or MCP backends. Check
+the selected dataplane's `/app/agentgateway --version`, serving image digest,
+XDS readiness and current route/backend/policy conditions together.
+
+On macOS/libkrun, Podman and the hypervisor helper have separate versions. The
+preflight now requires an observed **krunkit >=1.3.1** because older helpers have a
+known reboot/control-API issue (Podman #29084 / fix #29101). It checks the running
+helper path where available, not an unrelated binary's version. This minimum is
+only a prerequisite: it is not proof of VM stability. Do not repeatedly restart a
+disappearing VM and call the recovery accepted; retain guest boot/shutdown logs
+and diagnose the event. No provider swap, VM recreation or shared helper upgrade
+is automatic.
+
+The [target-stack review](validation/target-stack-review-2026-11-01.md) records the
+observed reboot, corrected gateway diagnosis and remaining integration gaps.
+Current remediation and the gate before the architecture sprint are owned by
+[issue #38](https://github.com/caldeirav/sub15-breaker/issues/38).
+
+## Qualify the managed model/tool infrastructure
+
+The owner has deferred the two-hour reliability window to
+[#39](https://github.com/caldeirav/sub15-breaker/issues/39). The strict full
+workflow below remains available and has not been relabeled as passed. It is
+not the critical path for the next functional harness slice. That slice must
+still check current component identity/configuration, auth, gateway protocol,
+budgets and persisted telemetry. Real model serving is not yet proved on this
+path; prioritise a bounded canary on the new harness rather than duplicating a
+standalone model campaign. See the [runtime/harness boundaries](agent-harness-architecture.md).
+
+These commands target the **existing** Kubernetes gateway and owned cluster.
+They do not install a standalone gateway or enable an unrestricted executor.
+The gateway uses port8080 for the authenticated local-model Responses endpoint
+and port8081 for authenticated, non-executing protocol fixtures. Both listeners
+use the same managed dataplane. Fixtures are not banking tools.
+
+```bash
+# Scope-checked token renewal; no image build, state reset or key replacement.
+uv run --locked python -m src.banking_service.deploy --refresh-credentials
+
+# Configure and exercise the managed gateway, local model metadata, MCP and OTLP.
+# Uses deterministic recording fixtures, not model generation or banking tools.
+uv run --locked --env-file .env python -m src.infra.target_stack --configure
+
+# Observe the existing provider for two hours. Use a new evidence directory.
+# No automatic restart, provider replacement or inference is performed.
+caffeinate -i uv run --locked --env-file .env python -m src.infra.stability \
+  --directory .infra/target-stack/provider-window
+
+# Actual gVisor controls, including all11 tools, resets, crash/reconciliation,
+# store restart and durable evidence readback; no model or paid judge calls.
+uv run --locked --env-file .env python -m src.banking_service.runtime_controls
+```
+
+The read-only stability monitor may overlap normal fixture/runtime checks. A
+failed sample, changed guest boot or node identity, host sleep/sampling gap, or
+host/guest version mismatch fails the window. Short diagnostic windows cannot
+satisfy the two-hour criterion. `caffeinate` prevents idle sleep only for this
+command; it does not change global power settings.
+
+Kubernetes AI backends need **two explicit protocol settings**:
+`policies.ai.routes["/v1/responses"] = "Responses"` selects the client format,
+while `ai.provider.custom.formats = [Completions]` selects the upstream format.
+Declaring only a Completions provider does not change the default Completions
+frontend parser. Retry attempts are explicitly zero; no other provider is a
+fallback. Model-side tokenization/chat-template application remains in LM
+Studio, not the gateway.
+
+The current MCP revision2026-07-28 is sessionless. It uses `server/discover`,
+namespaced per-request `_meta`, and `MCP-Protocol-Version`, `MCP-Method` and,
+where applicable, `MCP-Name` headers. Do not label an old `initialize` handshake
+as a2026 flow. The protocol matrix tests2026 sessionless calls and a separate,
+explicit2025-11-25 compatibility path, including session cleanup where used.
+It also checks signature/audience/subject enforcement and direct-backend denial.
+
+Gateway spans export directly through **OTLP/HTTP `/v1/traces`** to the configured
+local MLflow server with a server-controlled experiment header. Application and
+gateway traces use `breaker-banking-target-agent`; infrastructure-only runs are
+tagged and do not supply task utility scores. The matrix verifies persisted
+parentage, CODE feedback ownership and absence of actual probe credentials and
+sensitive marker values. Public tool-schema declarations remain visible. The
+upstream Substrate collector's Jaeger/debug pipeline is not silently presented
+as the MLflow export path or modified to dump application prompts.
+
+Only after the complete provider window and persisted protocol/privacy proof
+may the explicitly authorized local serving probe run:
+
+```bash
+uv run --locked --env-file .env python -m src.infra.serving_probe \
+  --execute-authorized-probes --stability-directory .infra/target-stack/provider-window
+```
+
+This reserves **five of the eight compatibility requests**, including two
+expected authentication denials and three generations (text, canonical function
+call, final text after an explicitly synthetic tool result). It executes no
+banking tool and is not a task-utility trial. All reservations, raw outcomes,
+failures and unknowns persist under the separate sprint ledger; none are refunded
+or replaced. The one-campaign marker prevents accidental resampling. Never
+delete it or the budget files to obtain preferred results. The nine final agent
+trials retain their separate72-request cap. No Gemini or paid fallback is used.
+
+Finally bind current infrastructure to the actual Actor run and all persisted
+proofs, then use the no-inference doctor for independent inspection:
+
+```bash
+uv run --locked --env-file .env python -m src.infra.qualification \
+  --stability-directory .infra/target-stack/provider-window \
+  --runtime-controls-run ACTUAL_POST_UPDATE_RUNTIME_RUN_ID
+bash scripts/check_env.sh --cluster breaker-substrate --target-stack
+```
+
+The doctor fails on absent, stale, partial or changed qualification. It does not
+generate a new model response or infer readiness from health/model listings.
+Operator bootstrap credentials remain local; workload credentials are scoped,
+short-lived and excluded from argv and public traces. Neither a passing doctor
+nor requirements/update authorization is a passing human-test attestation.
+
+This qualification does not implement the LangGraph banking graph or canonical
+banking MCP application. Those are application sprint work on the tested
+infrastructure. It also does not approve production transport/HA, financial
+policy, a trained risk model or a universal agent-completion guarantee.
 
 Infrastructure installers necessarily create privileged Kubernetes/Kind components such as Cilium and Substrate's node agent. Those trusted infrastructure processes are not agent sandboxes. The benign probe workloads run nonroot with read-only root filesystems, dropped capabilities, bounded resources, and no ambient Kubernetes service-account token. The gateway additionally uses its chart's explicitly scoped XDS token projection. No arbitrary shell executor is deployed by setup.
 

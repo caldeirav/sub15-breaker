@@ -94,8 +94,10 @@ class Cluster:
                               + VERSIONS["node_image"].encode()).hexdigest()
 
     def create(self):
-        from src.infra.doctor import check_tools, check_provider
+        from src.infra.doctor import check_tools, check_provider, check_hypervisor, check_podman_versions
         check_tools()
+        check_hypervisor()
+        check_podman_versions()
         for cmd in ("podman", "kind", "kubectl", "helm"):
             if shutil.which(cmd, path=environment()["PATH"]) is None:
                 raise RuntimeError(f"Missing {cmd}; run bash scripts/install_tools.sh --with-go (install Podman separately)")
@@ -157,7 +159,10 @@ class Cluster:
             cwd=checkout, env=env, timeout=2400)
 
     def verify(self, require_substrate=True):
+        from src.infra.doctor import check_hypervisor, check_podman_versions
         self.ensure_owned()
+        check_hypervisor()
+        check_podman_versions()
         (self.directory / "readiness.json").unlink(missing_ok=True)
         self.kubectl("wait", "--for=condition=Ready", "nodes", "--all", "--timeout=180s")
         self.kubectl("rollout", "status", "daemonset/cilium", "-n", "kube-system", "--timeout=180s")
@@ -183,12 +188,16 @@ class Cluster:
             required = {"ate-api-server", "ate-controller", "ate-idp-server", "atenet-router", "atenet-egress", "rustfs"}
             if not required <= {d["metadata"]["name"] for d in deployments}:
                 raise RuntimeError("Substrate local-profile deployments are missing")
+            # After a provider reboot, old deployment availability can precede
+            # database/certificate recovery. Check those dependencies first.
+            self.kubectl("rollout", "status", "statefulset/postgres", "-n", "ate-system", "--timeout=180s")
+            self.kubectl("rollout", "status", "deployment/podcertificate-controller", "-n", "podcertificate-controller-system", "--timeout=180s")
             for deployment in deployments:
                 self.kubectl("rollout", "status", f"deployment/{deployment['metadata']['name']}",
                              "-n", "ate-system", "--timeout=180s")
             self.kubectl("rollout", "status", "daemonset/atelet", "-n", "ate-system", "--timeout=180s")
-            self.kubectl("rollout", "status", "deployment/podcertificate-controller", "-n", "podcertificate-controller-system", "--timeout=180s")
-            self.kubectl("rollout", "status", "statefulset/postgres", "-n", "ate-system", "--timeout=180s")
+            self.kubectl("wait", "--for=condition=Ready", "pods", "-n", "ate-system",
+                         "-l", "app=ate-api-server", "--timeout=180s")
             self.kubectl("apply", "--server-side", "--dry-run=server", "--validate=strict", "-f", ROOT / "k8s/workerpool.yaml")
             run(["kubectl-ate", "--kubeconfig", self.kubeconfig, "--context", self.context,
                  "get", "atespaces", "-o", "json"], capture=True)

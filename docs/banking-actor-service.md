@@ -68,6 +68,20 @@ uv run --locked python -m src.banking_service.deploy \
 
 The deployment creates only project-owned banking namespace resources, a single-writer store/PVC, scoped identities, a gVisor WorkerPool and immutable Actor templates. It does not apply the legacy sidecar manifests or alter the original in-memory banking runner. Receipts/keys must be retained together; a changed durable-store key blocks startup rather than silently changing fingerprints.
 
+Driver credentials expire after one hour. After an approved infrastructure
+recovery, renew the owned credentials without rebuilding the image, redeploying
+the service or replacing its durable state:
+
+```bash
+uv run --locked python -m src.banking_service.deploy --refresh-credentials
+```
+
+Renewal checks cluster/resource/ServiceAccount ownership, mints both audience-bound
+tokens before replacing either file, and writes private files atomically. Tokens
+are never passed in command arguments or printed. It is operator-mediated local
+renewal, not a production credential-rotation service or proof that Actor/tool
+traffic is healthy.
+
 Run the explicit positive actual-Actor canary, without model calls:
 
 ```bash

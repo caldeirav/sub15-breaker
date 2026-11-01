@@ -1,0 +1,44 @@
+{
+  "block": "target-stack-infrastructure-repair",
+  "scope": "coherent-owned-provider-update-and-managed-gateway-protocol-proof",
+  "requirements": {
+    "status": "confirmed",
+    "evidence": "Owner authorized backup-first coherent host/helper/guest update and infrastructure testing, then explicitly directed moving the two-hour stability check into a separate issue and raising a PR for the current work."
+  },
+  "handoff": {
+    "status": "owner_authorized_draft_pr",
+    "date": "2026-11-01",
+    "evidence": "Owner: Put the two-hour stability test aside. We can open an issue for this and check it separately. Meanwhile raise a PR and commit what you have then let's proceed with the rest of the work.",
+    "deferred_stability_issue": "https://github.com/caldeirav/sub15-breaker/issues/39",
+    "merge_authorized": false
+  },
+  "automated": {
+    "status": "pending",
+    "evidence": "345 offline tests pass separately on Python3.11,3.12,3.13 on the handoff diff;6 network controls,20 gateway enforcement controls,23 actual Actor controls and12 managed Responses/MCP/MLflow protocol cases pass. Sustained two-hour stability is owner-deferred and real local model serving is not yet tested on this route; no full-stack qualification is asserted."
+  },
+  "manual": {
+    "status": "pending",
+    "tester": "",
+    "date": "",
+    "evidence": "Update/publication authorization is not finished-feature manual acceptance. No human passing-test report was supplied."
+  },
+  "regressions": {
+    "status": "passed",
+    "evidence": "345 tests on each supported Python version. New regressions cover loaded-helper identity, host/guest version mismatch, startup dependency order and authenticated API read, explicit Responses frontend mapping, MCP2026 context, schema/secret distinction, immutable budget reservations and rejection of partial/stale qualification. The handoff record cannot pass the generic full/manual publication guard."
+  },
+  "documentation": {
+    "status": "passed",
+    "evidence": "docs/infra.md and the dated repair review describe actual versions, backup limits, tested scopes, preserved failures and unfinished gates. README remains architectural context rather than a delivery ledger."
+  },
+  "evidence": {
+    "actor_controls_run": "caa5b76ea32d4839b82b350d79bb797f",
+    "managed_protocol_run": "cc78642fece44d6b9e8eb22fd0889ee3",
+    "managed_protocol_trace": "tr-e522cf5e557e03b2aabb7ff6a60c3f71",
+    "protocol_persisted_spans": 74,
+    "stability_run": "460494ac88ee4e0fa34ad42cfbdd2982",
+    "stability_disposition": "owner_deferred_interrupted_not_passed",
+    "new_compatibility_requests_used": 0,
+    "new_final_requests_used": 0,
+    "new_paid_judge_calls": 0
+  }
+}

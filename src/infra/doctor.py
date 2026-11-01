@@ -2,6 +2,9 @@
 import argparse
 import json
 import os
+from pathlib import Path
+import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -39,6 +42,62 @@ def check_provider(info):
     print(f"OK Podman {host.get('arch')} / kernel {host.get('kernel')} / cgroup v2 / rootful")
 
 
+def check_podman_versions():
+    """The host package version alone does not qualify its persisted guest."""
+    info=json.loads(run(["podman","version","--format","json"],capture=True).stdout)
+    client=info.get("Client",{}).get("Version","")
+    server=info.get("Server",{}).get("Version","")
+    if not all(isinstance(v,str) and re.fullmatch(r"\d+\.\d+\.\d+",v) for v in (client,server)):
+        raise RuntimeError("Cannot verify stable Podman host and guest versions")
+    if client!=server:
+        raise RuntimeError(f"Podman host/guest mismatch: {client}/{server}; finish the coherent update before workloads")
+    expected=VERSIONS.get("podman","").removeprefix("v")
+    if expected and client!=expected:
+        raise RuntimeError("Podman host/guest differ from the reviewed profile")
+    print(f"OK Podman host and guest {client}")
+
+
+def check_hypervisor():
+    """Observe the selected macOS helper, not merely the Podman client version."""
+    if platform.system() != "Darwin":
+        return
+    info = json.loads(run(["podman", "machine", "info", "--format", "json"], capture=True).stdout)
+    if info.get("Host", {}).get("VMType") != "libkrun":
+        return
+    processes = run(["ps", "-Ao", "pid=,comm="], capture=True).stdout.splitlines()
+    helpers=[]
+    for line in processes:
+        parts=line.strip().split(None,1)
+        if len(parts)==2 and parts[0].isdigit() and parts[1].endswith("/krunkit"):
+            helpers.append(parts)
+    if len(helpers) > 1:
+        raise RuntimeError("Multiple krunkit helpers observed; inspect the selected provider before proceeding")
+    if not helpers:
+        raise RuntimeError("No running libkrun helper observed; host binaries are not proof of the selected runtime")
+    pid,path=helpers[0]
+    helper = Path(path)
+    if not helper.is_file():
+        raise RuntimeError("Cannot observe the selected libkrun helper; do not infer its version from Podman")
+    mappings=run(["lsof","-a","-p",pid,"-d","txt","-Fin"],capture=True).stdout.splitlines()
+    inode=None;loaded_inode=None
+    for field in mappings:
+        if field.startswith("i"):inode=field[1:]
+        elif field=="n"+str(helper):loaded_inode=inode
+    if loaded_inode!=str(helper.stat().st_ino):
+        raise RuntimeError("Running krunkit does not map the installed helper; an approved VM restart is required")
+    output = run([helper, "--version"], capture=True).stdout.strip()
+    match = re.fullmatch(r"krunkit (\d+)\.(\d+)\.(\d+)", output)
+    policy = json.loads((ROOT/"infra/version-policy.json").read_text())["libkrun_helper"]
+    minimum = tuple(map(int, policy["minimum_krunkit"].split(".")))
+    if not match or tuple(map(int, match.groups())) < minimum:
+        raise RuntimeError(f"Unsafe/unreviewed libkrun helper: {output}; require krunkit >= {policy['minimum_krunkit']} "
+                           "for the known reboot/control-API issue (#38). No automatic helper upgrade or VM replacement.")
+    expected=VERSIONS.get("krunkit")
+    if expected and output!="krunkit "+expected:
+        raise RuntimeError("Selected krunkit differs from the reviewed bundle")
+    print(f"OK selected {output}; version prerequisite only, not VM stability proof")
+
+
 def research_services():
     from dotenv import load_dotenv
     load_dotenv(ROOT / ".env")
@@ -61,14 +120,24 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--research", action="store_true")
     parser.add_argument("--cluster", help="Also verify a managed infrastructure cluster")
+    parser.add_argument("--target-stack",action="store_true",help="Require complete current target-stack qualification; never run model inference")
     parser.add_argument("--skip-substrate", action="store_true")
     args = parser.parse_args()
+    if args.target_stack and (not args.cluster or args.skip_substrate):
+        parser.error("--target-stack requires --cluster and the full Substrate profile")
     try:
         check_tools()
+        check_hypervisor()
+        check_podman_versions()
         check_provider(json.loads(run(["podman", "info", "--format", "json"], capture=True).stdout))
         if args.cluster:
             from src.infra.manage import Cluster
-            Cluster(args.cluster).verify(require_substrate=not args.skip_substrate)
+            cluster=Cluster(args.cluster)
+            cluster.verify(require_substrate=not args.skip_substrate)
+            if args.target_stack:
+                from src.infra.qualification import require_current_cached
+                require_current_cached(cluster)
+                print("OK automated target-stack qualification is current; human acceptance is separate")
         if args.research:
             research_services()
     except (RuntimeError, ValueError, OSError, subprocess.SubprocessError) as exc:

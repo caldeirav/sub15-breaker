@@ -73,6 +73,8 @@ def test_pinned_cluster_config_supports_certificate_api_and_external_cni():
 def test_cluster_creation_does_not_wait_for_cni_before_installing_it(tmp_path, monkeypatch):
     monkeypatch.setattr(manage, "STATE", tmp_path)
     monkeypatch.setattr(doctor, "check_tools", lambda: None)
+    monkeypatch.setattr(doctor, "check_hypervisor", lambda: None)
+    monkeypatch.setattr(doctor, "check_podman_versions", lambda: None)
     monkeypatch.setattr(doctor, "check_provider", lambda info: None)
     monkeypatch.setattr(manage.shutil, "which", lambda *args, **kwargs: "/fake/tool")
     calls = []
@@ -99,6 +101,47 @@ def test_cluster_creation_does_not_wait_for_cni_before_installing_it(tmp_path, m
     assert create[create.index("--wait") + 1] == "0s"
     assert "delete" not in [str(x) for c in calls for x in c]
     assert cluster.kubeconfig.stat().st_mode & 0o777 == 0o600
+
+
+@pytest.mark.parametrize("api_ready",[True,False])
+def test_recovery_verification_waits_for_dependencies_and_requires_authenticated_rpc(tmp_path,monkeypatch,api_ready):
+    monkeypatch.setattr(manage,"STATE",tmp_path)
+    monkeypatch.setattr(doctor,"check_hypervisor",lambda:None)
+    monkeypatch.setattr(doctor,"check_podman_versions",lambda:None)
+    cluster=manage.Cluster("breaker-test");cluster.directory.mkdir(parents=True)
+    monkeypatch.setattr(cluster,"ensure_owned",lambda:None)
+    calls=[]
+    def kubectl(*args,**kwargs):
+        calls.append(args)
+        value={}
+        if args[:3]==("get","--raw","/apis/certificates.k8s.io/v1beta1"):
+            value=dict(resources=[dict(name=n) for n in ("clustertrustbundles","podcertificaterequests")])
+        elif args[:3]==("get","--raw","/version"):value=dict(gitVersion=VERSIONS["kubectl"])
+        return SimpleNamespace(stdout=json.dumps(value))
+    def get(*args):
+        if args[0]=="gatewayclass":return dict(metadata=dict(generation=1),status=dict(conditions=[dict(type="Accepted",status="True",observedGeneration=1)]))
+        if args[0]=="deployments":
+            names=["agentgateway"] if args[-1]=="agentgateway-system" else ["ate-api-server","ate-controller","ate-idp-server","atenet-router","atenet-egress","rustfs"]
+            return dict(items=[dict(metadata=dict(name=name)) for name in names])
+        return dict(items=[])
+    def external(args,**kwargs):
+        calls.append(tuple(map(str,args)))
+        if args[0]=="kubectl-ate":
+            if not api_ready:raise RuntimeError("no ready api pods")
+            return SimpleNamespace(stdout='{"atespaces":[]}')
+        return SimpleNamespace(stdout=json.dumps([dict(name=name,namespace=namespace,status="deployed",chart=name+"-"+version) for name,namespace,version in [
+            ("cilium","kube-system",VERSIONS["cilium"]),("agentgateway","agentgateway-system",VERSIONS["agentgateway"]),("agentgateway-crds","agentgateway-system",VERSIONS["agentgateway"])]]))
+    monkeypatch.setattr(cluster,"kubectl",kubectl);monkeypatch.setattr(cluster,"get",get)
+    monkeypatch.setattr(manage,"run",external)
+    if api_ready:cluster.verify()
+    else:
+        with pytest.raises(RuntimeError,match="no ready"):cluster.verify()
+    postgres=next(i for i,a in enumerate(calls) if a[:3]==("rollout","status","statefulset/postgres"))
+    api=next(i for i,a in enumerate(calls) if a[:3]==("rollout","status","deployment/ate-api-server"))
+    ready=next(i for i,a in enumerate(calls) if a[:3]==("wait","--for=condition=Ready","pods"))
+    rpc=next(i for i,a in enumerate(calls) if a[0]=="kubectl-ate")
+    assert postgres<api<ready<rpc
+    assert (cluster.directory/"readiness.json").exists() is api_ready
 
 
 @pytest.mark.parametrize("rootless,cgroup,memory", [(True, "v2", 16), (False, "v1", 16), (False, "v2", 4)])
@@ -244,6 +287,15 @@ def test_publication_gate_never_infers_human_acceptance():
     assert gate.failures(complete)
     assert gate.failures([])
     assert gate.failures(dict(manual=[]))
+
+
+def test_infrastructure_draft_handoff_does_not_pass_full_or_manual_acceptance():
+    record=json.loads((ROOT/"docs/validation/target-stack-repair-2026-11-01.json").read_text())
+    assert record["handoff"]["status"]=="owner_authorized_draft_pr"
+    assert record["handoff"]["merge_authorized"] is False
+    problems=gate.failures(record)
+    assert any(p.startswith("automated:") for p in problems)
+    assert any(p.startswith("manual:") for p in problems)
 
 
 @pytest.mark.parametrize("status", [" M cmd/ate-setup/main.go", "?? cmd/ate-setup/injected.go", "!! cmd/ate-setup/ignored.go"])
