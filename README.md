@@ -6,7 +6,7 @@ BreakerSubstrate (`sub15-breaker`) is the research reference architecture for th
 
 The reference use case is a **simulated banking agent**. A user asks it to pay a bill, adjust a scheduled payment or update an address. The model proposes typed tool calls; untrusted invoices or tool responses may try to redirect those calls. We reuse AgentDojo's synthetic tasks, tools, state and executable checkers rather than build a new financial benchmark or expose a general-purpose shell.
 
-The comparison is between **A: gateway-side generative verification** and **B: one compact classifier inference over the same action and trusted context**. Both belong at the same enforcement boundary. The sub-15ms objective is a research hypothesis—not a measured result, safety guarantee or hardware-independent SLA.
+The comparison is between **A: generative verification** and **B: one compact neural encoder inference over the same action and trusted context**. Both belong at the same native Substrate pre-execution boundary, outside the agent's reasoning loop. The sub-15ms objective is a research hypothesis—not a measured result, safety guarantee or hardware-independent SLA.
 
 > **Research software, not a production safety boundary.** Use synthetic data only; do not connect real bank APIs, money, payment credentials or a privileged executor. A denied request is not acknowledged Actor termination, and neither denial nor termination rolls back prior effects.
 
@@ -18,64 +18,38 @@ For delivery status, dependencies, implementation blocks and acceptance, use the
 2. **Separate proposal from authority.** The acting model, its explanations and tool-returned text are untrusted. Identity, policy, intent provenance and state versions must come from services outside the agent—not from its assertion that an action is safe.
 3. **Separate reasoning from classification.** A generative reviewer produces tokens; a compact encoder can make a binary classification in one forward pass. Lower and more predictable overhead is a hypothesis to test at comparable quality, not an assumed advantage.
 4. **Use calibrated estimates, not verbal confidence.** A score between zero and one is not automatically a meaningful probability. Independent labels, held-out calibration, error rates and coverage are necessary.
-5. **Retain deterministic controls and isolation.** A model can miss an unsafe action. Authentication, schema validation, capabilities, state checks, resource limits and a sandbox remain necessary regardless of the score.
+5. **Retain benchmark controls and isolation.** A model can miss an unsafe action. Reuse the working platform, schema/state checks, limits and sandbox; do not build production IAM, elaborate security policy or HA for this benchmark.
 6. **Measure rather than manufacture the comparison.** Do not add artificial delays to A, assume millisecond performance for B, hide failures or count a denied-everything agent as a successful system.
 
 ## Agent design and control flow
 
-**The original command agent uses LangGraph; the banking agent currently does not.** [`src/agent/graph.py`](src/agent/graph.py) compiles a `StateGraph` with `think` and `act` nodes. The banking adapter, [`LocalBankingPipeline`](src/feasibility/agent.py), implements a bounded Python loop through AgentDojo's `BasePipelineElement` interface. The [Actor-backed adapter](src/banking_service/agent.py) reuses that same loop and replaces tool dispatch, not orchestration. This is a deviation from the original LangGraph design, not a claim that every agent in the repository is graph-compiled.
+The benchmark uses **one compiled LangGraph** in [`src/agent_runtime/runner.py`](src/agent_runtime/runner.py), with LangChain messages/model integration and injected remote execution. The suite-neutral runtime has no AgentDojo dependency. The [pinned banking adapter](src/integrations/agentdojo/banking.py) supplies tasks and private checkers; it does not inherit AgentDojo's agent pipeline or execute live tools on the host.
 
-### Original LangGraph design
+### Compiled reasoning loop
 
-The following source-derived diagram makes the legacy graph's routing explicit:
-
-```mermaid
-flowchart TD
-    LS([START]) --> Think["think: request model response"]
-    Think -->|tool calls and step budget remains| Act["act: parse, review and dispatch"]
-    Think -->|no calls or step limit| LE([END])
-    Act -->|denial or halt| LE
-    Act -->|append tool results| Think
-```
-
-Its state contains `input_items`, pending `calls`, `events`, `answer`, `halted` and `steps`. `think` appends model output; `act` parses the proposed command, applies the selected legacy review path, dispatches allowed work and appends function results. The command-only verifier path is **not** a banking guard or the intended matched gateway A/B boundary; do not use it as the banking entry point.
-
-### Runnable banking agent
-
-This diagram describes the banking loop's **logical state machine**, not a compiled LangGraph:
-
-Its state is the plain `items` history plus `trial.answer`, `trial.status`, model/action records, errors, an environment view and a monotonic deadline. In the Actor profile that environment is a mirror of committed service state, not authority supplied by the model.
+The graph has two nodes, `model` and `tools`, with the same routing for either guard backend:
 
 ```mermaid
 flowchart TD
-    S([User task and fresh trial]) --> Budget{"Turn, tool and time budget available?"}
-    Budget -->|no| Stop["Stop with explicit terminal status"]
-    Budget -->|yes| Model["Record attempt and call Responses API"]
-    Model -->|provider or persistence error| Stop
-    Model --> Response{"Completed response with structured tool calls?"}
-    Response -->|no calls: return answer| Eval["Runner: evaluate state and preserve evidence"]
-    Response -->|incomplete or empty response| Stop
-    Response -->|tool calls| Dispatch["Validate arguments and dispatch each bounded call"]
-    Dispatch -->|known result| Append["Append function_call_output with its call_id"]
-    Append -->|after processing returned calls| Budget
-    Dispatch -->|uncertain remote response| Status["Read receipt or status; do not repeat the write"]
-    Status -->|committed result recovered| Append
-    Status -->|unresolved or rejected| Stop
-    Stop --> Eval
-    Eval --> Cleanup["Runner: clean up Actor backend if used"]
-    Cleanup --> Judge["Live evaluator: native Gemini review"]
-    Judge --> E([Results and trace-local scores in MLflow])
+    S([START]) --> Model["model: reserve attempt, call managed Responses, validate reply"]
+    Model -->|valid tool calls| Tools["tools: serial gateway MCP calls, pair ToolMessages"]
+    Tools -->|executed results| Model
+    Model -->|genuine final content| E([END: completed])
+    Model -->|fault, limit, cancellation or timeout| F([END: explicit non-completed result])
+    Tools -->|blocked, error, unknown or limit| F
 ```
 
-Evaluation, Actor cleanup where applicable and judging are **runner-owned stages after the loop**, not actions authorized by the model or nodes of a compiled banking graph. The live evaluation entry points enable Gemini; provider-free contract/runtime controls do not invoke it. Native review is outside execution/admission.
+Episode allocation, state snapshots, checker evaluation, cleanup and external judging belong to [`src/benchmark/wiring.py`](src/benchmark/wiring.py), outside the reasoning loop. The agent neither chooses the guard mode nor authorizes its own actions.
 
-- **Conversation:** `items` starts with the user task. Each turn sends the full history, all 11 tool definitions and a separate `instructions` field. Returned assistant/function-call items are retained; tool results return as `function_call_output` items tied to the original `call_id`.
-- **Bounded behavior:** the loop allows at most eight model turns and sixteen tool attempts, with a cooperative 180-second task budget and individually bounded requests. No provider retry or text-to-tool repair is implicit. A final model answer is not proof that the task succeeded.
-- **Execution backend:** the default pilot uses in-memory synthetic tools. The opt-in backend persists model attempts/results, prepares a versioned action ticket, executes the pinned function in a gVisor Actor and commits state/receipt/outbox changes through the trusted service. An uncertain write is reconciled by status, never blindly repeated.
-- **Authority:** messages and graph state do not grant permission. Principal, policy, Actor identity/generation and authoritative state versions come from services outside the model. Gateway financial-policy A/B verification is a separate boundary in the architecture below, not an extra model call hidden inside this loop.
-- **Persistence:** durable banking state, receipts and evidence do not imply a checkpointed conversation. The banking pipeline accepts a fresh request, rejects resumed message sessions and has no LangGraph checkpointer. A graph migration must retain action IDs, reconciliation, budgets and evidence; checkpoint/node retries must not duplicate model calls or writes.
+- **Conversation:** LangChain `SystemMessage`, `HumanMessage`, `AIMessage` and `ToolMessage` retain structured calls/results and their IDs. Advertise all 11 remote canonical schemas; execute only requested tools.
+- **Bounded behavior:** explicit model/tool/deadline limits and a persistent combined actor/LLM-guard request ledger. Reservations remain spent on failure. Incomplete replies, reused IDs, unknown effects and exhausted budgets are not normal completion; no guessed tool-call repair or automatic provider fallback.
+- **Remote execution:** managed agentgateway MCP → banking bridge → service-prepared ticket → Actor. The Actor claims the exact immutable ticket through Substrate's native egress hook before computing the tool. Receipts and committed state live in the existing store; uncertain results are reconciled without repeating writes.
+- **Evidence:** graph, model, gateway, tool, native guard, receipt and external-review records remain distinguishable in MLflow. Client and gateway model spans are layers of one physical request, not separate model attempts.
+- **Recovery limits:** durable receipts and budgets are not a conversation checkpointer. Explicit reuse of a completed, reconciled canary re-audits saved evidence without repeating model/tool actions; it is not general graph resumption.
 
-A behavior-preserving LangGraph version would make the budget, model, response-routing, action preparation, remote execution/reconciliation and terminal-evidence steps explicit nodes while keeping authority and mutation in the existing services. Merely replacing the Python loop with `StateGraph` would **not** fix a serving-side tool-call parser error.
+The initial wiring profile uses **deterministic native allow/block/error controls**. Guard adapters and a local-only encoder loader exist, but wiring controls do not establish trained classifier quality, banking calibration or a measured classifier/LLM comparison. The [experiment protocol](docs/benchmark-guard-experiment.md) defines these separate requirements.
+
+The older command graph and `LocalBankingPipeline`/`ActorBankingTrial` remain historical compatibility paths, not the benchmark entry point. See [legacy boundaries](docs/legacy-compatibility.md).
 
 ### Chat templates and the model/tool boundary
 
@@ -85,38 +59,26 @@ Pin the model/quantization, serving runtime, template hash, sampling settings, s
 
 ## Architecture and trust boundaries
 
-The intended enforcement architecture is:
+The benchmark separates transport, native admission, execution and external evaluation:
 
 ```text
-Authenticated user request                 Service-owned policy / trial registry
-             |                                          |
-             v                                          v
-    Local tool-capable agent ---- proposed typed action (untrusted)
-             ^                                          |
-             |                                          v
-             |                              Authenticated agentgateway
-             |                                resolve trusted context
-             |                                deterministic validation
-             |                                          |
-             |                            +-------------+-------------+
-             |                            |                           |
-             |                     A: generative review       B: encoder inference
-             |                            |                    + calibrated risk
-             |                            +-------------+-------------+
-             |                                          |
-             |                              one authoritative decision
-             |                                          |
-             |                     exact action / state / generation binding
-             |                                          |
-             +------ bounded result / receipt --- isolated Substrate Actor
-                                                       banking tools
-                                                       per-trial state
+Pinned AgentDojo task/state/checker adapter
+  -> one LangGraph flow
+       -> agentgateway Responses -> approved local acting model
+       -> agentgateway MCP -> banking bridge -> prepared action ticket -> Actor
+            -> native Substrate Envoy pre-claim gate
+                 -> shared canonical action/context review
+                      A: LLM reviewer
+                      B: compact neural encoder + fitted calibration
+                 -> allow: store claim -> Actor tool computation -> store commit
+                 -> block/error: no tool computation or committed effect
+  -> original private checkers, receipt/state audit and cleanup
+  -> external native MLflow Gemini task/effect and overall harness review
 
-All stages -> MLflow traces, action-owned scores and failure evidence
-Observed state/actions -> deterministic evaluation -> native Gemini review
+MLflow: actual attempts, distributed parentage, trace-local scores and failures
 ```
 
-This diagram is a **design contract, not a deployment inventory**. The runnable local harness dispatches directly to in-memory AgentDojo tools; it is useful for evaluation and is not a substitute for an isolated gateway-to-Actor path. The shared contract fixtures record harmless receipts without executing tools. See [the GitHub roadmap](https://github.com/caldeirav/sub15-breaker/issues/14) for delivered versus remaining capabilities.
+The common native hook is exercised with deterministic controls; the learned A/B branches remain an experiment to implement and validate. The header-only hook reviews `/claim/<ticket>` and the store consumes that same path ticket, rejecting a decoy body ticket. A guard response in an agent-local branch or an application-only check is not native enforcement evidence. No platform fork or production IAM project is required. See the [experiment protocol](docs/benchmark-guard-experiment.md) and [GitHub roadmap](https://github.com/caldeirav/sub15-breaker/issues/14) for scope and evidence boundaries.
 
 ### What is trusted?
 
@@ -161,16 +123,16 @@ A cooperative agent stopping its loop is not an externally enforced latch. A 403
 | Component | Role and rationale |
 | --- | --- |
 | **AgentDojo banking** | Reuse pinned tasks, synthetic state, 11 tool definitions and executable checks; minimize custom benchmark work and preserve upstream parity. |
-| **Agent Substrate + gVisor** | Intended lifecycle and isolation for ephemeral per-trial Actors. Actual runtime assignment and confinement must be observed, not inferred from YAML. |
-| **agentgateway** | Enforcement outside the proposing agent. Both A and B must authorize the same consumed action through the same boundary, without a trusted agent-supplied risk score. |
+| **Agent Substrate + gVisor** | Ephemeral per-trial Actors and the native Envoy admission hook. Observe actual runtime assignment, dispatch counts, receipts and state effects. |
+| **agentgateway** | Managed Responses/model routing, remote MCP transport and distributed telemetry. Guard choice belongs at the shared native Substrate admission boundary, not in competing agent loops. |
 | **Compact encoder + PyTorch/Transformers** | Binary policy classification without autoregressive verification tokens. Model architecture, input schema, labels, calibration and runtime must be version-bound. |
-| **Local model through LM Studio / OpenAI SDK** | Tool-capable Responses API acting model; the model identifier is configurable, not bundled. The banking harness is separate from the legacy LangGraph command agent. |
+| **LangChain/LangGraph + local LM Studio model** | One compiled tool-calling loop via managed Responses; the suite adapter and model configuration remain outside its generic runtime. |
 | **MLflow** | Trace/evaluation system of record: invocation inputs/results, action-owned assessments, provenance, failures, artifacts and persisted readback—not only run-level averages. |
-| **Native MLflow Gemini judges + LiteLLM SDK** | Post-execution evidence review. LiteLLM is MLflow's in-process Gemini adapter, not a deployed proxy or replacement for agentgateway. |
+| **Native MLflow Gemini judges** | External post-execution evidence review, separate from admission. Observe the installed native Gateway provider adapter (or LiteLLM where selected); MLflow's SDK adapter is not the deployed agentgateway. |
 | **Podman + Kind + Cilium** | Local Kubernetes profile with an enforcing CNI and explicit positive/negative network tests. Merely creating NetworkPolicy objects is insufficient. |
 | **uv** | Managed Python and a committed universal lockfile for development/tests and reproducible installation. Models, images, controllers and credentials need their own explicit provenance. |
 
-The acting-model and Gemini SDK calls in the local harness are not routed through agentgateway. Local acting inference does **not** make the full experiment offline/private: enabling native Gemini review transmits projected evidence to an external provider. Use synthetic evidence and understand that data flow.
+The acting model is reached through managed agentgateway Responses. Gemini judging is an external provider call outside the agent/admission loop, not another guard invocation. Local acting inference does **not** make the full experiment offline/private: external review transmits projected synthetic evidence. Report available usage/cost and retain unavailable usage, parser errors and historical accounting gaps rather than inventing a complete bill.
 
 The legacy command-only sidecar, command dataset and Streamlit view are compatibility scaffolding, not a banking model or the authoritative banking evidence UI. See [legacy boundaries](docs/legacy-compatibility.md). No generic shell executor or alternative financial corpus is required.
 
@@ -234,6 +196,8 @@ MLflow records every model/tool/verifier/judge attempt, including failures, with
 
 Native Gemini judges run **outside authorization**. They review criterion-specific projected observations against closed normalized rules, not checker Python, measured verdicts or the agent's claims of success. Keep raw native feedback, decoded provenance and scalar verdict/validity/agreement/error fields. Deterministic outcomes remain authoritative; disagreement and insufficient evidence remain visible. Schema-constrained outputs are not independent safety ground truth.
 
+A separate versioned overall-harness review examines persisted transport, Actor, native-control, receipt, trace/accounting and case/cleanup evidence. It returns `supported`, `not_supported` or `insufficient_evidence`. A later review/reporting fix creates a new derived target; it never replaces an earlier negative verdict or repairs malformed judge JSON. External support is not human acceptance or a learned-guard safety certificate.
+
 See [evaluation design](docs/evaluation-design-review.md), [trace/score ownership](docs/mlflow-trace-contract.md) and [the banking runbook](docs/banking-feasibility.md) for exact evidence contracts and examples.
 
 ## Run locally
@@ -251,12 +215,11 @@ Create `.env` from `.env.example` **only if absent**; never overwrite existing c
 
 | Setting | Purpose |
 | --- | --- |
-| `LM_STUDIO_BASE_URL`, `LM_STUDIO_MODEL` | Tool-capable acting model; usual endpoint `http://localhost:1234/v1` |
+| `LM_STUDIO_BASE_URL`, `LM_STUDIO_MODEL` | Approved local provider/profile; the benchmark agent itself uses the managed gateway Responses endpoint |
 | `MLFLOW_TRACKING_URI` | Tracking server, normally `http://localhost:5001` |
-| `BANKING_MLFLOW_EXPERIMENT` | Banking experiment name; an explicit `MLFLOW_EXPERIMENT_ID` takes precedence |
+| Tracking experiment | The wiring command selects `breaker-banking-target-agent`; legacy runbooks have separate experiment settings |
 | `GEMINI_API_KEY` | External native judge credentials for the full live harness |
 | `MLFLOW_GENAI_JUDGE_DEFAULT_MODEL` | Native judge model, default `gemini:/gemini-2.5-flash` |
-| `LITELLM_LOCAL_MODEL_COST_MAP` | Harness uses bundled pricing metadata; cost values are estimates, not invoices |
 
 If MLflow is not already running, start it in another terminal:
 
@@ -266,7 +229,7 @@ uv run --locked mlflow server --host 127.0.0.1 --port 5001 \
   --artifacts-destination .infra/mlflow-artifacts
 ```
 
-The local harness runs in memory: no Kubernetes, gateway, Actor service or classifier weights are prerequisites. Its direct tool dispatch does not exercise the enforcement architecture above. There is no installed `sub15-breaker` CLI; use the module entry points.
+Offline tests need no running stack. The real wiring command requires the owned local Substrate/gVisor, managed gateway and banking store/Actor profile described in the [infrastructure guide](docs/infra.md) and [benchmark protocol](docs/benchmark-guard-experiment.md). Classifier weights are not prerequisites for deterministic wiring controls. There is no installed `sub15-breaker` CLI; use module entry points.
 
 ### Tests and experiments
 
@@ -283,29 +246,34 @@ uv run --locked --env-file .env python -m src.banking_contracts.fixtures
 # Persisted MLflow plumbing validation with model stubs, no provider calls.
 uv run --locked --env-file .env python -m pytest -q validation/test_banking_mlflow_local.py
 
-# Full live harness: local acting model plus paid external native Gemini review.
-uv run --locked --env-file .env python -m src.feasibility.runner
+# Real gateway/MCP/Substrate/Actor allow/block/error controls; no model calls.
+uv run --locked python -m src.benchmark.wiring
 ```
 
-`--oracle-only` skips the acting model **but still invokes Gemini**; it is not a provider-free mode. Do not repeatedly sample for favorable agent outcomes or judge agreement. Existing compatible source evidence can be reassessed without new model/tool/judge calls:
+For live execution, first freeze the task/profile/request allocation in the [benchmark protocol](docs/benchmark-guard-experiment.md). `src.benchmark.wiring --live` spends local and external requests; `--extended-pilot --reuse-completed-case-run CASE_RUN_ID` selects the explicitly frozen extended allocation and reuses only a completed reconciled canary. The ledger persists across runs: do not delete/reset it or repeatedly sample for favorable outcomes. A completed pilot is not an unlimited rerun allowance.
+
+To review saved suite evidence after a documented review/reporting fix, without repeating agent/tool actions:
 
 ```bash
-uv run --locked --env-file .env python -m src.feasibility.reassess --source-run SOURCE_RUN_ID
+uv run --locked python -m src.benchmark.review_saved --source-trace SUITE_TRACE_ID
 ```
 
-This needs the original artifacts/traces; example run links in the documentation refer to the owner's local MLflow instance, not a public service. Open MLflow's **Traces** table for action/effect scores and separate native review rows; use [the runbook](docs/banking-feasibility.md) for their exact interpretation.
+This **does call Gemini** and creates a new derived review target. It needs the original persisted suite trace and authorized external budget. The older `src.feasibility.runner` remains an in-memory reproducibility path; its `--oracle-only` skips the acting model **but still invokes Gemini**. Example MLflow links refer to the owner's local server, not a public service. Open the **Traces** table for action/effect scores and separate native review rows.
 
 ### Dependencies and infrastructure
 
 Use `uv add PACKAGE` for runtime dependencies and `uv add --dev PACKAGE` for test tools; commit both `pyproject.toml` and `uv.lock`. Review deliberate upgrades and run the tests. Do not maintain an unrelated requirements file or install ad hoc packages into the project environment. Locked runs refuse implicit dependency changes; deploy synchronized images without runtime dependency downloads.
 
-For the separate local infrastructure profile, follow [the infrastructure guide](docs/infra.md). It documents pinned Podman/Kind/Cilium/agentgateway/Substrate setup, owned-resource teardown, network controls and non-executing enforcement fixtures. These checks are not evidence of a banking Actor execution boundary. The legacy `--research` environment check includes a command-only sidecar and is not a banking doctor. Do not apply the [placeholder workloads](k8s/README.md) as if they supplied a complete deployment.
+For the local infrastructure profile, follow [the infrastructure guide](docs/infra.md). It distinguishes installation/network/protocol fixtures from actual banking Actor and native admission controls. The benchmark temporarily attaches its native filter and restores the prior configuration on exit; it does not require the deferred sustained-uptime qualification. The legacy `--research` environment check includes a command-only sidecar and is not a banking doctor. Do not apply the [placeholder workloads](k8s/README.md) as if they supplied a complete deployment.
 
 ## Explore the repository
 
 | Path | Purpose |
 | --- | --- |
-| `src/feasibility/` | Banking adapter, local agent, pinned checks, native judges, trace auditing and evaluation |
+| `src/agent_runtime/` | Suite-neutral contracts and the single compiled LangGraph reasoning loop |
+| `src/integrations/agentdojo/` | Pinned banking task/state/private checker adapter, not an agent framework |
+| `src/benchmark/` | Real wiring CLI, managed MCP bridge, native gate, budgets, guard adapters, encoder loader and external review |
+| `src/feasibility/` | Retained evaluation/checker/judge utilities and historical in-memory reproducibility paths |
 | `src/banking_contracts/` | Shared action/context/decision/receipt types, JSON Schema exports and record-only structural fixtures |
 | `src/banking_service/` | Opt-in Actor-backed computation, transactional state/receipts, platform identity and durable evidence transport |
 | `src/infra/`, `scripts/`, `infra/` | Pinned local infrastructure, readiness and harmless network/enforcement probes |
