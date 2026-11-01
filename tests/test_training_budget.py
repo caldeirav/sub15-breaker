@@ -78,3 +78,15 @@ def test_corrected_pilot_extends_case_scope_without_rewriting_parent(tmp_path):
     assert entry["phase"]=="v2_prompt_pilot_corrected" and (tmp_path/"v2-prompt-pilot.json").read_bytes()==before
     with pytest.raises(RuntimeError,match="already_spent"):
         value.reserve(role="gemini_data_generation",case_id=fixed["cases"][0]["case_id"],trace_id="repeat",model=POLICY["gemini_model"])
+
+
+def test_bulk_scope_is_bound_and_keeps_spent_pilot_entries(tmp_path):
+    value=budget(tmp_path);value.freeze_pilot(plan())
+    value.reserve(role="gemini_data_generation",case_id="pilot-0",trace_id="pilot",model=POLICY["gemini_model"])
+    definition=dict(schema_version="banking-v2-bulk-notes-v1",policy_sha256=hashlib.sha256(encoded(POLICY)).hexdigest(),
+        scenario_manifest_sha256="a"*64,review_sha256="b"*64,generator_code_sha256="c"*64,cases=[dict(case_id="v2-bulk-note-0-0")])
+    value.freeze_bulk(definition)
+    entry=value.reserve(role="gemini_data_generation",case_id="v2-bulk-note-0-0",trace_id="bulk",model=POLICY["gemini_model"])
+    assert entry["sequence"]==4 and entry["phase"]=="v2_bulk_notes"
+    with pytest.raises(RuntimeError,match="already_spent"):
+        value.reserve(role="gemini_data_generation",case_id="v2-bulk-note-0-0",trace_id="again",model=POLICY["gemini_model"])

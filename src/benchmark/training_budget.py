@@ -1,6 +1,7 @@
 """Owner-approved v2 envelope over the existing campaign ledger, never a reset."""
 import hashlib
 import json
+import re
 import time
 import argparse
 from pathlib import Path
@@ -124,6 +125,31 @@ class TrainingBudget(CampaignBudget):
             raise RuntimeError("v2_corrected_pilot_changed")
         return plan
 
+    def freeze_bulk(self,plan):
+        with self.locked():
+            entries=self.entries();baseline=self.baseline(entries)
+            if plan.get("schema_version")!="banking-v2-bulk-notes-v1" or plan.get("policy_sha256")!=hashlib.sha256(encoded(POLICY)).hexdigest():
+                raise ValueError("v2_bulk_policy_binding_required")
+            for key in ("scenario_manifest_sha256","review_sha256","generator_code_sha256"):
+                value=plan.get(key,"")
+                if len(value)!=64 or any(c not in "0123456789abcdef" for c in value):raise ValueError("v2_bulk_hash_required")
+            cases=plan.get("cases",[])
+            if not cases or len({c["case_id"] for c in cases})!=len(cases) or any(not re.fullmatch(r"v2-bulk-note-[0-4]-[0-7]",c["case_id"]) for c in cases):
+                raise ValueError("v2_bulk_cases_required")
+            outside=[e for e in entries[baseline["prefix_length"]:] if e["case_id"] not in {c["case_id"] for c in cases}]
+            if sum(e["role"] in EXTERNAL for e in outside)+len(cases)>POLICY["new_gemini_maximum"]:raise ValueError("v2_bulk_exceeds_envelope")
+            path=self.directory/"v2-bulk-notes.json"
+            if path.exists():
+                if json.loads(path.read_text())!=plan:raise RuntimeError("v2_bulk_plan_changed")
+                self.bulk()
+            else:
+                atomic(path,plan);atomic(self.directory/"v2-bulk-notes-binding.json",dict(sha256=hashlib.sha256(encoded(plan)).hexdigest()))
+
+    def bulk(self):
+        plan=json.loads((self.directory/"v2-bulk-notes.json").read_text())
+        if json.loads((self.directory/"v2-bulk-notes-binding.json").read_text())["sha256"]!=hashlib.sha256(encoded(plan)).hexdigest():raise RuntimeError("v2_bulk_plan_changed")
+        return plan
+
     def accounted(self,entries,baseline):
         total=usd(baseline["prior_accounted_cost_plus_holds_usd"])
         for entry in entries[baseline["prefix_length"]:]:
@@ -143,6 +169,8 @@ class TrainingBudget(CampaignBudget):
                 plan=self.diagnostics();phase="v2_api_diagnostic"
             elif case_id.startswith("v2-wire-pilot-"):
                 plan=self.corrected_pilot();phase="v2_prompt_pilot_corrected"
+            elif case_id.startswith("v2-bulk-note-"):
+                plan=self.bulk();phase="v2_bulk_notes"
             if role!="gemini_data_generation" or model!=POLICY["gemini_model"]:raise RuntimeError("v2_pilot_role_or_model_not_authorized")
             if case_id not in {case["case_id"] for case in plan["cases"]}:raise RuntimeError("v2_undeclared_pilot_case")
             issued=entries[baseline["prefix_length"]:]

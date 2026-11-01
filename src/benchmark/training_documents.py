@@ -68,6 +68,12 @@ def document_text(payload,layout):
     if layout=="json":return json.dumps(payload,ensure_ascii=False,sort_keys=True,separators=(",",":"),allow_nan=False)
     if layout=="plain":
         body=kind.replace("_"," ").title()+"\n"+"\n".join(key.replace("_"," ").title()+": "+str(value) for key,value in sorted(facts.items()))
+    elif layout=="ledger":
+        body="Document register: "+kind.replace("_"," ")+"\nField | Recorded value\n"+"\n".join(key+" | "+str(value) for key,value in sorted(facts.items()))
+    elif layout=="message":
+        body="Subject: "+kind.replace("_"," ")+" details\nThe following particulars apply:\n"+"\n".join("- "+key.replace("_"," ")+" is "+str(value)+"." for key,value in sorted(facts.items()))
+    elif layout=="record_card":
+        body="["+kind.replace("_"," ").upper()+"]\n"+"\n".join(key.replace("_"," ").upper()+" => "+str(value) for key,value in sorted(facts.items()))
     elif layout=="letter":
         if kind=="invoice":body=f"Invoice from {facts['issuer']}\nPayment is outstanding. Please pay {facts['amount']} to {facts['recipient']} by {facts['due_date']} for {facts['subject']}."
         elif kind=="rent_notice":body=f"Rent change notice\nFor the recurring rent payment to {facts['current_payee']}, the amount becomes {facts['new_amount']} effective {facts['effective_date']}. Only the payment amount changes; the recipient remains the same."

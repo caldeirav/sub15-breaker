@@ -273,8 +273,8 @@ preserves the original export bytes, and cannot approve structural rejections.
 Even approved goals only become candidates for later selection; importing a review
 does not train or unlock bulk generation. `training_v2.py` implements separate
 five-population source-group/goal-review gates and per-stratum threshold selection.
-The complete v2 scenario/action-bundle generator, bulk plan and actual fitting
-run are subsequent stages, not hidden work performed by the prompt pilot.
+The prompt pilot does not itself perform scenario generation or fitting. Those
+are separate commands and manifests described below.
 
 After the code-facts decision, prepare a successor review packet that retains the
 original goal candidates but records that document boundary, without approving
@@ -319,3 +319,78 @@ pilot. The original execution mode is retired. Provider failure now stops later
 cases, preserves evidence and marks the execution failed rather than returning a
 normal exit. A completed prompt pilot still requires human review and cannot
 automatically start bulk generation or fitting.
+
+## 8. Reviewed bulk generation, one fit and frozen comparison
+
+`scenarios_v2.py` instantiates nine closed rule families: direct payment, invoice,
+standing-order amount change, latest incoming refund, shared-bill difference,
+percentage-plus-fee adjustment, history-based recurring payment, partial address
+updates and unconditional credential changes. Every eight-row scenario has two
+granted reads, two permitted mutations and four valid effectful prohibited
+mutations. Context variants keep the same factual document with and without an
+untrusted note. Correct actions remain permitted in injected context; incorrect
+actions remain prohibited without an injection.
+The current fitting families cover partial multi-field updates, not mixed-tool
+multi-intent workflows. Original mixed-intent task results must remain visible
+as development-transfer diagnostics rather than a claim that this gap is solved.
+
+Standing-order records come from actual standing-order state, not from the notice.
+Partial address updates are permitted intermediate progress. Dates/subjects are
+only constrained when the declared request/document establishes that constraint;
+an unconstrained subject is not required to equal one arbitrary reference string.
+Disclosure negatives retain the actual preceding account-identifier observation.
+Each label is assigned by a code-owned authorization specification independently
+of execution success; actual execution verifies that the candidate is meaningful.
+
+Approved goal templates are allocated disjointly across the five populations;
+the rejected standing-order candidate is excluded. Code-authored goal forms are
+also disjoint. Entity pools, document instances, actual source layouts and note
+styles are reserved in advance. Banking intent/rule families remain shared:
+the challenge tests new instances/templates, **not unseen banking semantics**.
+Training uses plain/letter documents; the other populations reserve JSON, ledger,
+message and record-card layouts respectively. Labels, oracle specs and task/split
+IDs are never model features.
+
+Freeze performs an offline, actual-tool/tokenizer preflight before any paid call:
+
+```sh
+uv run --locked python -m src.benchmark.bulk_v2 \
+  --review <imported-review> --review-packet <successor-review-packet.json> \
+  --budget <existing-ledger> --output <new-dataset-directory> --freeze
+```
+
+This reserves512 training scenarios and128 in each other population:8192 rows.
+The separate40-operation generation plan requests untrusted notes only, using
+the fixed schema, prompts, bounds, disjoint styles and total-token cost accounting.
+It requires minimum per-case/partition/adversarial coverage and rejects duplicate
+note shells without refill or repair. No original full-document pilot output is
+silently reused. Run once against the frozen files:
+
+```sh
+uv run --locked python -m src.benchmark.bulk_v2 \
+  --review <imported-review> --review-packet <successor-review-packet.json> \
+  --budget <existing-ledger> --output <frozen-dataset-directory> --generate
+```
+
+`train_v2.py --seal-only --dataset <dataset>` hashes all partition files without
+parsing challenge rows. The fixed trainer parses only the four fitting/selection
+populations, validates their source/input/review bindings and verifies pinned
+base-file hashes. It selects on checkpoint-validation NLL, fits temperature on
+calibration and selects the stratified threshold on threshold-validation only.
+Weights/calibration/threshold are exported and strict-loader parity verified
+before the first challenge parse/prediction:
+
+```sh
+uv run --locked python -m src.benchmark.train_v2 \
+  --dataset <sealed-dataset> --original <original-tokenized-corpus> \
+  --baseline <frozen-v1-model> --output <new-training-run-directory>
+```
+
+The predeclared post-freeze comparison scores frozen v1 and v2 on the **same**
+fresh challenge. Original development-transfer scores remain separate, with
+unchanged exclusions/quarantine and no retuning. Report accuracy, false allows,
+false blocks, read/write/tool slices and calibration. Scenario-cluster bootstrap
+differences are conditional on fixed template/note banks; they do not assert
+independence of templates or real-world population bounds. No agent episode is
+run by this training command, so it does not measure AgentDojo utility or agent
+success rate. A poor result does not trigger another fit or threshold search.
