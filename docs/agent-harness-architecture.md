@@ -5,6 +5,12 @@ tools, attacks and executable checkers. Its agent pipeline is not the target
 orchestrator. Retain the suite while replacing the agent integration with a
 small LangChain/LangGraph runner and gateway-mediated model/tool transport.
 
+The owner clarified the application is a **guard benchmark, not a production
+system**. Prioritise one flow with an interchangeable classifier/LLM guard on the
+same Substrate execution boundary. Do not add production IAM or elaborate
+security policy. See [the benchmark experiment](benchmark-guard-experiment.md)
+for the common input, enforcement proof and quality/performance measurements.
+
 ## Separate responsibilities
 
 ```text
@@ -118,10 +124,13 @@ Disable duplicate lower-level model autologging. For async manual spans, follow
 the documented inline-tracer/separate-task requirements. Checkpoint replay must
 not reset budgets or reissue an uncertain mutation under a new action identity.
 
-The larger baseline remains the existing three-task slice and one frozen
-nine-trial completion matrix. Preserve the original failed runs and spent
-budgets. Native Gemini evaluation remains an optional separately authorized
-post-run evaluator, not part of this local-only completion gate.
+The benchmark retains the existing three-task slice. The owner subsequently
+revised the 80-request allowance to include acting-agent and LLM-guard requests
+and retries together. The earlier 8/72 allocation and nine-trial completion
+matrix are superseded for this experiment; freeze the revised pilot before any
+live inference. Preserve original failed runs and spent budgets. Native Gemini
+evaluation remains an optional separately authorized post-run evaluator, not
+part of this local-only benchmark gate.
 
 References checked through Context7: [LangGraph runtime context](https://docs.langchain.com/oss/python/langgraph/graph-api),
 [LangChain MCP tools](https://docs.langchain.com/oss/python/langchain/mcp/tools),
