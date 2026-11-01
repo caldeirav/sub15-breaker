@@ -63,6 +63,13 @@ class Goals(BaseModel):
     goals:list[str]=Field(min_length=8,max_length=8)
 
 
+class APIControl(BaseModel):
+    ok:bool
+
+
+API_CONTROL_PROMPT='Return only JSON with the single field "ok" set to true. This is an API compatibility test, not banking data.'
+
+
 def placeholders(text):return Counter(re.findall(r"\{\{([A-Z_]+)\}\}",text))
 
 
@@ -77,6 +84,7 @@ def template_issues(text,required,*,minimum,maximum):
 
 
 def prompt_for(case):
+    if case["kind"]=="api_control":return API_CONTROL_PROMPT
     family=case["family"]
     if case["kind"]=="goal":return GOAL_PROMPT+"\nOriginal request: "+GOALS[family]
     return CORE+(STRUCTURED if case["variant"]=="structured" else "")+"\nFormat and required fields: "+json.dumps(dict(family=family,**FORMATS[family]),sort_keys=True)
@@ -136,8 +144,13 @@ def generate(budget,frozen,output):
         active["entry"]=budget.reserve(role="gemini_data_generation",case_id=active["case"]["case_id"],trace_id=active["span"].trace_id,
             request=dict(prompt=active["prompt"],protocol_sha256=frozen["protocol_sha256"]),model=POLICY["gemini_model"])
         active["attempts"]=1
+    def receive(response):
+        # SDK exceptions otherwise lose the native error body before validation.
+        response.read()
+        active["http_status"]=response.status_code
+        active["raw_http_response"]=mask(response.text)
     client=genai.Client(api_key=key,vertexai=False,http_options=types.HttpOptions(timeout=60000,
-        retry_options=types.HttpRetryOptions(attempts=1),client_args=dict(trust_env=False,follow_redirects=False,event_hooks={"request":[dispatch]})))
+        retry_options=types.HttpRetryOptions(attempts=1),client_args=dict(trust_env=False,follow_redirects=False,event_hooks={"request":[dispatch],"response":[receive]})))
     try:
         for case in frozen["cases"]:
             with mlflow.start_span(name="v2_prompt_pilot_generation",span_type="LLM") as span:
@@ -146,8 +159,8 @@ def generate(budget,frozen,output):
                 receipt=dict(case_id=case["case_id"],kind=case["kind"],family=case["family"],variant=case["variant"]);cost=None
                 try:
                     response=client.models.generate_content(model="gemini-2.5-flash",contents=prompt,
-                        config=types.GenerateContentConfig(temperature=0.7,max_output_tokens=6144,response_mime_type="application/json",
-                            response_schema=Goals if case["kind"]=="goal" else Documents,
+                        config=types.GenerateContentConfig(temperature=0.7,max_output_tokens=case.get("maximum_output_tokens",6144),response_mime_type="application/json",
+                            response_schema=APIControl if case["kind"]=="api_control" else Goals if case["kind"]=="goal" else Documents,
                             thinking_config=types.ThinkingConfig(thinking_budget=0),automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)))
                     # Save native response and usage before any parsing or acceptance checks.
                     receipt.update(raw_response=mask(response.model_dump(mode="json")),raw_text=mask(response.text))
@@ -158,14 +171,23 @@ def generate(budget,frozen,output):
                         cost=(Decimal(prompt_tokens)*Decimal("0.30")+Decimal(total_tokens-prompt_tokens)*Decimal("2.50"))/Decimal(1000000)
                     if not response.candidates or str(response.candidates[0].finish_reason) not in {"STOP","FinishReason.STOP"}:
                         raise ValueError("incomplete_v2_generation")
-                    valid,invalid=validate_reply(case,response.text);accepted.extend(valid);rejected.extend(invalid)
+                    if case["kind"]=="api_control":
+                        if APIControl.model_validate_json(response.text).ok is not True:raise ValueError("api_control_not_true")
+                        valid=[];invalid=[]
+                    else:valid,invalid=validate_reply(case,response.text)
+                    if not case.get("diagnostic_only"):
+                        accepted.extend(valid);rejected.extend(invalid)
                     receipt.update(accepted=len(valid),rejected=len(invalid),error=None)
-                except Exception as exc:receipt.update(accepted=0,error=type(exc).__name__)
+                except Exception as exc:
+                    receipt.update(accepted=0,error=type(exc).__name__,error_detail=mask(str(exc))[:8192])
                 entry=active.get("entry")
                 if entry:budget.settle(entry["sequence"],accounted_cost_usd=cost,usage_verified=cost is not None)
                 receipt.update(sequence=entry["sequence"] if entry else None,physical_attempts=active["attempts"],accounted_cost_usd=str(cost) if cost is not None else None)
+                receipt.update(http_status=active.get("http_status"),raw_http_response=active.get("raw_http_response"))
                 path=output/(case["case_id"]+".json");path.write_text(json.dumps(receipt,indent=2)+"\n");path.chmod(0o600)
                 span.set_outputs(receipt);mlflow.log_dict(receipt,"attempts/"+path.name);receipts.append(receipt)
+                if receipt["error"] and (active.get("http_status",0)>=400 or "http_status" not in active or case["kind"]=="api_control"):
+                    break  # Do not spend later cases on auth/quota/schema/transport failure.
     finally:client.close()
     return receipts,accepted,rejected
 
@@ -236,6 +258,7 @@ def main():
         packet=dict(schema_version="banking-v2-goal-packet-v1",protocol_sha256=frozen["protocol_sha256"],candidates=goals,document_examples=examples)
         packet["packet_sha256"]=digest(packet)
         summary=dict(run_id=run.info.run_id,attempts=len(receipts),physical_attempts=sum(row["physical_attempts"] for row in receipts),
+            declared_operations=len(frozen["cases"]),unattempted_operations=len(frozen["cases"])-len(receipts),
             accepted_documents=sum("body_template" in row for row in accepted),pending_goal_candidates=sum(not row["issues"] for row in goals),
             rejected_candidates=len(rejected),failed_operations=sum(row["error"] is not None for row in receipts),
             prompt_selection="pending-representative-review",bulk_generation_started=False,training_started=False,

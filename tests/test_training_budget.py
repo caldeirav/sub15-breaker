@@ -55,3 +55,15 @@ def test_v2_budget_detects_pilot_and_historical_changes(tmp_path):
     prior=json.loads((tmp_path/"attempt-0001.json").read_text());prior["spent"]=False
     (tmp_path/"attempt-0001.json").write_text(json.dumps(prior))
     with pytest.raises(RuntimeError,match="historical_ledger_changed"):value.freeze()
+
+
+def test_explicit_api_diagnostics_are_separate_bound_nonrepeatable_cases(tmp_path):
+    from src.benchmark.provider_diagnostic import diagnostic_plan
+    value=budget(tmp_path);definition=plan();value.freeze_pilot(definition)
+    diagnostics=diagnostic_plan(definition);value.freeze_diagnostics(diagnostics)
+    entry=value.reserve(role="gemini_data_generation",case_id="v2-api-diagnostic-minimal",trace_id="diagnostic",model=POLICY["gemini_model"])
+    assert entry["phase"]=="v2_api_diagnostic"
+    with pytest.raises(RuntimeError,match="already_spent"):
+        value.reserve(role="gemini_data_generation",case_id="v2-api-diagnostic-minimal",trace_id="repeat",model=POLICY["gemini_model"])
+    diagnostics["cases"][0]["maximum_output_tokens"]=128
+    with pytest.raises(RuntimeError,match="diagnostic_changed"):value.freeze_diagnostics(diagnostics)

@@ -132,6 +132,12 @@ length bounds and allowed style. Required facts, dates, arithmetic, intended
 recipient and authorization never come from model-generated values. Templates
 are untrusted even if they satisfy the schema.
 
+The concrete fresh-challenge source-group/recipe manifest still needs to be
+reserved before **final** prompt selection and fitting. The pilot uses training-
+only candidates and creates no challenge cases. A prompt choice in the review
+form is a proposed choice; it cannot finalize a prompt, unlock bulk generation or
+substitute for that reservation and the final dataset manifest.
+
 Run a **training-only prompt pilot**, not an unlimited search. Compare a fixed
 generic-style control and the structured prompt on predeclared generation slots.
 Assess required-slot fidelity, usable coverage, duplicate rates, diversity and
@@ -232,3 +238,19 @@ does not train or unlock bulk generation. `training_v2.py` implements separate
 five-population source-group/goal-review gates and per-stratum threshold selection.
 The v2 scenario renderer, bulk plan and actual fitting run are subsequent stages,
 not hidden work performed by the prompt pilot.
+
+### Provider-error diagnostics
+
+Provider request failure is not evidence of poor generated prose. Retain status
+and raw HTTP response **before** the SDK raises, and stop remaining cases on an
+auth/quota/schema/transport failure. Keep the spent reservation/hold even if no
+usable content was returned. Successful SDK-object logging alone misses failures
+that occur before an SDK response object exists.
+
+The owner separately authorized at most two new API controls after the first
+pilot failed at the provider boundary: a minimal structured response, then the
+original schema only if the control succeeds. `provider_diagnostic.py` freezes
+those distinct case IDs against the original pilot and the same v4 policy, and
+excludes all diagnostic content from training. It cannot repeat a spent case or
+automatically rerun the pilot. These calls consume the existing128-operation
+envelope, not a replacement allowance.

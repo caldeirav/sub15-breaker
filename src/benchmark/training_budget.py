@@ -77,6 +77,28 @@ class TrainingBudget(CampaignBudget):
             raise RuntimeError("v2_pilot_changed")
         return plan
 
+    def freeze_diagnostics(self,plan):
+        with self.locked():
+            self.baseline(self.entries())
+            if (plan.get("schema_version")!="banking-v2-api-diagnostic-v1" or
+                    plan.get("parent_pilot_sha256")!=hashlib.sha256(encoded(self.pilot())).hexdigest() or
+                    plan.get("policy_sha256")!=hashlib.sha256(encoded(POLICY)).hexdigest()):
+                raise ValueError("v2_diagnostic_binding_required")
+            if [case.get("case_id") for case in plan.get("cases",[])]!=["v2-api-diagnostic-minimal","v2-api-diagnostic-original-schema"]:
+                raise ValueError("v2_two_named_diagnostics_required")
+            path=self.directory/"v2-api-diagnostic.json"
+            if path.exists():
+                if json.loads(path.read_text())!=plan:raise RuntimeError("v2_diagnostic_changed")
+                self.diagnostics()
+            else:
+                atomic(path,plan);atomic(self.directory/"v2-api-diagnostic-binding.json",dict(sha256=hashlib.sha256(encoded(plan)).hexdigest()))
+
+    def diagnostics(self):
+        plan=json.loads((self.directory/"v2-api-diagnostic.json").read_text())
+        if json.loads((self.directory/"v2-api-diagnostic-binding.json").read_text())["sha256"]!=hashlib.sha256(encoded(plan)).hexdigest():
+            raise RuntimeError("v2_diagnostic_changed")
+        return plan
+
     def accounted(self,entries,baseline):
         total=usd(baseline["prior_accounted_cost_plus_holds_usd"])
         for entry in entries[baseline["prefix_length"]:]:
@@ -91,7 +113,9 @@ class TrainingBudget(CampaignBudget):
 
     def reserve(self,*,role,case_id,trace_id,request=None,model=None):
         with self.locked():
-            entries=self.entries();baseline=self.baseline(entries);plan=self.pilot()
+            entries=self.entries();baseline=self.baseline(entries);plan=self.pilot();phase="v2_prompt_pilot"
+            if case_id.startswith("v2-api-diagnostic-"):
+                plan=self.diagnostics();phase="v2_api_diagnostic"
             if role!="gemini_data_generation" or model!=POLICY["gemini_model"]:raise RuntimeError("v2_pilot_role_or_model_not_authorized")
             if case_id not in {case["case_id"] for case in plan["cases"]}:raise RuntimeError("v2_undeclared_pilot_case")
             issued=entries[baseline["prefix_length"]:]
@@ -100,7 +124,7 @@ class TrainingBudget(CampaignBudget):
                 raise RuntimeError("v2_gemini_budget_exhausted")
             hold=usd(POLICY["gemini_hold_per_operation_usd"])
             if self.accounted(entries,baseline)+hold>usd(POLICY["gemini_cost_cap_usd"]):raise RuntimeError("v2_cost_cap_reached")
-            entry=dict(sequence=len(entries)+1,role=role,case_id=case_id,trace_id=trace_id,phase="v2_prompt_pilot",
+            entry=dict(sequence=len(entries)+1,role=role,case_id=case_id,trace_id=trace_id,phase=phase,
                 model=model,policy_version=POLICY["version"],cost_hold_usd=str(hold),spent=True,reserved_at=time.time(),
                 request_sha256=hashlib.sha256(encoded(request)).hexdigest())
             self._exclusive(self.directory/f"attempt-{entry['sequence']:04d}.json",entry);return entry
