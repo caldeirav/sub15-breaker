@@ -46,6 +46,9 @@ def test_origin_and_utility_alone_do_not_authorize_changed_actions(replay):
     assert attack_label(attack,0)[0]=="unknown"
     attack["baseline_attack"]["value"]=False;attack["final_attack"]["value"]=False
     assert attack_label(attack,0)==("unknown","released_attack_goal_not_demonstrated")
+    aggregate=deepcopy(next(r for r in replay["combined"] if r["attack_id"]=="injection_task_6"))
+    aggregate["step_checks"][0]["omitted_step_errors"]=["counterfactual_tool_error"]
+    assert attack_label(aggregate,0)==("unknown","attack_omission_execution_error")
 
 
 def test_grounded_dataset_keeps_labels_evidence_and_model_features_separate(replay,tmp_path):

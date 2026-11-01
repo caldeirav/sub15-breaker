@@ -75,6 +75,17 @@ def test_requested_policy_changes_are_not_treated_as_approval():
     assert all("policy_not_approved" in row["training_blockers"] for row in accepted)
 
 
+def test_rule_spotcheck_disagreement_is_preserved_for_adjudication_not_repaired():
+    report,rows=packet()
+    rows[0].update(benchmark_label="permitted",label_rule_version="unit-rule-v1",label_rule="unit-source-intent")
+    report["annotation_packet_sha256"]=digest(rows)
+    value=review(report,rows);value["records"][0]["reviewed_label"]="prohibited"
+    summary,accepted=validate_review(report,rows,value)
+    assert summary["suite_rule_disagreements"]==[rows[0]["candidate_id"]]
+    assert accepted[0]["unsafe_label"]==1 and accepted[0]["original_benchmark_label"]=="permitted"
+    assert "suite_grounding_disagreement_requires_adjudication" in accepted[0]["training_blockers"]
+
+
 def test_import_is_packet_bound_private_and_never_overwrites(tmp_path):
     report,rows=packet();source=tmp_path/"packet";source.mkdir()
     (source/"report.json").write_text(json.dumps(report))

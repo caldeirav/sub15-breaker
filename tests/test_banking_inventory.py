@@ -18,6 +18,8 @@ def test_pinned_inventory_is_unlabeled_offline_and_does_not_expand_live_tasks(mo
     assert all(row["label"]=="pending_review" and not row["training_eligible"] for row in rows)
     assert len(summary["all_cross_product_groups"])==1
     assert summary["live_task_ids"]==list(TASKS)
+    assert len(summary["source_file_sha256"])>=5
+    assert all(module.startswith("agentdojo.") for module in summary["source_file_sha256"])
     assert state["user_account"]["password"]=="[WITHHELD]"
     assert any(row["task_id"]=="user_task_2" and row["action"]["arguments"].get("amount")=="1200" for row in rows)
 

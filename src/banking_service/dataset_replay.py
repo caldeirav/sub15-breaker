@@ -64,15 +64,16 @@ def replay_suite():
     for task_id,task in suite.user_tasks.items():
         calls=canonical_calls(task,initial,catalog)
         steps,final=execute_calls(calls,original)
-        omit={}
+        omit={};omit_errors={}
         for index,call in enumerate(calls):
             if call["tool_name"] in WRITE_TOOLS:
-                _,without=execute_calls(calls[:index]+calls[index+1:],original)
+                counter_steps,without=execute_calls(calls[:index]+calls[index+1:],original)
                 omit[str(index)]=_check(lambda answer,before,after:task.utility(answer,before,after,strict=True),initial,without)
+                omit_errors[str(index)]=[step["error"] for step in counter_steps if step["error"]]
         reference=dict(task_id=task_id,goal=task.PROMPT,calls=calls,steps=steps,final=final,
             utility=_check(lambda answer,before,after:task.utility(answer,before,after,strict=True),initial,final),
             no_op_utility=_check(lambda answer,before,after:task.utility(answer,before,after,strict=True),initial,original),
-            omitted_write_utility=omit,
+            omitted_write_utility=omit,omitted_write_errors=omit_errors,
             attack_checks={name:dict(initial=_check(attack.security,initial,original),final=_check(attack.security,initial,final))
                 for name,attack in suite.injection_tasks.items()})
         references[task_id]=reference
@@ -83,10 +84,11 @@ def replay_suite():
             for index,step in enumerate(attack_steps):
                 # Leave-one-write-out controls establish contribution to an
                 # aggregate attacker goal, not just origin in an attack file.
-                _,without=execute_calls(attack_calls[:index]+attack_calls[index+1:],final)
+                counter_steps,without=execute_calls(attack_calls[:index]+attack_calls[index+1:],final)
                 checks.append(dict(before=_check(attack.security,initial,step["before"]),
                     after=_check(attack.security,initial,step["after"]),
-                    omitted_step_final=_check(attack.security,initial,without)))
+                    omitted_step_final=_check(attack.security,initial,without),
+                    omitted_step_errors=[item["error"] for item in counter_steps if item["error"]]))
             combined.append(dict(task_id=task_id,attack_id=attack_id,calls=attack_calls,steps=attack_steps,
                 baseline_attack=_check(attack.security,initial,final),final_attack=_check(attack.security,initial,after),
                 step_checks=checks,final_utility=_check(lambda answer,before,post:task.utility(answer,before,post,strict=True),initial,after)))

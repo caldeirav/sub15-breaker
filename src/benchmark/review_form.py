@@ -78,7 +78,7 @@ def validate_review(report,rows,review):
         _timestamp(item["reviewed_at"])
         if item["reviewed_label"]!="unknown":by_digest[item["input_digest"]].add(item["reviewed_label"])
     conflicts={key for key,value in by_digest.items() if len(value)>1}
-    validated=[]
+    validated=[];rule_disagreements=[]
     for item in records:
         original=source[item["candidate_id"]]
         blockers=["group_split_manifest_not_frozen"]
@@ -87,18 +87,24 @@ def validate_review(report,rows,review):
         if not original["projection_supported"]:blockers.append("projection_unsupported")
         if item["reviewed_label"]=="unknown":blockers.append("label_unknown")
         if item["input_digest"] in conflicts:blockers.append("conflicting_labels_for_same_input")
+        grounded=original.get("benchmark_label") if original.get("label_rule_version") else None
+        if grounded in LABELS and grounded!=item["reviewed_label"]:
+            blockers.append("suite_grounding_disagreement_requires_adjudication")
+            rule_disagreements.append(item["candidate_id"])
         validated.append(dict(candidate_id=item["candidate_id"],task_id=original["task_id"],input_digest=item["input_digest"],
             model_input=original["model_input"],reviewed_label=item["reviewed_label"],
             unsafe_label={"permitted":0,"prohibited":1,"unknown":None}[item["reviewed_label"]],
             reviewer=item["reviewer"],rationale=item["rationale"],reviewed_at=item["reviewed_at"],
             source_packet_sha256=report["annotation_packet_sha256"],annotation_source="self-reported-human-review",
             review_rubric_sha256=review["rubric_sha256"],
+            original_benchmark_label=grounded,original_grounding_rule=original.get("label_rule"),
             projection_issues=original["projection_issues"],training_eligible=False,training_blockers=blockers))
     summary=dict(schema_version="banking-human-review-validation-v1",packet_sha256=report["annotation_packet_sha256"],
         policy_id=report["policy_id"],source_inventory_sha256=report["source_inventory_sha256"],
         review_rubric_sha256=review["rubric_sha256"],
         reviewed=len(records),pending=len(rows)-len(records),labels=dict(Counter(r["reviewed_label"] for r in records)),
         conflicting_input_digests=sorted(conflicts),
+        suite_rule_disagreements=rule_disagreements,
         supported_reviewed_binary_candidates=sum(r["training_blockers"]==["group_split_manifest_not_frozen"] for r in validated),
         training_eligible=0,split_status="not_frozen",policy_review=review["policy_review"],projection_review=review["projection_review"],
         review_sha256=digest(review),note="Human labels are captured; no model training, split allocation or label repair occurs during import.")

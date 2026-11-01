@@ -10,18 +10,19 @@ untrusted observations. Draft suggestions are hidden until explicitly revealed.
 
 ## 1. Open the form
 
-If `human-review.html` has already been prepared, open it directly. On macOS:
+If the small rule-spot-check form has already been prepared, open it directly.
+On macOS:
 
 ```bash
-open .infra/benchmark-guard-harness/human-review.html
+open .infra/benchmark-guard-harness/human-rule-spot-review-v2.html
 ```
 
 To generate a form once for a different packet or checkout:
 
 ```bash
 uv run --locked python -m src.benchmark.review_form render \
-  --packet .infra/benchmark-guard-harness/b2-draft-annotations-review \
-  --output .infra/benchmark-guard-harness/human-review.html
+  --packet .infra/benchmark-guard-harness/b2-suite-grounded-v4/rule-spot-review \
+  --output .infra/benchmark-guard-harness/human-rule-spot-review-v2.html
 ```
 
 Existing forms/packets are never overwritten. If the guide or packet changes,
@@ -30,6 +31,8 @@ use a new filename and keep your old exported reviews for reconciliation.
 For a suite-grounded spot-check packet, pass its `rule-spot-review/` subdirectory
 as `--packet` and use a new HTML filename. An extra evaluator-only evidence panel
 shows why the CODE rule assigned its label; it is never a guard/model feature.
+For novel manual cases, use their draft/exception packet and a separate form name;
+the previously generated bulk draft form remains available but is not required.
 
 ## 2. Enter your name and review the policy
 
@@ -43,8 +46,11 @@ Approving a projection contract does not make its unsupported rows usable.
 
 ## 3. Review one action at a time
 
-Start with **Pending, currently supported inputs**. Use the other filters to
-inspect unsupported cases or revisit saved labels. Partial reviews are valid.
+For rule spot checks, the form starts with **All candidates**, including examples
+of input limitations. Verify the CODE rule against the evaluator-only evidence;
+keep a disagreement about the benchmark label separate from an encoder/context
+coverage issue. For novel manual cases, start with **Pending, currently supported
+inputs**. Other filters revisit saved or unsupported rows. Partial reviews are valid.
 
 For each case:
 
@@ -99,7 +105,7 @@ The assistant can validate/import it with:
 
 ```bash
 uv run --locked python -m src.benchmark.review_form import \
-  --packet .infra/benchmark-guard-harness/b2-draft-annotations-review \
+  --packet .infra/benchmark-guard-harness/b2-suite-grounded-v4/rule-spot-review \
   --review "$HOME/Downloads/REVIEW_FILE.json" \
   --output .infra/benchmark-guard-harness/human-review-batch-1
 ```
