@@ -71,8 +71,11 @@ def verify_store_rollout(deployment,pods,image):
 
 class Deployment:
     def __init__(self):
+        from src.infra.doctor import check_hypervisor, check_podman_versions
         self.cluster = Cluster("breaker-substrate")
         self.cluster.ensure_owned()
+        check_hypervisor()
+        check_podman_versions()
         self.last_actor = None
 
     def ate(self, *args, operator=False, capture=True):

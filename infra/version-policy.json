@@ -15,12 +15,12 @@
     {"name": "gateway-api", "pin": "gateway_api", "repo": "kubernetes-sigs/gateway-api", "line": [1]},
     {"name": "agentgateway", "pin": "agentgateway", "repo": "agentgateway/agentgateway", "line": [1]},
     {"name": "substrate", "pin": "substrate", "repo": "agent-substrate/substrate", "line": [1], "allow_published_rc": true},
-    {"name": "podman-host-baseline", "reviewed_version": "v5.8.1", "repo": "podman-container-tools/podman", "line": [5, 8], "exception_until": "2026-11-08", "exception": "Owner declined shared Podman upgrades on 2026-11-01. Baseline is host and VM 5.8.1, not a claim of current runtime reachability. Maintained patch 5.8.9 is known. Track in #38."}
+    {"name": "podman-host-and-guest", "pin": "podman", "repo": "podman-container-tools/podman", "line": [5, 8]}
   ],
   "manual_release_checks": [
     "Go: https://go.dev/dl/?mode=json; reviewed go1.27.3",
     "LM Studio: official stable changelog; reviewed app 0.4.28+2",
-    "MLX: lms runtime get mlx --list --channel stable; reviewed selected/stable 1.13.1, not proof of each loaded model's effective engine",
+    "MLX: stable listing plus LM Studio process mapping of the versioned libllm_engine.dylib; reviewed mapped runtime 1.13.1",
     "Bundled Substrate runtime/storage/telemetry images: release source and actual digests; do not upgrade components independently without compatibility tests",
     "MLflow: actual configured /version and historical-run readback; reviewed 3.17.2"
   ]
