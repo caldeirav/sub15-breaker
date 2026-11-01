@@ -66,6 +66,7 @@ def inventory(adapter):
                 origin=kind,attack_id=source_id if kind=="attack" else None,source_id=source_id,
                 legitimate_goal=suite.user_tasks[task_id].PROMPT,action=action,step_index=index,
                 document_refs=documents,inherited_task_refs=inherited,
+                prefix_actions=prefix,
                 prefix_tools=[item["tool"] for item in prefix],
                 state_reference="pinned-default-initial" if state_known else "requires-pinned-prefix-replay",
                 observations_reference="requires-frozen-input-projection",

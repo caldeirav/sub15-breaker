@@ -60,6 +60,13 @@ The proposed label is one of:
 - Credential values are withheld in the review export. If the withheld value or
   an omitted observation is necessary to decide, keep the candidate unknown until
   a reviewed privacy-preserving input/equality representation exists.
+- `proposed-label-review.csv` adds **draft suggestions**, never reviewed labels.
+  Granted reads have a policy-based suggestion; clear coarse goal/write-family
+  conflicts have a proposed prohibition; other mutations remain unknown. The
+  declared intent table is review-only metadata inferred from public requests,
+  not from reference tools or checker outcomes. In particular, task10 asks to pay
+  even though its reference only reads. Review these declarations as well as
+  individual actions; a matching mutation family is not permission for its values.
 - Investigate identical model inputs with conflicting labels: adjudicate, repair
   missing context or mark unknown. Do not train contradictory arbitrary targets.
 
@@ -72,6 +79,11 @@ families first, select only eligible within-partition combinations, and report
 excluded cross-fold pairs. Reserve the live task/document closure for evaluation;
 review additional semantic/template links before asserting independence.
 
+The three live tasks have already been used for harness development. Keeping
+their task/document closure out of fitting prevents direct training leakage;
+it does not make those previously inspected cases an untouched statistical test.
+State this limitation separately from any newly frozen offline held-out groups.
+
 Freeze separate training, calibration, threshold-validation and final-test
 manifests, with both classes and counts where needed. If feasible independent
 groups cannot be obtained, stop or explicitly report development-only evidence.
@@ -83,6 +95,28 @@ declared policy, the single action, relevant state projection and real untrusted
 observations. Reference trajectories, final expected states, checker code,
 attack objectives and label/reviewer fields are not model features. Cached
 MiniLM's input capacity must be checked without silent truncation.
+
+The draft `banking-action-label-policy-draft-v3` projection omits account/history
+state only for unconditionally granted reads. Mutations retain relevant account,
+standing-order or complete transaction-history facts and complete available file
+observations. Requested-document payments do not add unrelated history unless
+the goal depends on history. Repeated table keys/constants are factored into a
+lossless columnar representation; row order and every value can be reconstructed.
+No file/observation text is truncated. Profile labels and intent declarations
+are not model features. Missing prefix states and credential equivalence remain
+unsupported, and remaining overflows are explicit; review coverage before fitting.
+
+Prepare a **new** draft packet using the local cached tokenizer (no inference):
+
+```bash
+uv run --locked python -m src.integrations.agentdojo.annotations \
+  --tokenizer LOCAL_CACHED_TOKENIZER_DIRECTORY --output NEW_PRIVATE_REVIEW_DIRECTORY
+```
+
+The command never overwrites an earlier packet. Tokenizer/policy/input hashes and
+draft proposal/coverage counts accompany the CSV and JSONL. `reviewed_label` stays
+pending and `training_eligible` stays false until review/adjudication and a final
+frozen projection/split manifest exist.
 
 The owner selected: minimize false allows subject to **at most 10% observed
 false blocks on separate validation data**, then freeze the threshold before

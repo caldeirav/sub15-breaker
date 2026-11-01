@@ -85,6 +85,8 @@ class CampaignBudget:
         if (baseline["local_spent"]!=sum(e["role"] in LOCAL for e in prefix) or baseline["external_operations"]!=external or
                 usd(baseline["historical_external_hold_usd"])!=external*usd(POLICY["gemini_hold_per_operation_usd"])):
             raise RuntimeError("campaign_baseline_changed")
+        if any(entry.get("policy_version")!=POLICY["version"] for entry in entries[baseline["ledger_prefix_length"]:]):
+            raise RuntimeError("unexpected_post_extension_policy_requires_reconciliation")
         return baseline
 
     def freeze_matrix(self,matrix):
