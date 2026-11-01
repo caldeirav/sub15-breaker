@@ -15,13 +15,53 @@ Pins are in [`infra/versions.json`](../infra/versions.json):
 | Component | Pin |
 | --- | --- |
 | Kind / Kubernetes | v0.33.0 / v1.37.0, node image pinned by digest |
-| kubectl / Helm / Go | v1.37.0 / v3.20.1 / go1.27.3 |
+| kubectl / Helm / Go | v1.37.0 / v3.22.1 / go1.27.3 |
 | Cilium | 1.20.4, kube-proxy retained, Kubernetes IPAM |
 | Gateway API / agentgateway | v1.7.0 / v1.7.0 |
 | Substrate / kubectl-ate | v1.0.0-rc.1, checkout commit pinned |
 | Probe image | Python 3.12 slim Bookworm, multi-architecture digest pinned |
 
 The Kind configuration enables ClusterTrustBundle, ClusterTrustBundleProjection, PodCertificateRequest, and the certificates v1beta1 API required by this Substrate release. It disables the default CNI so Cilium can enforce NetworkPolicy. **Kind must not wait for NodeReady before Cilium installation**: nodes need the CNI to become ready. The script waits after installation instead.
+
+### Version freshness and actual runtime selection
+
+`infra/versions.json` is a reproducibility pin, not proof of freshness or of the
+running component. `infra/version-policy.json` records reviewed compatibility
+lines, review deadlines and explicit temporary exceptions. Check current release
+metadata without installing anything:
+
+```bash
+uv run --locked python -m src.infra.releases
+```
+
+The scheduled **Infrastructure version freshness** workflow performs the same
+read-only check. New versions, expired exceptions, overdue manual release checks
+and unreachable release metadata fail the relevant check; nothing is upgraded
+automatically. A passing freshness check does not certify a running stack or
+authorize an upgrade. Retaining a supported major/minor is deliberate: do not
+silently jump to Helm4, a Kubernetes prerelease or a new Podman major to get a
+larger version number. Host/VM state, image digests and end-to-end capabilities
+must still be observed and tested after changes.
+
+For the Kubernetes profile, the gateway runtime is the controller-managed
+dataplane container, **not** a standalone `agentgateway` executable found on the
+host PATH. Installing a controller does not create model or MCP backends. Check
+the selected dataplane's `/app/agentgateway --version`, serving image digest,
+XDS readiness and current route/backend/policy conditions together.
+
+On macOS/libkrun, Podman and the hypervisor helper have separate versions. The
+preflight now requires an observed **krunkit >=1.3.1** because older helpers have a
+known reboot/control-API issue (Podman #29084 / fix #29101). It checks the running
+helper path where available, not an unrelated binary's version. This minimum is
+only a prerequisite: it is not proof of VM stability. Do not repeatedly restart a
+disappearing VM and call the recovery accepted; retain guest boot/shutdown logs
+and diagnose the event. No provider swap, VM recreation or shared helper upgrade
+is automatic.
+
+The [target-stack review](validation/target-stack-review-2026-11-01.md) records the
+observed reboot, corrected gateway diagnosis and remaining integration gaps.
+Current remediation and the gate before the architecture sprint are owned by
+[issue #38](https://github.com/caldeirav/sub15-breaker/issues/38).
 
 Infrastructure installers necessarily create privileged Kubernetes/Kind components such as Cilium and Substrate's node agent. Those trusted infrastructure processes are not agent sandboxes. The benign probe workloads run nonroot with read-only root filesystems, dropped capabilities, bounded resources, and no ambient Kubernetes service-account token. The gateway additionally uses its chart's explicitly scoped XDS token projection. No arbitrary shell executor is deployed by setup.
 

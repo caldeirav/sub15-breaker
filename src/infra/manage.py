@@ -94,8 +94,9 @@ class Cluster:
                               + VERSIONS["node_image"].encode()).hexdigest()
 
     def create(self):
-        from src.infra.doctor import check_tools, check_provider
+        from src.infra.doctor import check_tools, check_provider, check_hypervisor
         check_tools()
+        check_hypervisor()
         for cmd in ("podman", "kind", "kubectl", "helm"):
             if shutil.which(cmd, path=environment()["PATH"]) is None:
                 raise RuntimeError(f"Missing {cmd}; run bash scripts/install_tools.sh --with-go (install Podman separately)")
@@ -157,7 +158,9 @@ class Cluster:
             cwd=checkout, env=env, timeout=2400)
 
     def verify(self, require_substrate=True):
+        from src.infra.doctor import check_hypervisor
         self.ensure_owned()
+        check_hypervisor()
         (self.directory / "readiness.json").unlink(missing_ok=True)
         self.kubectl("wait", "--for=condition=Ready", "nodes", "--all", "--timeout=180s")
         self.kubectl("rollout", "status", "daemonset/cilium", "-n", "kube-system", "--timeout=180s")

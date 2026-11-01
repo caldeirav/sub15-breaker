@@ -2,6 +2,9 @@
 import argparse
 import json
 import os
+from pathlib import Path
+import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -39,6 +42,32 @@ def check_provider(info):
     print(f"OK Podman {host.get('arch')} / kernel {host.get('kernel')} / cgroup v2 / rootful")
 
 
+def check_hypervisor():
+    """Observe the selected macOS helper, not merely the Podman client version."""
+    if platform.system() != "Darwin":
+        return
+    info = json.loads(run(["podman", "machine", "info", "--format", "json"], capture=True).stdout)
+    if info.get("Host", {}).get("VMType") != "libkrun":
+        return
+    processes = run(["ps", "-Ao", "comm"], capture=True).stdout.splitlines()
+    helpers = {line.strip() for line in processes if line.strip().endswith("/krunkit")}
+    if len(helpers) > 1:
+        raise RuntimeError("Multiple krunkit helpers observed; inspect the selected provider before proceeding")
+    if not helpers:
+        raise RuntimeError("No running libkrun helper observed; host binaries are not proof of the selected runtime")
+    helper = Path(helpers.pop())
+    if not helper.is_file():
+        raise RuntimeError("Cannot observe the selected libkrun helper; do not infer its version from Podman")
+    output = run([helper, "--version"], capture=True).stdout.strip()
+    match = re.fullmatch(r"krunkit (\d+)\.(\d+)\.(\d+)", output)
+    policy = json.loads((ROOT/"infra/version-policy.json").read_text())["libkrun_helper"]
+    minimum = tuple(map(int, policy["minimum_krunkit"].split(".")))
+    if not match or tuple(map(int, match.groups())) < minimum:
+        raise RuntimeError(f"Unsafe/unreviewed libkrun helper: {output}; require krunkit >= {policy['minimum_krunkit']} "
+                           "for the known reboot/control-API issue (#38). No automatic helper upgrade or VM replacement.")
+    print(f"OK selected {output}; version prerequisite only, not VM stability proof")
+
+
 def research_services():
     from dotenv import load_dotenv
     load_dotenv(ROOT / ".env")
@@ -65,6 +94,7 @@ def main():
     args = parser.parse_args()
     try:
         check_tools()
+        check_hypervisor()
         check_provider(json.loads(run(["podman", "info", "--format", "json"], capture=True).stdout))
         if args.cluster:
             from src.infra.manage import Cluster

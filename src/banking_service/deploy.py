@@ -8,6 +8,7 @@ from pathlib import Path
 import secrets
 import socket
 import subprocess
+import tempfile
 import time
 
 import httpx
@@ -83,6 +84,33 @@ class Deployment:
         path = private_json("resources.json", dict(apiVersion="v1", kind="List", items=objects))
         self.cluster.kubectl("apply", "-f", str(path))
 
+    def refresh_credentials(self):
+        """Renew scoped driver tokens without redeploying or replacing durable data."""
+        self.cluster.ensure_owned()
+        require_owned_resources(self.cluster)
+        account = self.cluster.get("serviceaccount", "banking-driver", "-n", NAMESPACE)
+        if any(account["metadata"].get("labels", {}).get(k) != v for k, v in LABELS.items()):
+            raise RuntimeError("Refusing to mint credentials for an unowned banking driver")
+        # Mint both before replacing either file. Tokens never enter argv/logs.
+        values = {}
+        for audience, filename in (("api.ate-system.svc", "platform.token"), (AUDIENCE, "runtime.token")):
+            token = self.cluster.kubectl("create", "token", "banking-driver", "-n", NAMESPACE,
+                f"--audience={audience}", "--duration=1h", capture=True).stdout.strip()
+            if not token or len(token.split(".")) != 3:
+                raise RuntimeError("TokenRequest did not return a JWT")
+            values[filename] = token
+        DIRECTORY.mkdir(parents=True, exist_ok=True, mode=0o700)
+        for filename, token in values.items():
+            with tempfile.NamedTemporaryFile(mode="w", dir=DIRECTORY, delete=False) as stream:
+                pending = Path(stream.name)
+                try:
+                    stream.write(token)
+                    stream.flush()
+                    pending.chmod(0o600)
+                    pending.replace(DIRECTORY/filename)
+                finally:
+                    pending.unlink(missing_ok=True)
+
     def setup(self, image):
         namespaces = self.cluster.get("namespaces")["items"]
         current = next((n for n in namespaces if n["metadata"]["name"] == NAMESPACE), None)
@@ -92,10 +120,7 @@ class Deployment:
         # Namespace ownership does not authorize overwriting unrelated named resources.
         require_owned_resources(self.cluster)
         self.apply([obj("ServiceAccount", "banking-driver", automountServiceAccountToken=False)])
-        for audience, filename in (("api.ate-system.svc", "platform.token"), (AUDIENCE, "runtime.token")):
-            token = self.cluster.kubectl("create", "token", "banking-driver", "-n", NAMESPACE,
-                f"--audience={audience}", "--duration=1h", capture=True).stdout.strip()
-            path = DIRECTORY/filename; path.write_text(token); path.chmod(0o600)
+        self.refresh_credentials()
         spaces = json.loads(self.ate("get", "atespaces", "-o", "json", operator=True).stdout)
         items = spaces.get("atespaces", spaces.get("items", []))
         if not any(x.get("metadata", {}).get("name") == SPACE for x in items):
@@ -258,8 +283,14 @@ class Deployment:
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--image",required=True,help="Digest-bound image preloaded into Kind and available through its local registry")
+    mode=parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--image",help="Digest-bound image preloaded into Kind and available through its local registry")
+    mode.add_argument("--refresh-credentials",action="store_true",help="Renew owned driver tokens only; preserve deployments, keys and state")
     args=parser.parse_args()
+    if args.refresh_credentials:
+        Deployment().refresh_credentials()
+        print("Renewed scoped banking driver credentials; deployments and durable data unchanged.")
+        return
     if "@sha256:" not in args.image:raise SystemExit("A digest-bound image is required")
     Deployment().setup(args.image)
 

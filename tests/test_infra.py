@@ -73,6 +73,7 @@ def test_pinned_cluster_config_supports_certificate_api_and_external_cni():
 def test_cluster_creation_does_not_wait_for_cni_before_installing_it(tmp_path, monkeypatch):
     monkeypatch.setattr(manage, "STATE", tmp_path)
     monkeypatch.setattr(doctor, "check_tools", lambda: None)
+    monkeypatch.setattr(doctor, "check_hypervisor", lambda: None)
     monkeypatch.setattr(doctor, "check_provider", lambda info: None)
     monkeypatch.setattr(manage.shutil, "which", lambda *args, **kwargs: "/fake/tool")
     calls = []

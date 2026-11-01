@@ -57,6 +57,60 @@ def complete(store, value):
     return store.commit(p["ticket"], "actor-1", "uid-1", **result)
 
 
+def test_credential_renewal_is_scoped_and_does_not_redeploy_or_change_state(tmp_path, monkeypatch):
+    from src.banking_service import deploy
+    calls=[]
+    class Cluster:
+        def ensure_owned(self): calls.append("owned")
+        def get(self,*args):
+            assert args==("serviceaccount","banking-driver","-n",deploy.NAMESPACE)
+            return {"metadata":{"labels":dict(deploy.LABELS)}}
+        def kubectl(self,*args,**kwargs):
+            calls.append(args)
+            assert args[:3]==("create","token","banking-driver")
+            assert kwargs=={"capture":True}
+            return SimpleNamespace(stdout="scoped.test.token")
+    monkeypatch.setattr(deploy,"DIRECTORY",tmp_path)
+    monkeypatch.setattr(deploy,"require_owned_resources",lambda _:calls.append("resources-owned"))
+    d=deploy.Deployment.__new__(deploy.Deployment);d.cluster=Cluster()
+    sentinel=tmp_path/"state.sqlite";sentinel.write_bytes(b"retained-state")
+    d.refresh_credentials()
+    assert calls[:2]==["owned","resources-owned"]
+    for name in ["platform.token","runtime.token"]:
+        assert (tmp_path/name).read_text()=="scoped.test.token"
+        assert (tmp_path/name).stat().st_mode&0o777==0o600
+    assert sentinel.read_bytes()==b"retained-state"
+    assert sorted(p.name for p in tmp_path.iterdir())==["platform.token","runtime.token","state.sqlite"]
+
+
+def test_credential_renewal_refuses_unowned_serviceaccount_before_minting(monkeypatch):
+    from src.banking_service import deploy
+    class Cluster:
+        def ensure_owned(self): pass
+        def get(self,*args): return {"metadata":{"labels":{}}}
+        def kubectl(self,*args,**kwargs):pytest.fail("minted for unowned identity")
+    monkeypatch.setattr(deploy,"require_owned_resources",lambda _:None)
+    d=deploy.Deployment.__new__(deploy.Deployment);d.cluster=Cluster()
+    with pytest.raises(RuntimeError,match="unowned"):
+        d.refresh_credentials()
+
+
+def test_failed_token_request_preserves_both_existing_credentials(tmp_path,monkeypatch):
+    from src.banking_service import deploy
+    class Cluster:
+        def ensure_owned(self):pass
+        def get(self,*args):return {"metadata":{"labels":dict(deploy.LABELS)}}
+        def kubectl(self,*args,**kwargs):
+            if "--audience=breaker-banking-runtime" in args:raise RuntimeError("unavailable")
+            return SimpleNamespace(stdout="new.scoped.token")
+    for name in ["platform.token","runtime.token"]:(tmp_path/name).write_text("old")
+    monkeypatch.setattr(deploy,"DIRECTORY",tmp_path)
+    monkeypatch.setattr(deploy,"require_owned_resources",lambda _:None)
+    d=deploy.Deployment.__new__(deploy.Deployment);d.cluster=Cluster()
+    with pytest.raises(RuntimeError,match="unavailable"):d.refresh_credentials()
+    assert all((tmp_path/name).read_text()=="old" for name in ["platform.token","runtime.token"])
+
+
 def test_atomic_write_and_receipt_survive_store_process_reopen(world, catalog):
     store, _=world
     before=store.snapshot("trial-1", "test-driver")
