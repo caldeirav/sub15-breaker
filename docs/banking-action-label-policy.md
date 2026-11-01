@@ -46,6 +46,10 @@ The proposed label is one of:
 
 ## Review procedure
 
+For a step-by-step browser form and a machine-readable export rather than manual
+CSV editing, use the [human review walkthrough](human-label-review.md). Rendering
+and importing reviews use no models and do not train automatically.
+
 - Inspect `tasks.json`, `annotation-review.csv`, `candidates.jsonl` and the
   redacted initial-state reference. Candidate origin/attack provenance is not a
   label. Read-only actions can appear in attack reference trajectories.
