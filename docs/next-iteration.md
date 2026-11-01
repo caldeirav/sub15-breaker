@@ -1,8 +1,10 @@
 # Remaining blocks and recommended next iteration
 
+**Delivery authority:** use [GitHub roadmap #14](https://github.com/caldeirav/sub15-breaker/issues/14) and the owning issues for current status, blockers and the next work item. This file retains contract clarification and dependency/acceptance reference material; it is not a live implementation board.
+
 Block 02's **local banking evaluation harness** was accepted by @caldeirav and merged in [PR #26](https://github.com/caldeirav/sub15-breaker/pull/26) on 2026-10-31. This does not accept a deployed gateway/Actor path, risk model, calibration, agent quality target or latency claim. Preserve the trace/score contract and reuse [AgentDojo's golden environment](golden-data.md). Do not build a generic shell executor or another financial corpus.
 
-## Recommended next PR: block 03a, canonical banking action and trusted context
+## Contract foundation: canonical banking action and trusted context
 
 Focus on **#21 + #9**, with the interface portions of #19/#22/#23. Define the contract before hosting tools or training a model; otherwise admission, mutation and model input will bind different facts.
 
@@ -38,7 +40,7 @@ The owner chose the narrow recommended options. Financial authorization, real ke
 
 | Block | Outcome | Issues |
 | --- | --- | --- |
-| **03a — next** | Canonical action/trusted-context/policy/trace and transaction interfaces. | #21, #9; interfaces #19/#22/#23 |
+| **03a — foundation** | Canonical action/trusted-context/policy/trace and transaction interfaces. | #21, #9; interfaces #19/#22/#23 |
 | **03b** | Actual gVisor Actor-hosted synthetic tool service, isolated state, authenticated reset/cleanup, atomic versions, idempotency and uncertain-write reconciliation. | #1, #23; #3/#10/#22 |
 | **04** | Authenticated fail-closed gateway, exact action/Actor/state binding, no bypass/replay; one authoritative decision. Use deterministic fixture verifiers first. | #4, #6; #21/#9/#23 |
 | **05** | Durable generation-scoped latch, acknowledged stop and authorized recovery; stop is not rollback. | #7 |

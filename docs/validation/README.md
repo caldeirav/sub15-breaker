@@ -30,6 +30,8 @@ Block 03a's [record-only implementation](../banking-contracts-03a.md) followed e
 
 The publication guard is an attestation-field check, not proof that a test was performed:
 
+The [Actor service record](block-03b.json) and [inspection guide](block-03b-service.md) retain its runtime/live evidence and blocking conditions. Follow [#1](https://github.com/caldeirav/sub15-breaker/issues/1), [#23](https://github.com/caldeirav/sub15-breaker/issues/23) and [serving issue #28](https://github.com/caldeirav/sub15-breaker/issues/28) for delivery decisions; passing runtime controls must not silently waive the failed non-fault live gate.
+
 ```bash
 uv run --locked python -m src.infra.gate docs/validation/block-02.json
 ```

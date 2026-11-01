@@ -1,5 +1,7 @@
 # Implementation plan: end-to-end simulated banking (`banking-v1`)
 
+**Current delivery status and next work belong in [GitHub roadmap #14](https://github.com/caldeirav/sub15-breaker/issues/14) and its owning issues.** This document is the technical dependency/acceptance reference. Baseline counts and delivery statements below describe their cited validation revisions, not a continuously updated release ledger; do not copy them into the root README as project status.
+
 Reconciled 2026-10-31 against code, independent agent review, actual MLflow evidence and all open GitHub issues. [Scope](project-scope.md), [specification](../specs/001-breaker.md), [roadmap #14](https://github.com/caldeirav/sub15-breaker/issues/14). The earlier generic Bash execution/corpus plan is superseded for new implementation. Legacy modules remain compatibility scaffolding, not an already migrated banking runtime.
 
 **Delivered baseline:** [PR #26](https://github.com/caldeirav/sub15-breaker/pull/26) merged accepted block 02 with 145 baseline tests and Python 3.11–3.13 CI. Its harness-v3 assessment, 2/3 benign quality and historical source statuses are unchanged. The owner subsequently confirmed [block-03a requirements](banking-contracts-03a.md) before coding; the shared record-only implementation now has 228 tests and 26 matched CODE fixtures with independent technical approval and **fresh human acceptance by @caldeirav on 2026-10-31**. This is not an actual banking execution boundary.

@@ -1,0 +1,54 @@
+{
+  "block": "03b-actor-backed-synthetic-banking-service",
+  "scope": "controlled-gvisor-tools-external-transactional-state-receipts-durable-outbox-and-opt-in-live-adapter",
+  "handoff": {
+    "status": "owner_authorized_draft_pr",
+    "date": "2026-11-01",
+    "evidence": "Owner explicitly requested: I propose we close what we have now with a PR, raising remaining problems as new GitHub issues. This authorizes a bounded draft handoff with known open gates, not a new passing manual-test claim or a merge. Remaining target-path acceptance is tracked in issue #29; serving failure remains #28. Original FAILED statuses and manual/automated results below are unchanged.",
+    "carryover_issue": "https://github.com/caldeirav/sub15-breaker/issues/29"
+  },
+  "requirements": {
+    "status": "confirmed",
+    "evidence": "Owner selected all 11 tools plus opt-in live agent, durable commits/retained receipts, fresh Actor/generation reset, scoped additive deployment and durable evidence outbox. After pinned-runtime storage clarification, owner approved an external single-writer SQLite/PVC state/receipt service, canonical decimal-string tool schemas and a budget of three local trials plus twelve paid native Gemini criterion reviews. Owner separately authorized recovery of the same VM unchanged and exactly one diagnostic-only local replay, with no tools or Gemini."
+  },
+  "automated": {
+    "status": "pending",
+    "evidence": "Offline tests and 23/23 actual-Actor runtime controls pass, but the predeclared non-fault live gate remains FAILED in f3d8498e82f94d7aadd36404e34c829b: rent encountered a local LM Studio HTTP 500 tool-parser error. Full trace audit, 71 durable events and 12/12 native Gemini citations/agreements pass; bill/address utility=true and rent=false are unchanged. One separately authorized diagnostic replay 0009aa95aee848bab7bae3dce0a9524e reproduced the parser error without executing tools or calling Gemini. Follow issue #28; no implicit gate waiver or fresh inference budget."
+  },
+  "runtime_controls": {
+    "status": "passed",
+    "run_id": "649504e7c52c4f05ae39f1b8e5b96d2c",
+    "evidence": "23 exact controls; 51 durably exported events with strict typed/owned CODE readback; 14 claimed attempts and 13 completed results including one expected pre-computation crash. Actual gVisor assignments/worker UIDs/logs and five passing UID/GID10001, cap0, no_new_privs, no ambient Kubernetes-token probes. Cross-trial denial with healthy positive, fresh-generation reset/retained receipts, store-pod restart, exporter outage and before/after-commit crashes verified. All seven backend source snapshots match."
+  },
+  "offline_tests": {
+    "status": "passed",
+    "count": 282,
+    "service_tests": 54,
+    "evidence": "Final local Python 3.12 suite via bash scripts/test.sh. Supported-version GitHub PR CI has not run for this unpublished feature."
+  },
+  "independent_agent_review": {
+    "status": "passed",
+    "reviewer": "Read-only agent session ses_e6d84525fffeMOgaJR7APJ67GN",
+    "date": "2026-11-01",
+    "evidence": "Scoped source/evidence review approved after confirmed findings received regressions; not overall 03b acceptance. Reviewer independently verified 54 service tests, 23 runtime case roots/51 durable events/five assignments/probes/seven backend snapshots, the FAILED live run with 71 reconciled events and seven matching receipts, all twelve native reviews (8 satisfied, 4 insufficient_evidence) with valid provenance/agreement, and the single diagnostic reproducing HTTP500 with no tool/judge spans. All 28 derived receipt columns pass strict owned readback/idempotence. Automated live gate #28 and human acceptance remain pending."
+  },
+  "manual": {
+    "status": "pending",
+    "evidence": "No finished-feature human acceptance reported. Prior block-03a acceptance is not reused. Follow docs/validation/block-03b-service.md; automated live gate and issue #28 remain unresolved. The owner's later explicit direction authorizes an interim draft PR handoff only, tracked separately above and in #29; it does not satisfy the full publication guard or authorize merge."
+  },
+  "regressions": {
+    "status": "passed",
+    "evidence": "Interrupted-generation recovery/reservation release; stable lost-prepare/lost-commit and two-hop HTTP error reconciliation; stop on unresolved effects; password-only change truth; atomic rollback and abrupt-process WAL recovery; partial-feedback repair/fresh two-score readback; exact-capacity export; numeric-boolean rejection; bounded incomplete HTTP headers; unowned policy/pool refusal; actual ready-pod rollout/image/ownership and service-route checks; Gemini-only budget/exclusive reservations; no successful summary before export; exact public-schema diagnostic reconstruction."
+  },
+  "documentation": {
+    "status": "passed",
+    "evidence": "Root README restores motivation, architecture/trust boundaries, component rationale, calibration math, evaluation/latency definitions and usage without implementation-status ledgers. Roadmap #14 and issues #1/#23/#28 track delivery and blockers. Service, trace, specification and manual-review guides document the external state boundary, local-profile limits and retained failures."
+  },
+  "limitations": [
+    "Controlled driver and native Substrate ingress, not authoritative agentgateway A/B admission or financial policy",
+    "Local single-writer PVC durability, not HA or node/VM/disk-loss recovery",
+    "Scoped platform JWT identity; local cluster HTTP segment is not a production end-to-end encryption claim",
+    "No real bank, payment, generic shell executor, learned risk model, calibration or latency claim",
+    "Original live budget and one diagnostic replay are consumed; no automatic resampling or output repair"
+  ]
+}
