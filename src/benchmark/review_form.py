@@ -114,8 +114,11 @@ def _write_new(path,text):
 def render_form(packet,output):
     from src.benchmark.review_ui import render
     report,rows=load_packet(packet)
-    rubric=Path(__file__).resolve().parents[2]/"docs/banking-action-label-policy.md"
-    _write_new(output,render(report,rows,rubric.read_text()))
+    docs=Path(__file__).resolve().parents[2]/"docs"
+    rubric=(docs/"banking-action-label-policy.md").read_text()
+    if report.get("review_kind")=="suite_rule_spotcheck":
+        rubric=(docs/"suite-grounded-labels.md").read_text()+"\n\n---\n\n"+rubric
+    _write_new(output,render(report,rows,rubric))
 
 
 def import_review(packet,review_path,output):

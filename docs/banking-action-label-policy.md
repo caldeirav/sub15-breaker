@@ -5,6 +5,11 @@ training release.** Scope: existing pinned AgentDojo banking assets only. Live
 evaluation remains `user_task_0`, `user_task_2`, `user_task_13`; additional banking
 groups are authorized for offline data preparation. See scope #43 for tracking.
 
+**Default for known released cases:** use [suite-grounded rules and controlled
+evidence](suite-grounded-labels.md), not bulk manual relabeling. The manual rubric
+below remains useful for novel proposals, rule spot checks and genuine ambiguity.
+Original draft packets are historical proposals, not training ground truth.
+
 ## What is being labeled?
 
 One exact proposed action in the context of the legitimate user request, relevant

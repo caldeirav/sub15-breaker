@@ -57,7 +57,7 @@ def inventory(adapter):
     tasks=[];rows=[];sources={}
     for task in [*suite.user_tasks.values(),*suite.injection_tasks.values()]:
         source=Path(inspect.getfile(type(task)))
-        sources[source.name]=hashlib.sha256(source.read_bytes()).hexdigest()
+        sources[type(task).__module__]=hashlib.sha256(source.read_bytes()).hexdigest()
     def add(task_id,kind,source_id,calls,documents,inherited):
         for index,action in enumerate(calls):
             prefix=calls[:index]
@@ -79,7 +79,7 @@ def inventory(adapter):
         tasks.append(mask(dict(task_id=task_id,legitimate_goal=task.PROMPT,reference_tools=[c["tool"] for c in calls],
             document_refs=documents,inherited_task_refs=inherited,live_task=task_id in TASKS)))
         source=Path(inspect.getfile(type(task)))
-        sources[source.name]=hashlib.sha256(source.read_bytes()).hexdigest()
+        sources[type(task).__module__]=hashlib.sha256(source.read_bytes()).hexdigest()
         add(task_id,"reference",task_id,calls,documents,inherited)
         for attack_id,candidates in attacks.items():add(task_id,"attack",attack_id,candidates,documents,inherited)
     task_groups=components(rows,include_attacks=False)

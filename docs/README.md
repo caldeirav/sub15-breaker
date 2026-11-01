@@ -22,6 +22,7 @@ The supported research domain is **AgentDojo simulated banking**. The local harn
 | [Guard benchmark](benchmark-guard-experiment.md) | One flow, common Substrate guard boundary, compact neural classifier versus LLM, labels and fair timing |
 | [Action-label review](banking-action-label-policy.md) | Draft policy, pending annotation packet, input/split feasibility and label-review gates before training |
 | [Human review walkthrough](human-label-review.md) | Offline browser form, saved reviewer/rationale decisions, JSON export/resume and validated training handoff |
+| [Suite-grounded labels](suite-grounded-labels.md) | Default CODE labels from released trajectories and controlled effects, exact prefix materialization and small rule/exception spot checks |
 | [Legacy compatibility](legacy-compatibility.md) | Old modules/examples that are not the supported banking path |
 | [Documentation alignment audit](documentation-audit.md) | What was reviewed/corrected, immutable evidence and validation boundaries |
 

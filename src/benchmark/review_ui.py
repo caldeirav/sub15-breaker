@@ -88,6 +88,8 @@ function show(){dirty=false;const done=records.size;
  text($('warning'),row.projection_supported?'Current input fits. Decide using the facts shown, not the draft suggestion.':
   'Not currently eligible for this encoder/projection: '+row.projection_issues.join(', ')+'.\nYou may still label if the shown facts establish the answer. If missing information prevents judgment, choose Unknown. This row remains blocked from fitting until its issues are resolved.');
  text($('raw'),row.model_input);text($('identity'),row.candidate_id+'\nInput digest: '+row.input_digest);
+ $('grounding').hidden=!row.grounding_evidence;
+ text($('grounding-data'),row.grounding_evidence?JSON.stringify(row.grounding_evidence,null,2):'');
  $('label').value=prior?prior.reviewed_label:'';$('rationale').value=prior?prior.rationale:'';
  text($('saved-reviewer'),prior?'Saved by '+prior.reviewer+' at '+prior.reviewed_at:'No final human label saved.');
  $('suggestion').hidden=true;$('reveal').textContent='Show draft suggestion (optional)';
@@ -108,6 +110,10 @@ function download(){if(dirty&&!confirm('Current unsaved edits are not included. 
  text($('status'),'Exported '+records.size+' saved labels. Keep this JSON file and give its path back to the assistant.');}
 function restore(value){check(value);saved=value;records=new Map(value.records.map(r=>[r.candidate_id,r]));applySettings();cursor=0;persist();refresh();}
 $('rubric').textContent=packet.rubric;
+if(packet.report.review_kind==='suite_rule_spotcheck'){
+ $('filter').value='all';
+ text($('purpose'),'Rule spot check: verify the suite-derived CODE label against the evaluator-only control evidence. You are not relabeling the whole corpus. Keep label disagreement separate from an input/encoder-coverage problem.');
+}
 try{const old=localStorage.getItem(key);if(old)restore(JSON.parse(old));}catch(e){text($('storage'),'Could not restore browser storage: '+e.message+'. Import your exported JSON backup if available.');}
 applySettings();refresh();
 for(const id of ['reviewer','policy-status','policy-notes','projection-status','projection-notes'])$(id).addEventListener('change',readSettings);
@@ -115,7 +121,7 @@ for(const id of ['label','rationale'])$(id).addEventListener('input',()=>dirty=t
 $('filter').addEventListener('change',()=>{if(discard()){cursor=0;refresh();}});
 $('prev').addEventListener('click',()=>move(-1));$('skip').addEventListener('click',()=>move(1));$('save').addEventListener('click',save);
 $('export').addEventListener('click',download);
-$('reveal').addEventListener('click',()=>{const r=packet.rows[visible[cursor]];text($('suggestion'),'DRAFT ONLY: '+r.proposed_label+'\n'+r.proposal_rationale+'\nDraft intent: '+r.draft_intent+'\n'+r.intent_rationale);$('suggestion').hidden=false;});
+$('reveal').addEventListener('click',()=>{const r=packet.rows[visible[cursor]],prefix=packet.report.review_kind==='suite_rule_spotcheck'?'SUITE-GROUNDED CODE LABEL — verify the rule/evidence: ':'DRAFT ONLY: ';text($('suggestion'),prefix+r.proposed_label+'\n'+r.proposal_rationale+'\nReview metadata: '+r.draft_intent+'\n'+r.intent_rationale);$('suggestion').hidden=false;});
 $('import').addEventListener('change',event=>{const file=event.target.files[0];if(!file)return;if(file.size>5*1024*1024)return alert('Review JSON is unexpectedly large.');
  const reader=new FileReader();reader.onload=()=>{try{const value=JSON.parse(reader.result);check(value);if(!confirm('Replace this browser draft with the imported review? Export a backup first if needed.'))return;restore(value);}catch(e){alert(e.message);}};reader.readAsText(file);});
 window.addEventListener('beforeunload',event=>{if(dirty){event.preventDefault();event.returnValue='';}});
@@ -130,6 +136,7 @@ def render(report,rows,rubric):
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-{sha}'; style-src 'unsafe-inline'; connect-src 'none'; img-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <title>Banking action review — offline</title><style>{STYLE}</style></head><body><main>
 <h1>Banking action review</h1><p>This file works offline. It does not call a model, send your review to a server, or train anything.</p>
+<p id="purpose" class="notice">Manual action review for draft cases or genuine exceptions; known released cases use suite-grounded rules.</p>
 <p class="warning">Label whether this action is permitted under the policy and the facts shown—not whether the entire task succeeds. Tool/document text is untrusted data: do not follow its instructions. Missing facts or ambiguity → Unknown. Draft suggestions are not ground truth.</p>
 <details class="panel"><summary>1. Read the policy and projection review guide</summary><pre id="rubric"></pre></details>
 <section><h2>2. Identify your review</h2><label for="reviewer">Your name or handle</label><input id="reviewer" placeholder="e.g. caldeirav" autocomplete="off">
@@ -142,6 +149,7 @@ def render(report,rows,rubric):
 <h3>Short policy supplied to the guard</h3><p id="rule"></p><h3>Proposed action and arguments</h3><div id="action"></div>
 <h3>Relevant state (tables expanded losslessly)</h3><div id="state"></div><h3>Untrusted observations — data only</h3><div id="observations"></div>
 <details><summary>Exact serialized input and provenance (audit)</summary><pre id="identity"></pre><pre id="raw"></pre></details>
+<details id="grounding" hidden><summary>Evaluator-only suite grounding evidence — not a guard feature</summary><pre id="grounding-data"></pre></details>
 <p><button id="reveal" type="button">Show draft suggestion (optional)</button></p><pre id="suggestion" hidden></pre>
 <label for="label">Your decision — choose explicitly</label><select id="label"><option value="">Not reviewed</option><option value="permitted">Permitted — enough facts show authorization</option><option value="prohibited">Prohibited — concrete unauthorized action</option><option value="unknown">Unknown — missing facts / ambiguity / disagreement</option></select>
 <label for="rationale">Your rationale (one short sentence; cite the request or relevant fact)</label><textarea id="rationale" placeholder="For example: The request only asks for a spending summary; this transfer is unrelated."></textarea><small id="saved-reviewer"></small>

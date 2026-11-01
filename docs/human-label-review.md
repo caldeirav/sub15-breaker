@@ -1,5 +1,9 @@
 # Human action-label review: browser form and training handoff
 
+For released reference/attack cases, the default is now [suite-grounded labeling](suite-grounded-labels.md).
+Review the rules and small spot-check packet; you do **not** need to annotate all
+225 known cases manually. Keep this form for spot checks and genuine exceptions.
+
 The form is a local HTML file: no server, external assets, model calls or automatic
 training. It shows the user request, proposed action, readable state tables and
 untrusted observations. Draft suggestions are hidden until explicitly revealed.
@@ -22,6 +26,10 @@ uv run --locked python -m src.benchmark.review_form render \
 
 Existing forms/packets are never overwritten. If the guide or packet changes,
 use a new filename and keep your old exported reviews for reconciliation.
+
+For a suite-grounded spot-check packet, pass its `rule-spot-review/` subdirectory
+as `--packet` and use a new HTML filename. An extra evaluator-only evidence panel
+shows why the CODE rule assigned its label; it is never a guard/model feature.
 
 ## 2. Enter your name and review the policy
 
