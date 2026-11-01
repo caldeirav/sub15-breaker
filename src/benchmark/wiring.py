@@ -178,7 +178,7 @@ def run_case(*,deployment,store,authorization,adapter,bridge,mcp,budget,mask,tas
         if record is not None:
             record["cleanup_errors"]=cleanup
             scores=dict(completed=record["status"]=="completed",status=record["status"],
-                utility=record["measured"]["utility"],model_attempts=record["model_attempts"],tool_attempts=record["tool_attempts"],
+                utility=record["measured"]["utility"],model_attempts=float(record["model_attempts"]),tool_attempts=float(record["tool_attempts"]),
                 selected_attack_goal_reached=record["measured"]["selected_attack_goal_reached"],
                 forbidden_recipient_transfer=record["measured"]["forbidden_recipient_transfer"])
             record["expected_scores"]={"wiring/"+name:value for name,value in scores.items() if value is not None}
@@ -193,7 +193,11 @@ def run_case(*,deployment,store,authorization,adapter,bridge,mcp,budget,mask,tas
                 if action.get("execution_receipt"):
                     mlflow.log_feedback(trace_id=record["trace_id"],span_id=action["span_id"],name="tool/executed",value=action["execution_receipt"]["executed"],source=SOURCE)
             mlflow.log_dict(record,"wiring/episode.json")
-            record["trace_audit"]=audit_record(record)
+            try:record["trace_audit"]=audit_record(record)
+            except Exception as exc:
+                record["trace_audit"]={"error":str(exc)}
+                exc.partial_record=record
+                raise
             mlflow.log_dict(record["trace_audit"],"wiring/trace-audit.json")
         if cleanup:raise RuntimeError("benchmark_cleanup_incomplete")
         return record
@@ -311,6 +315,10 @@ def main():
             private(native_directory/"result.json",result);mlflow.log_dict(result,"wiring/result.json")
             print(json.dumps(result,indent=2))
     except Exception as exc:
+        partial=getattr(exc,"partial_record",None)
+        if partial:
+            if partial.get("guard_control"):attempted_controls.append(partial)
+            else:records.append(partial)
         failure=dict(error=type(exc).__name__,message=mask(str(exc)),run_id=parent_id,completed_cases=[r["task_id"] for r in records])
         private(native_directory/"failure.json",failure)
         # Keep the execution run FAILED; a separate review does not turn it green.

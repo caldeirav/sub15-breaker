@@ -117,3 +117,14 @@ def test_trace_audit_accepts_untyped_imported_gateway_spans(monkeypatch):
     monkeypatch.setattr("src.benchmark.wiring.mlflow.get_trace",lambda trace_id:S(data=S(spans=spans),info=S(trace_id=trace_id)))
     result=audit_record(dict(trace_id="trace",evidence=dict(actions=[]),model_attempts=0,guard_control="allow"))
     assert result["span_types"]==["AGENT","UNKNOWN"] and result["orphan_count"]==0
+
+
+def test_trace_audit_validates_mlflow_numeric_scores_as_doubles(monkeypatch):
+    from types import SimpleNamespace as S
+    from src.benchmark.wiring import audit_record
+    span=S(span_id="root",parent_id=None,span_type="AGENT",name="root")
+    assessment=S(name="wiring/model_attempts",value=0.0,span_id=None,
+        source=S(source_type="CODE",source_id="benchmark-wiring-v1"))
+    monkeypatch.setattr("src.benchmark.wiring.mlflow.get_trace",lambda trace_id:S(data=S(spans=[span]),info=S(trace_id=trace_id,assessments=[assessment])))
+    assert audit_record(dict(trace_id="trace",evidence=dict(actions=[]),model_attempts=0,
+        guard_control="allow",expected_scores={"wiring/model_attempts":0.0}))["root_count"]==1
