@@ -186,6 +186,15 @@ uv run --locked python -m src.benchmark.wiring \
 uv run --locked python -m src.benchmark.wiring --live
 ```
 
+The reservation ledger is persistent. Do not delete it or repeat cases to obtain
+a desired result. After an audit-only reporting fix, a completed, reconciled
+`user_task_0` canary can be re-audited with
+`--reuse-completed-case-run <original-case-run-id>`; its model/tool actions are
+not repeated, the original failed run remains unchanged, and the new suite
+record cites the source evidence. Client and gateway `CHAT_MODEL` spans describe
+two layers of the same dispatch, not two model requests. Their parentage is
+checked separately against the physical HTTP dispatch count.
+
 The command temporarily attaches the additional native Envoy filter and restores
 its prior configuration on exit. A separate benchmark MCP route uses the existing
 managed gateway; the bridge delegates only to the real Actor/store, never a host
