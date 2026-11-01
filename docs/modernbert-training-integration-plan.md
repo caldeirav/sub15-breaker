@@ -1,5 +1,8 @@
 # ModernBERT + hybrid data: sequential validation plan
 
+The first artifact remains frozen. See [the v2 protocol](modernbert-v2-protocol.md)
+for the owner-approved redesign and separately gated prompt/semantic-review pilot.
+
 Execution tracking is in #43 / draft PR #44. This is the technical sequence, not
 a promise that an untrained checkpoint or successful fixture is a safety guard.
 

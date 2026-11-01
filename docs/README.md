@@ -24,6 +24,7 @@ The supported research domain is **AgentDojo simulated banking**. The local harn
 | [Human review walkthrough](human-label-review.md) | Offline browser form, saved reviewer/rationale decisions, JSON export/resume and validated training handoff |
 | [Suite-grounded labels](suite-grounded-labels.md) | Default CODE labels from released trajectories and controlled effects, exact prefix materialization and small rule/exception spot checks |
 | [ModernBERT training/integration sequence](modernbert-training-integration-plan.md) | Encoder compatibility, conditional hybrid augmentation, no-fit transfer holdout, training/calibration/test and real native A/B gates |
+| [ModernBERT v2 protocol](modernbert-v2-protocol.md) | Structured prompt pilot, human-vetted goal paraphrases, broader authorization scenarios, fresh challenge and separate read/write quality gates |
 | [Legacy compatibility](legacy-compatibility.md) | Old modules/examples that are not the supported banking path |
 | [Documentation alignment audit](documentation-audit.md) | What was reviewed/corrected, immutable evidence and validation boundaries |
 

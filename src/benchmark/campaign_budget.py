@@ -92,6 +92,7 @@ class CampaignBudget:
     def freeze_matrix(self,matrix):
         """Call after input/data/artifact gates, not merely to unlock more calls."""
         with self.locked():
+            if (self.directory/"policy-v4.json").exists():raise RuntimeError("campaign_superseded_by_training_v4")
             self._baseline(self.entries())
             for key in ("policy_id","input_version","dataset_manifest_sha256","artifact_manifest_sha256"):
                 if not isinstance(matrix.get(key),str) or not matrix[key]:raise ValueError("matrix_binding_required")
@@ -135,6 +136,7 @@ class CampaignBudget:
     def freeze_generation_plan(self,plan):
         """A pre-training scope extension, not a fabricated model-artifact gate."""
         with self.locked():
+            if (self.directory/"policy-v4.json").exists():raise RuntimeError("campaign_superseded_by_training_v4")
             entries=self.entries();self._baseline(entries)
             if plan.get("schema_version")!="banking-hybrid-generation-plan-v1" or plan.get("parent_policy_sha256")!=hashlib.sha256(encoded(POLICY)).hexdigest():
                 raise ValueError("generation_parent_policy_required")
@@ -179,6 +181,7 @@ class CampaignBudget:
 
     def reserve(self,*,role,case_id,trace_id,request=None,model=None):
         with self.locked():
+            if (self.directory/"policy-v4.json").exists():raise RuntimeError("campaign_superseded_by_training_v4")
             entries=self.entries();baseline=self._baseline(entries)
             if role=="gemini_data_generation":
                 if not (self.directory/"generation-plan-v1.json").exists():raise RuntimeError("generation_plan_not_frozen")
