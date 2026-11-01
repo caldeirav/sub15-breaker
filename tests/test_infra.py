@@ -289,6 +289,15 @@ def test_publication_gate_never_infers_human_acceptance():
     assert gate.failures(dict(manual=[]))
 
 
+def test_infrastructure_draft_handoff_does_not_pass_full_or_manual_acceptance():
+    record=json.loads((ROOT/"docs/validation/target-stack-repair-2026-11-01.json").read_text())
+    assert record["handoff"]["status"]=="owner_authorized_draft_pr"
+    assert record["handoff"]["merge_authorized"] is False
+    problems=gate.failures(record)
+    assert any(p.startswith("automated:") for p in problems)
+    assert any(p.startswith("manual:") for p in problems)
+
+
 @pytest.mark.parametrize("status", [" M cmd/ate-setup/main.go", "?? cmd/ate-setup/injected.go", "!! cmd/ate-setup/ignored.go"])
 def test_installer_refuses_modified_untracked_or_ignored_source(tmp_path, monkeypatch, status):
     calls = []

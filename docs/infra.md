@@ -68,6 +68,15 @@ Current remediation and the gate before the architecture sprint are owned by
 
 ## Qualify the managed model/tool infrastructure
 
+The owner has deferred the two-hour reliability window to
+[#39](https://github.com/caldeirav/sub15-breaker/issues/39). The strict full
+workflow below remains available and has not been relabeled as passed. It is
+not the critical path for the next functional harness slice. That slice must
+still check current component identity/configuration, auth, gateway protocol,
+budgets and persisted telemetry. Real model serving is not yet proved on this
+path; prioritise a bounded canary on the new harness rather than duplicating a
+standalone model campaign. See the [runtime/harness boundaries](agent-harness-architecture.md).
+
 These commands target the **existing** Kubernetes gateway and owned cluster.
 They do not install a standalone gateway or enable an unrestricted executor.
 The gateway uses port8080 for the authenticated local-model Responses endpoint

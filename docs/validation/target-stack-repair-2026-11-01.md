@@ -6,9 +6,14 @@ This supersedes the earlier preparation-only Podman boundary. It does not
 authorize VM replacement, deletion of retained data, paid providers or a passing
 manual-test assessment.
 
-**Qualification is pending the full provider window and local serving probe.**
-The target doctor intentionally fails until the complete qualification is
-recorded. No architecture-sprint acceptance or financial-policy claim is made.
+**Owner-authorized draft handoff.** The owner subsequently requested publishing
+this work and moving the two-hour window to [#39](https://github.com/caldeirav/sub15-breaker/issues/39).
+The monitor was interrupted at that request; its original timeline, trace,
+`passed=false / KeyboardInterrupt` result and MLflow lifecycle status are retained.
+No stability pass or new provider fault is inferred. The real local serving probe
+has not run. The strict full-qualification doctor still fails until its full
+evidence exists; it has not been weakened to manufacture a pass. The deferred
+window is no longer a dependency of the next functional harness slice.
 
 ## Applied versions and preservation
 
@@ -47,14 +52,14 @@ recorded. No architecture-sprint acceptance or financial-policy claim is made.
 
 | Check | Evidence / scope |
 | --- | --- |
-| Offline regressions | **344 pass**; includes version coherence, loaded-executable identity, protocol/resource invariants, budget persistence, short-window rejection, secret/schema handling and qualification scope/freshness |
+| Offline regressions | **345 pass on each of Python3.11,3.12,3.13** on the handoff diff; includes version coherence, loaded-executable identity, protocol/resource invariants, budget persistence, short-window rejection, secret/schema handling and qualification scope/freshness |
 | Foundation | Passed after dependency-aware startup checks; authenticated Substrate API read required |
 | Network controls | **6/6**, including positive controls after negative paths |
 | Gateway enforcement | **20/20**, including authorizer outage/recovery, exact forwarding and direct backend denial |
 | Actual gVisor/Actor controls | **23/23**, run `caa5b76ea32d4839b82b350d79bb797f`; all11 tools, idempotency, binding/fencing, reset, store restart, before/after-commit crash reconciliation, cleanup/outbox/readback; zero models/judges |
 | Managed Responses/MCP/OTLP | **12/12 cases**, run `cc78642fece44d6b9e8eb22fd0889ee3`, trace `tr-e522cf5e557e03b2aabb7ff6a60c3f71`;74 persisted spans, including38 gateway spans for23 caller requests;34 current object/spec/network-policy bindings |
-| Provider continuity | Two-hour window started2026-11-01T06:11:58Z, run `460494ac88ee4e0fa34ad42cfbdd2982`, trace `tr-a91e4ed95b2ee2f963faa6efedb2bcac`; completion not yet claimed |
-| Real local serving | Not run yet; gated on the full window and persisted protocol/privacy proof |
+| Provider continuity | Owner-deferred to #39; interrupted attempt `460494ac88ee4e0fa34ad42cfbdd2982`, trace `tr-a91e4ed95b2ee2f963faa6efedb2bcac`; no completed-window claim |
+| Real local serving | Not run; budget remains0/8 probes and0/72 final requests. Prefer the next harness vertical-slice canary over duplicating a standalone model campaign |
 
 The protocol matrix extends the existing managed Gateway, not another gateway
 installation. It proves Responses→Completions conversion, exact decimal/null and
@@ -94,16 +99,20 @@ and their spent budgets remain unchanged.
 
 ## Remaining acceptance boundary
 
-The serving probe predeclares five compatibility reservations: two gateway-auth
+The optional full-qualification serving probe predeclares five compatibility reservations: two gateway-auth
 denials and three real local generations. It requires completed Responses,
 canonical function arguments, paired output, a genuine final assistant response,
 usage and persisted linked traces. The tool result is explicitly synthetic and
 no banking tool executes. It cannot supply task utility or final-agent evidence.
 
-The new doctor requires all persisted proofs plus current versions, guest image,
+The strict full-qualification doctor requires all persisted proofs plus current versions, guest image,
 object identity/generations/spec hashes, serving software and loaded model. It
 does not infer qualification from health/model listings or narrow old reports.
-Automatic qualification remains separate from fresh human acceptance.
+Automatic qualification remains separate from fresh human acceptance. The
+owner's draft-PR instruction is recorded separately in the handoff JSON; it is
+not a passing manual-test attestation. Functional harness startup should use its
+own current identity/config/auth/telemetry checks, not import this long-running
+reliability workflow or require an AgentDojo trial class.
 
 The canonical banking MCP application, supported LangGraph graph and final
 nine-trial agent matrix remain sprint31 application work. No financial guard,

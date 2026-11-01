@@ -18,6 +18,7 @@ The supported research domain is **AgentDojo simulated banking**. The local harn
 | [Implementation plan](implementation-plan.md) / [next iteration](next-iteration.md) | Remaining blocks and accepted record-only 03a scope |
 | [Block 03a contracts](banking-contracts-03a.md) | Owner-confirmed choices, shared types, schema semantics and record-only fixture evidence |
 | [Infrastructure](infra.md) | Separate accepted control plane and non-executing fixtures |
+| [Agent/harness boundaries](agent-harness-architecture.md) | Suite-neutral runtime and harness contracts; AgentDojo task/tool/checker adapter boundary |
 | [Legacy compatibility](legacy-compatibility.md) | Old modules/examples that are not the supported banking path |
 | [Documentation alignment audit](documentation-audit.md) | What was reviewed/corrected, immutable evidence and validation boundaries |
 
