@@ -92,9 +92,12 @@ def audit_record(record):
     if len(gate)!=len(record["evidence"]["actions"]) or len(tools)!=len(gate):raise RuntimeError("wiring_span_dispatch_counts_differ")
     for action in record["evidence"]["actions"]:
         if not any(span.span_id==action["span_id"] for span in tools):raise RuntimeError("action_span_ownership_missing")
-    models=[span for span in spans if span.span_type=="CHAT_MODEL"]
+    model_nodes={span.span_id for span in spans if span.name=="model" and span.span_type=="CHAIN"}
+    models=[span for span in spans if span.span_type=="CHAT_MODEL" and span.parent_id in model_nodes]
     if len(models)!=record["model_attempts"]:raise RuntimeError("model_attempt_span_count_differs")
     physical=[span for span in spans if span.name=="managed_responses_http"]
+    physical_ids={span.span_id for span in physical}
+    gateway_models=[span for span in spans if span.span_type=="CHAT_MODEL" and span.parent_id in physical_ids]
     if record.get("guard_control") is None and len(physical)!=record["model_attempts"]:
         raise RuntimeError("physical_model_dispatch_count_differs")
     for name,value in record.get("expected_scores",{}).items():
@@ -103,10 +106,15 @@ def audit_record(record):
                 found[0].source is None or found[0].source.source_type!="CODE" or found[0].source.source_id!="benchmark-wiring-v1"):
             raise RuntimeError("wiring_score_value_or_ownership_differs")
     return dict(trace_id=trace.info.trace_id,span_count=len(spans),chat_model_spans=len(models),
-        managed_responses_dispatches=len(physical),
+        managed_responses_dispatches=len(physical),gateway_chat_model_spans=len(gateway_models),
         native_admission_spans=len(gate),actor_dispatch_spans=len(tools),root_count=1,orphan_count=0,
         span_types=sorted({span.span_type or "UNKNOWN" for span in spans}),
-        span_names=[span.name for span in spans])
+        span_names=[span.name for span in spans],
+        span_manifest=[dict(span_id=span.span_id,parent_id=span.parent_id,name=span.name,span_type=span.span_type,
+            inputs=getattr(span,"inputs",None) if span.name in {"managed_responses_http","gateway_mcp_tool","banking_actor_dispatch","substrate_native_admission"} else None,
+            outputs=getattr(span,"outputs",None) if span.name in {"managed_responses_http","banking_actor_dispatch","substrate_native_admission","cleanup_substrate_actor"} else None) for span in spans],
+        score_provenance=[dict(name=a.name,span_id=a.span_id,source_type=a.source.source_type if a.source else None,
+            source_id=a.source.source_id if a.source else None) for a in getattr(trace.info,"assessments",[])])
 
 
 def run_case(*,deployment,store,authorization,adapter,bridge,mcp,budget,mask,task_id,control=None):
@@ -237,6 +245,7 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--live",action="store_true",help="Spend the frozen initial local pilot and authorized Gemini review requests")
     parser.add_argument("--image",help="Deploy a newly built digest-bound banking image before controls")
+    parser.add_argument("--reuse-completed-case-run",help="Re-audit a persisted completed canary after an audit-only fix; never re-execute it")
     args=parser.parse_args()
     from dotenv import load_dotenv
     load_dotenv(ROOT/".env")
@@ -267,6 +276,19 @@ def main():
     from src.infra.common import run as command
     host_ip=command(["podman","exec","breaker-substrate-control-plane","getent","hosts","host.containers.internal"],capture=True).stdout.split()[0]
     records=[];controls=[];reviews=[];failure=None;parent_id=None;attempted_controls=[]
+    if args.reuse_completed_case_run:
+        if not args.live:raise ValueError("case_reuse_requires_live_pilot")
+        source=mlflow.get_run(args.reuse_completed_case_run)
+        if source.info.experiment_id!=experiment.experiment_id:raise ValueError("reused_case_experiment_differs")
+        saved=mlflow.artifacts.load_dict(f"runs:/{args.reuse_completed_case_run}/wiring/episode.json")
+        if (saved.get("task_id")!="user_task_0" or saved.get("guard_control") is not None or
+                saved.get("status")!="completed" or saved.get("cleanup_errors")!=[] or
+                any(action.get("status")!="executed" for action in saved["evidence"]["actions"])):
+            raise ValueError("only_completed_reconciled_canary_may_be_reused")
+        saved["trace_audit"]=audit_record(saved)
+        saved["reused_from_case_run"]=args.reuse_completed_case_run
+        private(native_directory/"reaudited-canary.json",saved)
+        records.append(saved)
     try:
         private(manifest,config)
         with mlflow.start_run(run_name="benchmark-wiring-live" if args.live else "benchmark-wiring-controls") as parent:
@@ -294,6 +316,7 @@ def main():
                     controls.append(validate_control(record,decision))
                 if args.live:
                     for task_id in TASKS:
+                        if any(record["task_id"]==task_id for record in records):continue
                         record=run_case(deployment=deployment,store=store,authorization="Bearer "+token,adapter=adapter,
                             bridge=bridge,mcp=mcp,budget=budget,mask=mask,task_id=task_id)
                         records.append(record);private(native_directory/(task_id+".json"),record)

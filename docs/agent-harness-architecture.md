@@ -100,7 +100,7 @@ First prove the contracts offline with a scripted model and tiny fake
 environment. These are unit fixtures, not additional benchmark tasks. Verify
 that the generic runner/harness import and execute without AgentDojo installed.
 Then exercise the real gateway/MCP/Actor path without inference, followed by one
-predeclared bounded local canary in the existing compatibility budget. Avoid a
+predeclared bounded local canary in the frozen combined actor/guard pilot. Avoid a
 second standalone serving campaign that must be repeated on the final harness.
 
 Completion, task utility, safety and infrastructure reliability are separate:

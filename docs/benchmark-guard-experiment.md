@@ -193,16 +193,21 @@ FunctionsRuntime. Normal service safeguards are reused unchanged. The determinis
 first pilot is **wiring evidence only**, not the calibrated classifier/LLM A/B
 experiment or a latency result.
 
-## Initial implementation boundary
+## Implementation and evidence boundaries
 
-The new `src/agent_runtime` contains one compiled graph and suite-neutral run
+`src/agent_runtime` contains one compiled graph and suite-neutral run
 data. `src/integrations/agentdojo` supplies pinned task/private checker access;
 it does not execute tools in the normal host path. `src/benchmark` defines the
 common review input, classifier/LLM adapters and counterbalanced replay helpers.
 The runtime-only dependency group can execute without AgentDojo installed.
 
-Current tests use scripted models, synthetic logits and an explicitly in-memory
-reference backend. They prove contract/flow and checker parity only. Native
-guard-hook wiring, real gateway/MCP/Actor episodes, trained encoder/calibration
-and measured A/B performance are subsequent integration work, not delivered
-claims. Use the current GitHub scope #41 for sequencing and acceptance.
+Offline tests use scripted models, synthetic logits and an explicitly in-memory
+reference backend; those prove contract/flow and checker parity only.
+`src/benchmark/wiring.py` separately orchestrates real managed gateway/MCP,
+native Substrate admission, fresh gVisor Actors, original checkers, persisted
+audits and external Gemini review. Its deterministic controls establish native
+plumbing, not learned harmful-action recognition. The local-only encoder loader
+is not a supplied trained/calibrated artifact. Trained guard quality and measured
+A/B performance require their own frozen data and experiment. Use GitHub #41
+for current run evidence, sequencing and acceptance rather than treating a
+successful installation or a scripted test as a live benchmark result.

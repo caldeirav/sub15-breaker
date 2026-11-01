@@ -128,3 +128,15 @@ def test_trace_audit_validates_mlflow_numeric_scores_as_doubles(monkeypatch):
     monkeypatch.setattr("src.benchmark.wiring.mlflow.get_trace",lambda trace_id:S(data=S(spans=[span]),info=S(trace_id=trace_id,assessments=[assessment])))
     assert audit_record(dict(trace_id="trace",evidence=dict(actions=[]),model_attempts=0,
         guard_control="allow",expected_scores={"wiring/model_attempts":0.0}))["root_count"]==1
+
+
+def test_client_and_gateway_chat_spans_are_one_physical_model_attempt(monkeypatch):
+    from types import SimpleNamespace as S
+    from src.benchmark.wiring import audit_record
+    def span(id,parent,name,type):return S(span_id=id,parent_id=parent,name=name,span_type=type,inputs={},outputs={})
+    spans=[span("root",None,"episode","AGENT"),span("node","root","model","CHAIN"),
+        span("client","node","ChatOpenAI","CHAT_MODEL"),span("http","client","managed_responses_http","CLIENT"),
+        span("gateway","http","POST /v1/responses","CHAT_MODEL")]
+    monkeypatch.setattr("src.benchmark.wiring.mlflow.get_trace",lambda trace_id:S(data=S(spans=spans),info=S(trace_id=trace_id,assessments=[])))
+    result=audit_record(dict(trace_id="trace",evidence=dict(actions=[]),model_attempts=1,guard_control=None))
+    assert result["chat_model_spans"]==result["managed_responses_dispatches"]==result["gateway_chat_model_spans"]==1
