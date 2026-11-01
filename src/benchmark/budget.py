@@ -34,7 +34,9 @@ class Budget:
         self.directory=Path(directory);self.policy=policy
         self.directory.mkdir(parents=True,exist_ok=True,mode=0o700)
 
-    def reserve(self,*,role,case_id,trace_id,request=None):
+    def reserve(self,*,role,case_id,trace_id,request=None,observed_after_dispatch=False,actual_started_at=None):
+        if observed_after_dispatch and role not in {"gemini_task_judge","gemini_harness_judge"}:
+            raise ValueError("late_reconciliation_is_external_only")
         fd=os.open(self.directory/".lock",os.O_CREAT|os.O_RDWR,0o600)
         with os.fdopen(fd,"w") as lock:
             fcntl.flock(lock,fcntl.LOCK_EX)
@@ -63,6 +65,9 @@ class Budget:
             entry=dict(sequence=len(entries)+1,role=role,case_id=case_id,trace_id=trace_id,
                 reserved_at=time.time(),request_sha256=hashlib.sha256(encoded(request)).hexdigest(),spent=True,
                 policy_version=self.policy["version"])
+            if observed_after_dispatch:
+                entry.update(reserved_at=None,recorded_at=time.time(),observed_after_dispatch=True,
+                    actual_started_at=actual_started_at,physical_http_attempt_count="unknown_historical_instrumentation_gap")
             target=self.directory/f"attempt-{len(entries)+1:04d}.json"
             out=os.open(target,os.O_CREAT|os.O_EXCL|os.O_WRONLY,0o600)
             with os.fdopen(out,"wb") as stream:

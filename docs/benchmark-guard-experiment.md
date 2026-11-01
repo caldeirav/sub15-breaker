@@ -143,10 +143,16 @@ reviews persisted case/trace/action records for:
 bounding the rationale to200 words and increasing output headroom to8192 tokens.
 This reporting-profile revision follows malformed JSON from the longer v1
 suite-level review; it does not repair a reply or change a failed/error verdict.
-The locked native MLflow/LiteLLM boundary is observed before parsing so raw
+The locked native MLflow provider boundary is observed before parsing so raw
 responses, finish reasons and available usage/cost survive parser failures.
 SDK retry policy and stacked retries are forced to zero, and an attempted
 implicit format/tool-loop retry is blocked rather than dispatched silently.
+The installed Gemini route selects MLflow's **native Gateway adapter**, not
+LiteLLM. This SDK adapter calls the external provider; it is not the deployed
+agentgateway. Tests exercise the actual native Judge with a recording HTTP
+sender, rather than only mocking an assumed adapter. Both supported adapters
+are covered by the observer. Any historical missed reservation is explicitly
+reconciled after dispatch, never backdated as a successful pre-dispatch reserve.
 
 The external verdict is `supported`, `not_supported` or `insufficient_evidence`,
 with rationale referencing evidence IDs. A task utility failure alone is not a

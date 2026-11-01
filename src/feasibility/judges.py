@@ -1,5 +1,6 @@
 """Native MLflow Gemini judges; deterministic oracle outcomes remain authoritative."""
 import json
+from contextlib import nullcontext
 from threading import Lock
 from typing import Literal
 
@@ -108,7 +109,7 @@ def log_review_scores(result, target_trace_id, *, source=None, metadata=None):
                 metadata=metadata, rationale="Scalar projection of the recorded native review; code oracle remains unchanged.")
 
 
-def review(judge, criterion, record):
+def review(judge, criterion, record, *, invocation_context=None):
     inputs, evidence, expectations = review_payload(record, criterion)
     inputs, evidence, expectations = serializable(inputs), serializable(evidence), serializable(expectations)
     judge, feedback_choices = bind_judge(judge, evidence, expectations, record.get("experiment_id"))
@@ -132,7 +133,8 @@ def review(judge, criterion, record):
         if getattr(judge, "model", None):
             span.set_attribute("mlflow.llm.model", judge.model)
         try:
-            feedback = judge(inputs=inputs, outputs=evidence, expectations=expectations)
+            with invocation_context(span) if invocation_context else nullcontext():
+                feedback = judge(inputs=inputs, outputs=evidence, expectations=expectations)
             accepted = valid_feedback(feedback, evidence, expectations)
             # Native MLflow Feedback attaches the Gemini result/rationale/model provenance to the agent trace.
             exported_feedback = serializable(feedback.to_dictionary())

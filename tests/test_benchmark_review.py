@@ -62,3 +62,24 @@ def test_native_transport_records_raw_reply_and_blocks_implicit_retry(monkeypatc
     assert observed["finish_reason"]=="length" and observed["raw_response"]=='{"result":"supported"'
     assert observed["input_tokens"]==10 and observed["cost_usd"]==0.001
     assert observed["automatic_retry_blocked"] is True
+
+
+def test_real_native_gemini_judge_uses_observed_gateway_adapter_without_network(monkeypatch):
+    from types import SimpleNamespace as S
+    from mlflow.genai.judges.adapters import gateway_adapter as gateway
+    from src.benchmark.judge_transport import observe_native_attempt
+    from src.benchmark.privacy import Mask
+    monkeypatch.setenv("GEMINI_API_KEY","unit-nonlive-fixture")
+    calls=[];reserved=[]
+    def send(**kwargs):
+        calls.append(kwargs)
+        return dict(candidates=[dict(content=dict(role="model",parts=[dict(text='{"result":"supported","rationale":"unit fixture"}')]),finishReason="STOP")],
+            usageMetadata=dict(promptTokenCount=10,candidatesTokenCount=20,totalTokenCount=30))
+    monkeypatch.setattr(gateway,"send_chat_request",send)
+    monkeypatch.setattr(gateway,"_lookup_model_cost",lambda *args:0.001)
+    span=S(trace_id="unit",set_attribute=lambda *args:None)
+    judge=build_harness_judge("gemini:/gemini-2.5-flash")
+    with observe_native_attempt(reserve=lambda **kw:reserved.append(kw),span=span,mask=Mask(),model_uri=judge.model) as observed:
+        feedback=judge(inputs={},outputs={},expectations={})
+    assert feedback.value=="supported" and len(calls)==len(reserved)==observed["physical_attempts"]==1
+    assert calls[0]["num_retries"]==0 and observed["adapter"]=="mlflow-native-gateway"

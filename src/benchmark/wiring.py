@@ -332,8 +332,12 @@ def main():
                 judges=build_judges(model)
                 for record in records:
                     for criterion,judge in judges.items():
-                        budget.reserve(role="gemini_task_judge",case_id=record["task_id"],trace_id=record["trace_id"],request=dict(criterion=criterion,model=model))
-                        reviews.append(review(judge,criterion,record))
+                        from src.benchmark.judge_transport import observe_native_attempt
+                        def invocation_context(span):
+                            return observe_native_attempt(span=span,mask=mask,model_uri=judge.model,
+                                reserve=lambda **kw:budget.reserve(role="gemini_task_judge",case_id=record["task_id"],
+                                    trace_id=kw["trace_id"],request=dict(criterion=criterion,model=model)))
+                        reviews.append(review(judge,criterion,record,invocation_context=invocation_context))
                 verdict=external_suite_review(suite_observations(controls,records,mask),model,budget)
                 reviews.append(verdict)
                 mlflow.log_dict(reviews,"review/external-gemini.json")

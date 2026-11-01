@@ -52,8 +52,9 @@ def review_harness(judge,*,observations,target_trace_id,reserve):
             from mlflow.genai.judges.base import Judge
             if isinstance(judge,Judge):
                 from src.benchmark.judge_transport import observe_native_attempt
-                with observe_native_attempt(reserve=reserve,span=span,mask=mask) as transport:
+                with observe_native_attempt(reserve=reserve,span=span,mask=mask,model_uri=judge.model) as transport:
                     feedback=judge(**payload)
+                if transport["physical_attempts"]!=1:raise RuntimeError("native_judge_operation_unobserved")
             else:
                 reserve(role="gemini_harness_judge",trace_id=span.trace_id)
                 feedback=judge(**payload)
