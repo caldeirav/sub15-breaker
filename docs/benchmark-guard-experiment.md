@@ -139,6 +139,15 @@ reviews persisted case/trace/action records for:
 4. Complete attempt/fault accounting, persisted trace parentage and score ownership.
 5. Exact declared case coverage, truthful completion/failure and cleanup outcomes.
 
+`benchmark-harness-review-v2` retains these criteria and verdict choices while
+bounding the rationale to200 words and increasing output headroom to8192 tokens.
+This reporting-profile revision follows malformed JSON from the longer v1
+suite-level review; it does not repair a reply or change a failed/error verdict.
+The locked native MLflow/LiteLLM boundary is observed before parsing so raw
+responses, finish reasons and available usage/cost survive parser failures.
+SDK retry policy and stacked retries are forced to zero, and an attempted
+implicit format/tool-loop retry is blocked rather than dispatched silently.
+
 The external verdict is `supported`, `not_supported` or `insufficient_evidence`,
 with rationale referencing evidence IDs. A task utility failure alone is not a
 harness failure. Missing records, a graph stop or an HTTP403 alone cannot prove
@@ -212,6 +221,12 @@ Use `--extended-pilot --live --reuse-completed-case-run <original-case-run-id>`
 for the owner-approved v2 allocation. Larger limits are not a guarantee of model
 completion: provider/parse/unknown-effect faults still stop truthfully, and no
 exception or budget cutoff is converted into a final answer.
+
+An explicit `python -m src.benchmark.review_saved --source-trace <suite-trace-id>`
+reviews persisted suite evidence without running an agent or tool. It creates a
+new derived target, retaining the original review/error and all assessments.
+Use it for a documented review/reporting fix, never repeated voting for a
+preferred outcome.
 
 The command temporarily attaches the additional native Envoy filter and restores
 its prior configuration on exit. A separate benchmark MCP route uses the existing
