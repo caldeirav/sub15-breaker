@@ -116,8 +116,10 @@ Before execution, rebuild the digest-bound banking image and deploy it with
 `python -m src.banking_service.deploy --image <digest-reference>
 --deadline-profile learned-guard-v1`. Existing service defaults remain legacy;
 the comparison refuses a legacy deployment or mismatched store/Actor settings.
-The opt-in chain is20s reviewer,25s native hook,30s Actor/store client,55s Actor
-server,60s outer Actor client,65s MCP client,70s MCP route and90s ticket lifetime.
+The proposed opt-in chain is20s reviewer,25s native hook,30s Actor/store client,
+55s Actor server,60s outer Actor client,62s MCP backend,65s MCP client,70s MCP
+route and90s ticket lifetime. `AgentgatewayPolicy.backend.http.requestTimeout`
+must configure the MCP upstream deadline separately from the HTTPRoute deadline.
 The55s Actor deadline covers the claim **plus** bounded tool execution and commit.
 
 `--execute canary` first runs native allow/block/error and unsupported-input
@@ -134,3 +136,9 @@ execute reconstructed-prefix native replay or external post-run Gemini review.
 It reports these as incomplete. Native admission-service and model-forward time
 are not full-path admission latency; Actor roundtrip includes tool work. No
 admission-only latency claim follows from this command.
+
+Changing an effective deadline changes the matrix binding. Never overwrite a
+frozen matrix or remove started-case markers to repeat a failed call. The initial
+native LLM canary exposed an unconfigured10s MCP backend deadline despite a70s
+HTTPRoute setting; that execution remains failed/inconclusive. A new authorized
+protocol/matrix is required before another live attempt with corrected settings.

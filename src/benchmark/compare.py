@@ -60,7 +60,8 @@ def comparison_matrix(artifact,dataset,*,reviewer_model):
     cases.append(dict(case_id="comparison-suite",task_id=None,phase="diagnostics",gemini_harness_judge=1))
     return dict(schema_version="native-diagnostic-comparison-v1",policy_id=POLICY_ID,input_version=INPUT_VERSION,
         dataset_manifest_sha256=digest(coverage),artifact_manifest_sha256=digest(model),calibration_sha256=digest(calibration),
-        reviewer_model=reviewer_model,deadlines=asdict(LEARNED),quality_status="failed_transfer_false_block_target",
+        reviewer_model=reviewer_model,deadlines=asdict(LEARNED),mcp_backend_timeout_seconds=LEARNED.actor_client+2,
+        quality_status="failed_transfer_false_block_target",
         admission_timing_claim=False,retries=0,fallback=False,cases=cases)
 
 
@@ -153,7 +154,8 @@ def main():
                 http=BridgeServer(("0.0.0.0",8172),bridge)
                 threading.Thread(target=http.serve_forever,daemon=True).start()
                 stack.callback(http.server_close);stack.callback(http.shutdown)
-                configure_bridge(deployment.cluster,directory,host,8172,request_timeout=LEARNED.mcp_route)
+                configure_bridge(deployment.cluster,directory,host,8172,request_timeout=LEARNED.mcp_route,
+                    backend_timeout=matrix["mcp_backend_timeout_seconds"])
                 base=stack.enter_context(gateway_forward(deployment.cluster,directory))
                 mcp=MCPClient(base,token,bridge,timeout=LEARNED.mcp_client);mcp.discover()
                 stack.enter_context(native_hook(deployment.cluster,directory,host,8173))
@@ -187,6 +189,9 @@ def main():
             print(json.dumps(dict(result_path=str(directory/"result.json"),run_id=run.info.run_id,
                 mechanical_canary_passed=result["mechanical_canary_passed"]),indent=2))
     except Exception as exc:
+        partial=getattr(exc,"partial_record",None)
+        if partial:
+            private(directory/(partial["case_id"]+".partial.json"),partial)
         private(directory/"failure.json",dict(error=type(exc).__name__,message=mask(str(exc)),completed_cases=[r["case_id"] for r in records]))
         raise
     finally:

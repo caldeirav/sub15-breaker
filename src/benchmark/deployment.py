@@ -22,7 +22,7 @@ def private(path,value):
     return path
 
 
-def configure_bridge(cluster,directory,host_ip,port,*,request_timeout=60):
+def configure_bridge(cluster,directory,host_ip,port,*,request_timeout=60,backend_timeout=None):
     issuer=json.loads(cluster.kubectl("get","--raw","/.well-known/openid-configuration",capture=True).stdout)["issuer"]
     jwks=json.loads(cluster.kubectl("get","--raw","/openid/v1/jwks",capture=True).stdout)
     def obj(api,kind,name,spec):
@@ -38,7 +38,10 @@ def configure_bridge(cluster,directory,host_ip,port,*,request_timeout=60):
                 jwtAuthentication=dict(mode="Strict",providers=[dict(issuer=issuer,audiences=[MODEL_AUDIENCE],jwks=dict(inline=json.dumps(jwks)))]),
                 authorization=dict(action="Allow",policy=dict(matchExpressions=["jwt.sub == "+json.dumps(MODEL_SUBJECT)]))))),
         obj("networking.k8s.io/v1","NetworkPolicy","benchmark-gateway-host-bridge",dict(podSelector=dict(matchLabels=dict(role="gateway")),
-            policyTypes=["Egress"],egress=[dict(to=[dict(ipBlock=dict(cidr=host_ip+"/32"))],ports=[dict(protocol="TCP",port=port)])]))]
+             policyTypes=["Egress"],egress=[dict(to=[dict(ipBlock=dict(cidr=host_ip+"/32"))],ports=[dict(protocol="TCP",port=port)])]))]
+    if backend_timeout is not None:
+        # MCP upstream calls have their own deadline, independent of HTTPRoute.
+        objects[2]["spec"]["backend"]={"http":{"requestTimeout":f"{backend_timeout}s"}}
     for item in objects:
         raw=cluster.kubectl("get",item["kind"],item["metadata"]["name"],"-n",NAMESPACE,"--ignore-not-found","-o","json",capture=True).stdout
         if raw and any(json.loads(raw)["metadata"].get("labels",{}).get(k)!=v for k,v in SCOPE.items()):

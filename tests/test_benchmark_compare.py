@@ -28,3 +28,19 @@ def test_zero_request_cases_still_cannot_silently_repeat(tmp_path):
     budget=CampaignBudget(tmp_path)
     claim_case(budget,"canary-classifier",{})
     with pytest.raises(FileExistsError):claim_case(budget,"canary-classifier",{})
+
+
+@pytest.mark.parametrize("backend_timeout",[None,62])
+def test_mcp_backend_deadline_is_explicit_and_distinct_from_route(tmp_path,backend_timeout):
+    from types import SimpleNamespace
+    from src.benchmark.deployment import configure_bridge
+    class Cluster:
+        def kubectl(self,*args,**kwargs):
+            if args[:2]==("get","--raw"):
+                return SimpleNamespace(stdout=json.dumps({"issuer":"unit"} if args[2].endswith("openid-configuration") else {"keys":[]}))
+            return SimpleNamespace(stdout="")
+    configure_bridge(Cluster(),tmp_path,"127.0.0.1",8172,request_timeout=70,backend_timeout=backend_timeout)
+    objects=json.loads((tmp_path/"gateway-bridge.json").read_text())["items"]
+    assert objects[1]["spec"]["rules"][0]["timeouts"]["request"]=="70s"
+    if backend_timeout is None:assert "backend" not in objects[2]["spec"]
+    else:assert objects[2]["spec"]["backend"]["http"]["requestTimeout"]=="62s"
