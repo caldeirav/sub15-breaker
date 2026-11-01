@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from src.benchmark.prompt_pilot import GOALS,import_review,plan,review_html,template_issues,validate_reply
+from src.benchmark.prompt_pilot import GOALS,Goals,Documents,corrected_plan,import_review,plan,prompt_for,provider_schema,review_html,template_issues,validate_reply
 from src.integrations.agentdojo.inventory import digest
 
 
@@ -52,3 +52,21 @@ def test_pilot_scope_and_untrusted_html_are_explicit():
     value=packet();value["candidates"][0]["proposed_goal"]="</script><script>untrusted</script>"
     html=review_html(value)
     assert "</script><script>untrusted" not in html and "textContent" in html
+
+
+def test_provider_schema_fix_preserves_strict_local_parser():
+    for schema in (Goals,Documents):
+        assert "additionalProperties" in json.dumps(schema.model_json_schema())
+        assert "additionalProperties" not in json.dumps(provider_schema(schema.model_json_schema()))
+    with pytest.raises(ValueError):
+        Goals.model_validate_json(json.dumps(dict(goals=[GOALS["refund"]]*8,extra_label="permitted")))
+
+
+def test_corrected_pilot_changes_wire_and_ids_without_resampling_prompt_design():
+    original=plan({},{});fixed=corrected_plan({},{},original)
+    assert original["schema_version"]=="banking-v2-prompt-pilot-v1"
+    assert fixed["schema_version"]=="banking-v2-prompt-pilot-v2"
+    assert len(fixed["cases"])==12 and fixed["protocol_sha256"]!=original["protocol_sha256"]
+    assert not ({case["case_id"] for case in original["cases"]}&{case["case_id"] for case in fixed["cases"]})
+    for left,right in zip(original["cases"],fixed["cases"],strict=True):assert prompt_for(left)==prompt_for(right)
+    with pytest.raises(ValueError,match="protocol_changed"):corrected_plan({"changed":True},{},original)

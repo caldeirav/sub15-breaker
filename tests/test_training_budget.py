@@ -67,3 +67,14 @@ def test_explicit_api_diagnostics_are_separate_bound_nonrepeatable_cases(tmp_pat
         value.reserve(role="gemini_data_generation",case_id="v2-api-diagnostic-minimal",trace_id="repeat",model=POLICY["gemini_model"])
     diagnostics["cases"][0]["maximum_output_tokens"]=128
     with pytest.raises(RuntimeError,match="diagnostic_changed"):value.freeze_diagnostics(diagnostics)
+
+
+def test_corrected_pilot_extends_case_scope_without_rewriting_parent(tmp_path):
+    from src.benchmark.prompt_pilot import plan as original_plan,corrected_plan
+    value=budget(tmp_path);parent=original_plan({},{});value.freeze_pilot(parent)
+    before=(tmp_path/"v2-prompt-pilot.json").read_bytes()
+    fixed=corrected_plan({},{},parent);value.freeze_corrected_pilot(fixed)
+    entry=value.reserve(role="gemini_data_generation",case_id=fixed["cases"][0]["case_id"],trace_id="fixed",model=POLICY["gemini_model"])
+    assert entry["phase"]=="v2_prompt_pilot_corrected" and (tmp_path/"v2-prompt-pilot.json").read_bytes()==before
+    with pytest.raises(RuntimeError,match="already_spent"):
+        value.reserve(role="gemini_data_generation",case_id=fixed["cases"][0]["case_id"],trace_id="repeat",model=POLICY["gemini_model"])

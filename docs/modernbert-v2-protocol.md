@@ -254,3 +254,17 @@ those distinct case IDs against the original pilot and the same v4 policy, and
 excludes all diagnostic content from training. It cannot repeat a spent case or
 automatically rerun the pilot. These calls consume the existing128-operation
 envelope, not a replacement allowance.
+
+The minimal API control succeeded; the original schema probe returned400 because
+Gemini rejected `additional_properties`. The corrected provider schema omits that
+unsupported keyword while keeping strict local Pydantic validation. Extra output
+fields are still rejected locally; this does not relax semantic or safety checks.
+The owner explicitly authorized a corrected12-operation pilot under new
+`v2-wire-pilot-*` case IDs and a new hash-bound manifest. Original failures and
+holds remain unchanged, and diagnostic output is excluded from training.
+
+Use `--corrected-wire --execute-authorized-pilot` for that separately authorized
+pilot. The original execution mode is retired. Provider failure now stops later
+cases, preserves evidence and marks the execution failed rather than returning a
+normal exit. A completed prompt pilot still requires human review and cannot
+automatically start bulk generation or fitting.

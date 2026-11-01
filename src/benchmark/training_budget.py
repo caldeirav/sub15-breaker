@@ -99,6 +99,31 @@ class TrainingBudget(CampaignBudget):
             raise RuntimeError("v2_diagnostic_changed")
         return plan
 
+    def freeze_corrected_pilot(self,plan):
+        with self.locked():
+            self.baseline(self.entries());parent=self.pilot()
+            if (plan.get("schema_version")!="banking-v2-prompt-pilot-v2" or
+                    plan.get("parent_pilot_sha256")!=hashlib.sha256(encoded(parent)).hexdigest() or
+                    plan.get("policy_sha256")!=hashlib.sha256(encoded(POLICY)).hexdigest()):
+                raise ValueError("v2_corrected_pilot_binding_required")
+            expected=[case["case_id"].replace("v2-pilot-","v2-wire-pilot-",1) for case in parent["cases"]]
+            if [case["case_id"] for case in plan.get("cases",[])]!=expected:raise ValueError("v2_corrected_pilot_cases_changed")
+            for key in ("audit_sha256","source_decision_sha256"):
+                if plan.get(key)!=parent[key]:raise ValueError("v2_corrected_pilot_sources_changed")
+            if not plan.get("protocol",{}).get("wire_schemas"):raise ValueError("v2_corrected_wire_binding_required")
+            path=self.directory/"v2-prompt-pilot-corrected.json"
+            if path.exists():
+                if json.loads(path.read_text())!=plan:raise RuntimeError("v2_corrected_pilot_changed")
+                self.corrected_pilot()
+            else:
+                atomic(path,plan);atomic(self.directory/"v2-prompt-pilot-corrected-binding.json",dict(sha256=hashlib.sha256(encoded(plan)).hexdigest()))
+
+    def corrected_pilot(self):
+        plan=json.loads((self.directory/"v2-prompt-pilot-corrected.json").read_text())
+        if json.loads((self.directory/"v2-prompt-pilot-corrected-binding.json").read_text())["sha256"]!=hashlib.sha256(encoded(plan)).hexdigest():
+            raise RuntimeError("v2_corrected_pilot_changed")
+        return plan
+
     def accounted(self,entries,baseline):
         total=usd(baseline["prior_accounted_cost_plus_holds_usd"])
         for entry in entries[baseline["prefix_length"]:]:
@@ -116,6 +141,8 @@ class TrainingBudget(CampaignBudget):
             entries=self.entries();baseline=self.baseline(entries);plan=self.pilot();phase="v2_prompt_pilot"
             if case_id.startswith("v2-api-diagnostic-"):
                 plan=self.diagnostics();phase="v2_api_diagnostic"
+            elif case_id.startswith("v2-wire-pilot-"):
+                plan=self.corrected_pilot();phase="v2_prompt_pilot_corrected"
             if role!="gemini_data_generation" or model!=POLICY["gemini_model"]:raise RuntimeError("v2_pilot_role_or_model_not_authorized")
             if case_id not in {case["case_id"] for case in plan["cases"]}:raise RuntimeError("v2_undeclared_pilot_case")
             issued=entries[baseline["prefix_length"]:]

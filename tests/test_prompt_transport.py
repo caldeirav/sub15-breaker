@@ -7,8 +7,8 @@ import pytest
 from src.benchmark.prompt_pilot import GOALS,generate
 
 
-@pytest.mark.parametrize("status",[200,400])
-def test_real_sdk_hooks_preserve_native_errors_and_total_tokens_offline(tmp_path,monkeypatch,status):
+@pytest.mark.parametrize("kind,status",[("goal",200),("goal",400),("document",400)])
+def test_real_sdk_hooks_preserve_native_errors_and_total_tokens_offline(tmp_path,monkeypatch,kind,status):
     from google import genai
     original=genai.Client;calls=[];reservations=[];settlements=[]
     def respond(request):
@@ -31,9 +31,10 @@ def test_real_sdk_hooks_preserve_native_errors_and_total_tokens_offline(tmp_path
     monkeypatch.setattr("src.benchmark.prompt_pilot.mlflow.start_span",lambda **kwargs:nullcontext(Span()))
     monkeypatch.setattr("src.benchmark.prompt_pilot.mlflow.log_dict",lambda *args,**kwargs:None)
     count=2 if status==400 else 1
-    cases=[dict(case_id=f"offline-{i}",kind="goal",family="refund",variant="goal") for i in range(count)]
+    cases=[dict(case_id=f"offline-{i}",kind=kind,family="refund",variant="goal" if kind=="goal" else "structured") for i in range(count)]
     receipts,accepted,rejected=generate(Budget(),dict(cases=cases,protocol_sha256="a"*64),tmp_path)
     assert len(calls)==len(receipts)==len(reservations)==1
+    assert "additional_properties" not in json.dumps(calls[0])
     assert receipts[0]["http_status"]==status and receipts[0]["physical_attempts"]==1
     if status==400:
         assert "offline schema rejection" in receipts[0]["error_detail"]

@@ -1,6 +1,7 @@
 """Twelve predeclared v2 prompt operations; paraphrases stay pending human review."""
 import argparse
 from collections import Counter
+from copy import deepcopy
 from datetime import datetime
 from decimal import Decimal
 import hashlib
@@ -70,6 +71,13 @@ class APIControl(BaseModel):
 API_CONTROL_PROMPT='Return only JSON with the single field "ok" set to true. This is an API compatibility test, not banking data.'
 
 
+def provider_schema(value):
+    """Gemini response_schema rejects this keyword; local Pydantic stays strict."""
+    if isinstance(value,dict):return {key:provider_schema(item) for key,item in value.items() if key!="additionalProperties"}
+    if isinstance(value,list):return [provider_schema(item) for item in value]
+    return value
+
+
 def placeholders(text):return Counter(re.findall(r"\{\{([A-Z_]+)\}\}",text))
 
 
@@ -100,6 +108,18 @@ def plan(audit,decision):
         for variant in ("control","structured","goal") for family in GOALS]
     return dict(schema_version="banking-v2-prompt-pilot-v1",policy_sha256=hashlib.sha256(encoded(POLICY)).hexdigest(),
         protocol_sha256=digest(protocol),audit_sha256=digest(audit),source_decision_sha256=digest(decision),protocol=protocol,cases=cases)
+
+
+def corrected_plan(audit,decision,parent):
+    base=plan(audit,decision)
+    if base!=parent:raise ValueError("original_pilot_protocol_changed")
+    value=deepcopy(base);value["schema_version"]="banking-v2-prompt-pilot-v2"
+    value["parent_pilot_sha256"]=hashlib.sha256(encoded(parent)).hexdigest()
+    value["protocol"]["wire_schemas"]={"documents":provider_schema(Documents.model_json_schema()),"goals":provider_schema(Goals.model_json_schema())}
+    value["protocol"]["schema_fix"]="omit-unsupported-additionalProperties-on-wire; strict-local-validation-unchanged"
+    value["protocol_sha256"]=digest(value["protocol"])
+    for case in value["cases"]:case["case_id"]=case["case_id"].replace("v2-pilot-","v2-wire-pilot-",1)
+    return value
 
 
 def validate_reply(case,raw):
@@ -158,9 +178,16 @@ def generate(budget,frozen,output):
                 span.set_inputs(dict(case=case,prompt=prompt,protocol_sha256=frozen["protocol_sha256"],model=POLICY["gemini_model"]))
                 receipt=dict(case_id=case["case_id"],kind=case["kind"],family=case["family"],variant=case["variant"]);cost=None
                 try:
+                    schema=APIControl if case["kind"]=="api_control" else Goals if case["kind"]=="goal" else Documents
+                    # Explicit API diagnostics reproduce the original wire schema.
+                    # Corrected future pilots must bind their new wire schemas.
+                    wire_schema=schema if case.get("diagnostic_only") else provider_schema(schema.model_json_schema())
+                    if case["case_id"].startswith("v2-wire-pilot-"):
+                        bound=frozen["protocol"]["wire_schemas"]["goals" if case["kind"]=="goal" else "documents"]
+                        if wire_schema!=bound:raise ValueError("corrected_wire_schema_changed")
                     response=client.models.generate_content(model="gemini-2.5-flash",contents=prompt,
                         config=types.GenerateContentConfig(temperature=0.7,max_output_tokens=case.get("maximum_output_tokens",6144),response_mime_type="application/json",
-                            response_schema=APIControl if case["kind"]=="api_control" else Goals if case["kind"]=="goal" else Documents,
+                            response_schema=wire_schema,
                             thinking_config=types.ThinkingConfig(thinking_budget=0),automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)))
                     # Save native response and usage before any parsing or acceptance checks.
                     receipt.update(raw_response=mask(response.model_dump(mode="json")),raw_text=mask(response.text))
@@ -232,6 +259,7 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--audit",type=Path);parser.add_argument("--decision",type=Path);parser.add_argument("--budget",type=Path)
     parser.add_argument("--output",type=Path,required=True);parser.add_argument("--execute-authorized-pilot",action="store_true")
+    parser.add_argument("--corrected-wire",action="store_true",help="Separately authorized new pilot IDs/manifest; never repeat the original pilot")
     parser.add_argument("--review-packet",type=Path);parser.add_argument("--import-goal-review",type=Path)
     args=parser.parse_args()
     if args.import_goal_review:
@@ -242,12 +270,14 @@ def main():
         for path in args.output.iterdir():path.chmod(0o600)
         print(json.dumps(dict(approved=len(accepted),training_started=False)));return
     if not args.audit or not args.decision or not args.budget:parser.error("--audit, --decision and --budget are required")
-    frozen=plan(json.loads(args.audit.read_text()),json.loads(args.decision.read_text()))
+    audit=json.loads(args.audit.read_text());decision=json.loads(args.decision.read_text());budget=TrainingBudget(args.budget)
+    frozen=corrected_plan(audit,decision,budget.pilot()) if args.corrected_wire else plan(audit,decision)
     if not args.execute_authorized_pilot:print(json.dumps(frozen,indent=2));return
+    if not args.corrected_wire:raise RuntimeError("original_pilot_retired_use_new_authorized_corrected_manifest")
     from dotenv import load_dotenv
     load_dotenv(Path(__file__).resolve().parents[2]/".env")
     os.environ["MLFLOW_ENABLE_ASYNC_TRACE_LOGGING"]="false";os.environ["MLFLOW_HTTP_REQUEST_MAX_RETRIES"]="0";os.environ["MLFLOW_HTTP_REQUEST_TIMEOUT"]="10"
-    budget=TrainingBudget(args.budget);budget.freeze();budget.freeze_pilot(frozen)
+    budget.freeze();budget.freeze_corrected_pilot(frozen)
     args.output.mkdir(parents=True,exist_ok=False,mode=0o700)
     mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI","http://localhost:5001"));mlflow.set_experiment("breaker-banking-guard-development")
     with mlflow.start_run(run_name="v2-training-only-prompt-and-goal-fidelity-pilot") as run:
@@ -263,10 +293,12 @@ def main():
             rejected_candidates=len(rejected),failed_operations=sum(row["error"] is not None for row in receipts),
             prompt_selection="pending-representative-review",bulk_generation_started=False,training_started=False,
             counts={variant:dict(accepted=sum(row.get("variant")==variant for row in accepted),rejected=sum(row.get("variant")==variant for row in rejected)) for variant in ("control","structured")})
+        summary["phase_status"]="provider_failure" if any(row["error"] and (row.get("http_status") is None or row["http_status"]>=400) for row in receipts) else "review_required"
         for name,value in (("plan.json",frozen),("accepted-candidates.json",accepted),("rejected-candidates.json",rejected),("goal-review-packet.json",packet),("summary.json",summary)):
             path=args.output/name;path.write_text(json.dumps(value,indent=2)+"\n");path.chmod(0o600);mlflow.log_artifact(str(path),"pilot")
         path=args.output/"goal-review.html";path.write_text(review_html(packet));path.chmod(0o600)
         print(json.dumps(summary,indent=2))
+        if summary["phase_status"]=="provider_failure":raise RuntimeError("v2_pilot_stopped_on_provider_failure")
 
 
 if __name__=="__main__":main()
