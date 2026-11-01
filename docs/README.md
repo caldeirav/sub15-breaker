@@ -13,6 +13,7 @@ The supported research domain is **AgentDojo simulated banking**. The local harn
 | [Banking runbook](banking-feasibility.md) | Actual commands, prerequisites and accepted evidence |
 | [Trace contract](mlflow-trace-contract.md) | Model/tool/judge coverage and per-trace score ownership |
 | [Actor service guide](banking-actor-service.md) | Controlled Actor execution, external transactional state, identity, evidence outbox and local operation |
+| [Agent model protocol](banking-agent-protocol.md) | Target LangChain Responses boundary, strict wire validation and offline capability checks; not a live agent entry point |
 | [Harness acceptance v3](banking-harness-acceptance-v3.md) | Active acceptance policy: correct evaluation, not universal agent success |
 | [Human checklist](validation/block-02-harness-review.md) / [acceptance record](validation/block-02.json) | @caldeirav's scoped acceptance and reproducible inspection steps |
 | [Implementation plan](implementation-plan.md) / [next iteration](next-iteration.md) | Remaining blocks and accepted record-only 03a scope |
