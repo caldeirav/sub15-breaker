@@ -5,6 +5,12 @@ tools, attacks and executable checkers. Its agent pipeline is not the target
 orchestrator. Retain the suite while replacing the agent integration with a
 small LangChain/LangGraph runner and gateway-mediated model/tool transport.
 
+The owner clarified the application is a **guard benchmark, not a production
+system**. Prioritise one flow with an interchangeable classifier/LLM guard on the
+same Substrate execution boundary. Do not add production IAM or elaborate
+security policy. See [the benchmark experiment](benchmark-guard-experiment.md)
+for the common input, enforcement proof and quality/performance measurements.
+
 ## Separate responsibilities
 
 ```text
@@ -94,7 +100,7 @@ First prove the contracts offline with a scripted model and tiny fake
 environment. These are unit fixtures, not additional benchmark tasks. Verify
 that the generic runner/harness import and execute without AgentDojo installed.
 Then exercise the real gateway/MCP/Actor path without inference, followed by one
-predeclared bounded local canary in the existing compatibility budget. Avoid a
+predeclared bounded local canary in the frozen combined actor/guard pilot. Avoid a
 second standalone serving campaign that must be repeated on the final harness.
 
 Completion, task utility, safety and infrastructure reliability are separate:
@@ -118,10 +124,21 @@ Disable duplicate lower-level model autologging. For async manual spans, follow
 the documented inline-tracer/separate-task requirements. Checkpoint replay must
 not reset budgets or reissue an uncertain mutation under a new action identity.
 
-The larger baseline remains the existing three-task slice and one frozen
-nine-trial completion matrix. Preserve the original failed runs and spent
-budgets. Native Gemini evaluation remains an optional separately authorized
-post-run evaluator, not part of this local-only completion gate.
+The benchmark retains the existing three-task slice. The owner subsequently
+revised the 80-request allowance to include acting-agent and LLM-guard requests
+and retries together. The earlier 8/72 allocation and nine-trial completion
+matrix are superseded for this experiment; freeze the revised pilot before any
+live inference. Preserve original failed runs and spent budgets. The owner
+subsequently authorized the Gemini calls necessary to review harness execution:
+external post-run Gemini review is now an explicit live wiring deliverable,
+separate from local admission and its 80-request budget. See the focused
+experiment for the versioned suite-level review rubric.
+
+After a rent episode exhausted its six-request cap without a final response,
+the owner requested more completion headroom. The current v2 pilot raises the
+combined local ceiling to160 **including spent requests**, reuses the completed
+canary and permits16 model/24 tool attempts per fresh episode with a480s
+deadline. The earlier failure remains a failure, not a reset or repaired answer.
 
 References checked through Context7: [LangGraph runtime context](https://docs.langchain.com/oss/python/langgraph/graph-api),
 [LangChain MCP tools](https://docs.langchain.com/oss/python/langchain/mcp/tools),

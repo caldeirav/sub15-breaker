@@ -43,7 +43,7 @@ Gemini evaluates relevant projected observations against a versioned fixed rule 
 
 Each actual native judge is registered with a three-choice `Literal` envelope schema. All three verdicts remain possible; IDs are fixed provenance. Preserve the raw native JSON string and decoded four-field object, plus scalar verdict/validity/agreement/error/model/usage assessments against the owning target **and** review trace. No output repair or relabeling for agreement.
 
-Code outcomes remain authoritative. Schema-constrained agreement demonstrates narrow rubric conformance, not objective financial truth, independent safety-training labels or a free-form citation skill. Judge time is outside admission latency. The LiteLLM SDK is MLflow's Gemini adapter; it is not another gateway or a second judge invocation.
+Code outcomes remain authoritative. Schema-constrained agreement demonstrates narrow rubric conformance, not objective financial truth, independent safety-training labels or a free-form citation skill. Judge time is outside admission latency. The installed MLflow runtime selects its native Gateway provider adapter for Gemini; other supported profiles can use LiteLLM. Inspect and test the actual selected adapter. MLflow's SDK Gateway adapter is not the deployed agentgateway or a second judge invocation.
 
 See [current criteria](golden-data.md#four-separate-criteria), [trace ownership](mlflow-trace-contract.md) and the [accepted review checklist](validation/block-02-harness-review.md). Historical failed and false-green runs remain preserved and indexed in [documentation history](README.md#frozen-experiment-protocols-and-historical-evidence).
 

@@ -2,6 +2,17 @@
 
 Scope revision: `banking-v1`, 2026-10-31. This is the implementation target requested by the owner, **not a claim that the target is delivered**. [Specification](../specs/001-breaker.md), [sequenced plan](implementation-plan.md), [roadmap #14](https://github.com/caldeirav/sub15-breaker/issues/14).
 
+**2026-11-01 owner clarification:** this is a benchmark harness, not a production
+system. The active slice is one modern agent flow over the pinned test cases,
+with a common Substrate-side guard hook comparing a calibrated compact neural
+classifier with an LLM reviewer. Production IAM, elaborate security policy, HA
+and sustained-uptime acceptance are not on its critical path. Existing working
+transport may be reused, and action/non-execution evidence, label/calibration
+validity, complete traces and fair full-path timing remain necessary benchmark
+controls. The older production-style rollout requirements below are historical
+design context where they conflict with this clarification; they do not mandate
+additional production-authentication work. See [the focused experiment](benchmark-guard-experiment.md).
+
 **Metric decision approved:** the owner explicitly approved [banking-metrics-v2](banking-metric-contract-v2.md) to resolve #20. It preserves upstream parity while separating selected forbidden-recipient effects and declared subscription-disclosure facts. Native judges review normalized observations/rules, not Python source or supplied measured verdicts. Validation and independent review of this implementation are separate from human MLflow acceptance.
 
 **Harness block accepted:** [banking-harness-acceptance-v3](banking-harness-acceptance-v3.md) gates trace/evaluation fidelity, controls, golden correctness and complete evidence—not universal agent success. Derived assessment `53b476bed53446ebac25753aaa9a8b80` passes with independent approval and no new model calls; **@caldeirav accepted this local scope on 2026-10-31** ([record](validation/block-02.json)). #25 is nonblocking quality work. Future agent/guard quality, availability, isolation and latency gates are not waived.
