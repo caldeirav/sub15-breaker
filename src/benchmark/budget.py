@@ -40,6 +40,8 @@ class Budget:
         fd=os.open(self.directory/".lock",os.O_CREAT|os.O_RDWR,0o600)
         with os.fdopen(fd,"w") as lock:
             fcntl.flock(lock,fcntl.LOCK_EX)
+            if (self.directory/"policy-v3.json").exists() or (self.directory/"campaign-baseline.json").exists():
+                raise RuntimeError("budget_policy_superseded")
             extended=self.policy.get("version")==EXTENDED_PILOT["version"]
             if extended:
                 original=self.directory/"policy.json"

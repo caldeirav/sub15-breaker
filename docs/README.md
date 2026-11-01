@@ -20,6 +20,7 @@ The supported research domain is **AgentDojo simulated banking**. The local harn
 | [Infrastructure](infra.md) | Separate accepted control plane and non-executing fixtures |
 | [Agent/harness boundaries](agent-harness-architecture.md) | Suite-neutral runtime and harness contracts; AgentDojo task/tool/checker adapter boundary |
 | [Guard benchmark](benchmark-guard-experiment.md) | One flow, common Substrate guard boundary, compact neural classifier versus LLM, labels and fair timing |
+| [Action-label review](banking-action-label-policy.md) | Draft policy, pending annotation packet, input/split feasibility and label-review gates before training |
 | [Legacy compatibility](legacy-compatibility.md) | Old modules/examples that are not the supported banking path |
 | [Documentation alignment audit](documentation-audit.md) | What was reviewed/corrected, immutable evidence and validation boundaries |
 
