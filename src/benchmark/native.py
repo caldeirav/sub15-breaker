@@ -35,19 +35,20 @@ class Entry:
     parent: object
     result: dict | None = None
     attempted: bool = False
+    input_issues: tuple = ()
 
 
 class Registry:
     def __init__(self):
         self.entries={};self.lock=threading.Lock()
 
-    def register(self,ticket,value,guard,*,parent=None):
+    def register(self,ticket,value,guard,*,parent=None,input_issues=()):
         if not re.fullmatch(r"[0-9a-f]{32}",ticket):raise ValueError("invalid_prepared_ticket")
         with self.lock:
             if ticket in self.entries:raise ValueError("duplicate_guard_ticket")
-            self.entries[ticket]=Entry(deepcopy(value),guard,parent)
+            self.entries[ticket]=Entry(deepcopy(value),guard,parent,input_issues=tuple(input_issues))
 
-    def admit(self,ticket):
+    def admit(self,ticket,*,active=lambda:True):
         started=perf_counter_ns()
         with self.lock:
             entry=self.entries.get(ticket)
@@ -55,12 +56,20 @@ class Registry:
             entry.attempted=True
         span=mlflow.start_span_no_context(name="substrate_native_admission",span_type="GUARDRAIL",parent_span=entry.parent)
         try:
-            span.set_inputs(dict(ticket=ticket,review=entry.value.serialized(),guard_id=entry.guard.guard_id))
+            span.set_inputs(dict(ticket=ticket,review=entry.value.serialized(),guard_id=entry.guard.guard_id,input_issues=list(entry.input_issues)))
             # Context attachment makes LangChain verifier autolog spans children
             # of this actual platform admission, even on the gRPC worker thread.
             from mlflow.tracing.fluent import with_active_span
             with with_active_span(span):
-                result=timed_review(entry.guard,entry.value)
+                if entry.input_issues:
+                    result=dict(input_digest=entry.value.digest(),guard_id=entry.guard.guard_id,decision="error",risk=None,
+                        review_latency_ns=0,error="unsupported_review_input",input_issues=list(entry.input_issues),model_invocations=0)
+                elif not active():
+                    result=dict(input_digest=entry.value.digest(),guard_id=entry.guard.guard_id,decision="error",risk=None,
+                        review_latency_ns=0,error="admission_request_cancelled_before_review",model_invocations=0)
+                else:result=timed_review(entry.guard,entry.value)
+                if not active():
+                    result.update(discarded_decision=result["decision"],decision="error",error="review_finished_after_request_cancelled")
             result.update(ticket=ticket,admission_service_ns=perf_counter_ns()-started,
                 trace_id=span.trace_id,span_id=span.span_id)
             span.set_outputs(result)
@@ -93,7 +102,7 @@ class Processor:
                 match=re.fullmatch(r"/claim/([0-9a-f]{32})",path)
                 if headers.get(":method")!="POST" or not match:
                     yield deny(403,"canonical_ticket_path_required");return
-                result=self.registry.admit(match[1])
+                result=self.registry.admit(match[1],active=context.is_active if context is not None else lambda:True)
                 if result["decision"]!="allow":
                     yield deny(403 if result["decision"]=="block" else 503,"benchmark_guard_"+result["decision"]);return
             yield pb.ProcessingResponse(request_headers=pb.HeadersResponse())

@@ -102,3 +102,35 @@ misrepresented as a task/harness judge. Historical unknowns remain unknown.
 Do not add production IAM, HA, a second agent loop or the deferred soak as a
 prerequisite. Do not modify global LM Studio defaults or unload/reload shared
 acting-model weights merely to make an experiment pass.
+
+### Diagnostic comparison entry point
+
+`python -m src.benchmark.compare` reuses `wiring.run_case`; it does not implement
+another agent. `--artifact`, `--dataset` and `--budget` point to the frozen local
+export, re-tokenized original dataset and **existing cumulative ledger**.
+Without `--freeze` or `--execute` it only prints the proposed bound matrix.
+`--freeze` binds the matrix without model calls. The matrix records diagnostic
+quality status, calibration, reviewer model, deadline profile and named cases.
+
+Before execution, rebuild the digest-bound banking image and deploy it with
+`python -m src.banking_service.deploy --image <digest-reference>
+--deadline-profile learned-guard-v1`. Existing service defaults remain legacy;
+the comparison refuses a legacy deployment or mismatched store/Actor settings.
+The opt-in chain is20s reviewer,25s native hook,30s Actor/store client,55s Actor
+server,60s outer Actor client,65s MCP client,70s MCP route and90s ticket lifetime.
+The55s Actor deadline covers the claim **plus** bounded tool execution and commit.
+
+`--execute canary` first runs native allow/block/error and unsupported-input
+controls, then one scripted fresh-state proposal per real guard. Canary admission
+must have matching input digests and honest dispatch/state evidence; a genuine
+model block is not rewritten to an allow. `--execute episodes --canary-result
+<result.json>` requires persisted mechanical canary evidence before running the
+six task/guard episodes in counterbalanced order. Started cases have irreversible
+markers even when they consume zero generative requests; failures are not retried.
+Blocked/error episodes remain results, not automatic rerun triggers.
+
+The named paired-replay slots are budget scope only: this CLI does **not** yet
+execute reconstructed-prefix native replay or external post-run Gemini review.
+It reports these as incomplete. Native admission-service and model-forward time
+are not full-path admission latency; Actor roundtrip includes tool work. No
+admission-only latency claim follows from this command.

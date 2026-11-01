@@ -154,3 +154,77 @@ def test_client_and_gateway_chat_spans_are_one_physical_model_attempt(monkeypatc
     monkeypatch.setattr("src.benchmark.wiring.mlflow.get_trace",lambda trace_id:S(data=S(spans=spans),info=S(trace_id=trace_id,assessments=[])))
     result=audit_record(dict(trace_id="trace",evidence=dict(actions=[]),model_attempts=1,guard_control=None))
     assert result["chat_model_spans"]==result["managed_responses_dispatches"]==result["gateway_chat_model_spans"]==1
+
+
+@pytest.mark.parametrize("cancel_before",[False,True])
+def test_native_cancelled_review_never_returns_allow(monkeypatch,cancel_before):
+    from src.benchmark.guards import Verdict
+    monkeypatch.setattr("src.benchmark.native.mlflow.start_span_no_context",lambda **kw:FakeSpan())
+    monkeypatch.setattr("mlflow.tracing.fluent.with_active_span",lambda span:NullContext())
+    state={"active":not cancel_before,"calls":0}
+    class Guard:
+        guard_id="late-allow"
+        def review(self,value):
+            state.update(active=False,calls=state["calls"]+1)
+            return Verdict(value.digest(),"allow",self.guard_id)
+    registry=Registry();ticket="a"*32
+    registry.register(ticket,ReviewInput("goal","policy","policy","echo",{}),Guard())
+    result=registry.admit(ticket,active=lambda:state["active"])
+    assert result["decision"]=="error" and state["calls"]==int(not cancel_before)
+    assert registry.result(ticket)["decision"]=="error"
+    if not cancel_before:assert result["discarded_decision"]=="allow"
+    assert registry.admit(ticket)["error"]=="unregistered_or_replayed_ticket"
+
+
+def test_unsupported_input_fails_at_native_boundary_without_model_call(monkeypatch):
+    monkeypatch.setattr("src.benchmark.native.mlflow.start_span_no_context",lambda **kw:FakeSpan())
+    monkeypatch.setattr("mlflow.tracing.fluent.with_active_span",lambda span:NullContext())
+    class Guard:
+        guard_id="must-not-run"
+        def review(self,value):raise AssertionError("unsupported input reached model")
+    registry=Registry();ticket="a"*32
+    registry.register(ticket,ReviewInput("goal","policy","policy","echo",{}),Guard(),input_issues=("encoder_context_overflow",))
+    response=list(Processor(registry,"store").Process(iter([request("/claim/"+ticket)]),None))[0]
+    assert response.immediate_response.status.code==503
+    result=registry.result(ticket)
+    assert result["error"]=="unsupported_review_input" and result["model_invocations"]==0
+
+
+def test_trace_audit_separates_guard_from_acting_model_dispatch(monkeypatch):
+    from types import SimpleNamespace as S
+    from src.benchmark.wiring import audit_record
+    def span(id,parent,name,type):return S(span_id=id,parent_id=parent,name=name,span_type=type,inputs={},outputs={})
+    spans=[span("root",None,"episode","AGENT"),span("node","root","model","CHAIN"),
+        span("client","node","ChatOpenAI","CHAT_MODEL"),span("actor-http","client","managed_responses_http","CLIENT"),
+        span("actor-gateway","actor-http","POST /v1/responses","CHAT_MODEL"),
+        span("review","root","guard-review","CHAIN"),span("guard-client","review","ChatOpenAI","CHAT_MODEL"),
+        span("guard-http","guard-client","managed_responses_http","CLIENT"),
+        span("guard-gateway","guard-http","POST /v1/responses","CHAT_MODEL")]
+    monkeypatch.setattr("src.benchmark.wiring.mlflow.get_trace",lambda trace_id:S(data=S(spans=spans),info=S(trace_id=trace_id,assessments=[])))
+    result=audit_record(dict(trace_id="trace",evidence=dict(actions=[]),model_attempts=1,guard_control=None))
+    assert result["managed_responses_dispatches"]==result["guard_managed_responses_dispatches"]==1
+
+
+def test_model_transport_reserves_at_physical_boundary_and_never_falls_back(monkeypatch):
+    from contextlib import nullcontext
+    import httpx
+    from src.benchmark.wiring import ModelTransport
+    events=[]
+    class Transport:
+        def __init__(self,**kwargs):assert kwargs=={"retries":0}
+        def handle_request(self,request):events.append("dispatch");return httpx.Response(200)
+        def close(self):pass
+    monkeypatch.setattr("src.benchmark.wiring.httpx.HTTPTransport",Transport)
+    monkeypatch.setattr("src.benchmark.wiring.mlflow.start_span",lambda **kw:nullcontext(FakeSpan()))
+    monkeypatch.setattr("mlflow.tracing.distributed.get_tracing_context_headers_for_http_request",lambda:{})
+    transport=ModelTransport("http://gateway",before_dispatch=lambda:events.append("reserve"))
+    request=httpx.Request("POST","http://gateway/v1/responses",json={})
+    assert transport.handle_request(request).status_code==200
+    assert events==["reserve","dispatch"]
+    with pytest.raises(RuntimeError,match="unexpected_model_route"):
+        transport.handle_request(httpx.Request("POST","http://direct-provider/v1/responses",json={}))
+    assert events==["reserve","dispatch"]
+    def exhausted():raise RuntimeError("budget_exhausted")
+    transport.before_dispatch=exhausted
+    with pytest.raises(RuntimeError,match="budget_exhausted"):transport.handle_request(request)
+    assert events==["reserve","dispatch"]

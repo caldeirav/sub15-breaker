@@ -110,9 +110,13 @@ class CampaignBudget:
                     if case.get("task_id") is not None or any(case.get(role,0) for role in LOCAL):raise ValueError("undeclared_campaign_scope")
                 phases[case["phase"]]+=sum(case.get(role,0) for role in LOCAL)
             if any(count>POLICY["phases"][name] for name,count in phases.items()):raise ValueError("phase_allocation_exceeds_ceiling")
-            baseline=self._baseline(self.entries())
-            if sum(phases.values())+baseline["local_spent"]>POLICY["local_total"]:raise ValueError("matrix_exceeds_total")
-            if sum(c.get(r,0) for c in cases for r in EXTERNAL)+baseline["external_operations"]>POLICY["gemini_total"]:
+            entries=self.entries();self._baseline(entries)
+            # Generation is a separate pre-training plan, but consumes the same
+            # cumulative totals. Do not reset it to the historical baseline.
+            matrix_ids={case["case_id"] for case in cases}
+            outside=[entry for entry in entries if entry.get("case_id") not in matrix_ids or entry.get("policy_version")!=POLICY["version"]]
+            if sum(phases.values())+sum(e["role"] in LOCAL for e in outside)>POLICY["local_total"]:raise ValueError("matrix_exceeds_total")
+            if sum(c.get(r,0) for c in cases for r in EXTERNAL)+sum(e["role"] in EXTERNAL for e in outside)>POLICY["gemini_total"]:
                 raise ValueError("matrix_exceeds_gemini_total")
             path=self.directory/"matrix-v3.json"
             if path.exists():

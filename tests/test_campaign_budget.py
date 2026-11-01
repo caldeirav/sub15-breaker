@@ -65,3 +65,16 @@ def test_matrix_and_history_changes_fail_closed(tmp_path):
     first=json.loads((tmp_path/"attempt-0001.json").read_text());first["spent"]=False
     (tmp_path/"attempt-0001.json").write_text(json.dumps(first))
     with pytest.raises(RuntimeError,match="historical_ledger_changed"):value.freeze()
+
+
+def test_native_matrix_counts_pretraining_generation_against_cumulative_cap(tmp_path,monkeypatch):
+    from src.benchmark.hybrid import generation_plan
+    value=campaign(tmp_path)
+    plan=generation_plan(dict(derived_dataset_sha256="a"*64))
+    value.freeze_generation_plan(plan)
+    value.reserve(role="gemini_data_generation",case_id="hybrid-train-0",trace_id="generated",model=POLICY["gemini_model"])
+    monkeypatch.setitem(POLICY,"gemini_total",3)
+    # Keep the persisted policy consistent for this deliberately tiny cap.
+    (tmp_path/"policy-v3.json").write_text(json.dumps(POLICY))
+    with pytest.raises(ValueError,match="matrix_exceeds_gemini_total"):
+        value.freeze_matrix(matrix(gemini_harness_judge=2))

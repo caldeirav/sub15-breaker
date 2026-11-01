@@ -10,6 +10,7 @@ from src.banking_contracts.codec import ContractError
 from src.banking_contracts.models import PolicyProfile, TrustedContext
 from src.banking_contracts.tools import ToolCatalog
 from src.banking_service.auth import IdentityVerifier
+from src.banking_service.deadlines import profile
 from src.banking_service.http import BoundedServer, RuntimeClient, fields
 from src.banking_service.store import StateStore
 from src.banking_service.upstream import bounded_evaluate, environment_model, initial_state
@@ -118,15 +119,16 @@ def main(runtime_mounts=()):
     parser.add_argument("role", choices=("store", "actor"))
     parser.add_argument("--port", type=int, default=8080)
     args = parser.parse_args()
+    deadlines=profile(os.getenv("BANKING_DEADLINE_PROFILE","legacy"))
     identities = (IdentityVerifier(json.loads(os.environ["BANKING_IDENTITY_JSON"]))
         if "BANKING_IDENTITY_JSON" in os.environ else IdentityVerifier.from_file(os.environ["BANKING_IDENTITY_CONFIG"]))
     if args.role == "store":
-        store = StateStore(os.environ["BANKING_STORE_PATH"], Path(os.environ["BANKING_KEY_FILE"]).read_bytes())
+        store = StateStore(os.environ["BANKING_STORE_PATH"], Path(os.environ["BANKING_KEY_FILE"]).read_bytes(),ticket_lifetime=deadlines.ticket)
         application = StoreApplication(store, identities)
     else:
-        application = ActorApplication(RuntimeClient(os.environ["BANKING_STORE_URL"], "Bearer inject-actor-jwt"), identities,
+        application = ActorApplication(RuntimeClient(os.environ["BANKING_STORE_URL"], "Bearer inject-actor-jwt",timeout=deadlines.actor_store), identities,
             runtime_mounts,os.getenv("BANKING_VALIDATION_FAULT_STAGE"),os.getenv("BANKING_BENCHMARK_CLAIM_PATH")=="1")
-    with BoundedServer(("0.0.0.0", args.port), application) as server:
+    with BoundedServer(("0.0.0.0", args.port), application,request_deadline=deadlines.actor_server if args.role=="actor" else 45) as server:
         server.serve_forever()
 
 

@@ -31,13 +31,15 @@ def fail(code):
 
 
 class StateStore:
-    def __init__(self, path, key, *, catalog=None, max_actions=1000, max_events=4000):
+    def __init__(self, path, key, *, catalog=None, max_actions=1000, max_events=4000,ticket_lifetime=30):
         if not isinstance(key, bytes) or len(key) < 32: fail("invalid_runtime_key")
         if type(max_actions) is not int or type(max_events) is not int or min(max_actions, max_events) < 1:
             fail("invalid_store_capacity")
         self.path, self.key = Path(path), key
         self.catalog = catalog or ToolCatalog.from_pinned_agentdojo()
         self.max_actions, self.max_events = max_actions, max_events
+        if type(ticket_lifetime) is not int or not 1<=ticket_lifetime<=90:fail("invalid_ticket_lifetime")
+        self.ticket_lifetime=ticket_lifetime
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         with self.transaction() as db:
             db.executescript("""
@@ -159,7 +161,7 @@ class StateStore:
                     context=context_digest, catalog=self.catalog.schema_digest, actor_uid=t["uid"])))
             bound = BoundAction(proposal=proposal, context=context, binding=binding,
                 tool_catalog_digest=self.catalog.schema_digest, fixture_only=False)
-            ticket, deadline = uuid4().hex, min(time.time() + 30, context.expires_at.timestamp())
+            ticket, deadline = uuid4().hex, min(time.time() + self.ticket_lifetime, context.expires_at.timestamp())
             db.execute("INSERT INTO actions VALUES (?,?,?,?,?,?,?,?,?,?)", (ticket, trial_id, t["generation"],
                 proposal.action_id, proposal.idempotency_key, encoded, packed(bound), "prepared", deadline, None))
             self._event(db, "action_prepared", trial_id, dict(ticket=ticket, proposal=proposal, binding=bound.binding,

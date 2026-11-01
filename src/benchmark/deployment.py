@@ -22,7 +22,7 @@ def private(path,value):
     return path
 
 
-def configure_bridge(cluster,directory,host_ip,port):
+def configure_bridge(cluster,directory,host_ip,port,*,request_timeout=60):
     issuer=json.loads(cluster.kubectl("get","--raw","/.well-known/openid-configuration",capture=True).stdout)["issuer"]
     jwks=json.loads(cluster.kubectl("get","--raw","/openid/v1/jwks",capture=True).stdout)
     def obj(api,kind,name,spec):
@@ -32,7 +32,7 @@ def configure_bridge(cluster,directory,host_ip,port):
         name="banking",static=dict(host=host_ip,port=port,path="/mcp",protocol="StreamableHTTP"))]))),
         obj("gateway.networking.k8s.io/v1","HTTPRoute",route,dict(parentRefs=[dict(name=GATEWAY,sectionName="http")],rules=[dict(
             matches=[dict(path=dict(type="Exact",value="/benchmark/mcp"),method="POST")],
-            backendRefs=[backend_ref(route)],timeouts=dict(request="60s"))])),
+            backendRefs=[backend_ref(route)],timeouts=dict(request=f"{request_timeout}s"))])),
         obj("agentgateway.dev/v1alpha1","AgentgatewayPolicy",route,dict(targetRefs=[dict(
             group="gateway.networking.k8s.io",kind="HTTPRoute",name=route)],traffic=dict(retry=dict(attempts=0),
                 jwtAuthentication=dict(mode="Strict",providers=[dict(issuer=issuer,audiences=[MODEL_AUDIENCE],jwks=dict(inline=json.dumps(jwks)))]),
