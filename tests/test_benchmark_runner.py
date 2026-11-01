@@ -135,3 +135,30 @@ def test_native_graph_model_tool_and_guard_spans_persist_together(tmp_path,monke
     finally:
         mlflow.langchain.autolog(disable=True)
         mlflow.set_tracking_uri(previous)
+
+
+def test_trace_privacy_masks_exceptions_without_destroying_schema(tmp_path,monkeypatch):
+    import json
+    import mlflow
+    from mlflow.tracking import fluent
+    from src.benchmark.privacy import Mask
+    previous=mlflow.get_tracking_uri()
+    monkeypatch.setattr(fluent,"_active_experiment_id",fluent._active_experiment_id)
+    monkeypatch.setenv("MLFLOW_ENABLE_ASYNC_TRACE_LOGGING","false")
+    monkeypatch.delenv("MLFLOW_EXPERIMENT_ID",raising=False)
+    monkeypatch.delenv("MLFLOW_EXPERIMENT_NAME",raising=False)
+    mlflow.set_tracking_uri(f"sqlite:///{tmp_path/'privacy.db'}")
+    try:
+        mlflow.set_experiment("offline-privacy")
+        with mlflow.tracing.configure(span_processors=[Mask(["private-sentinel"]).span_processor]):
+            with mlflow.start_span(name="privacy-fixture") as span:
+                trace_id=span.trace_id
+                span.set_inputs({"properties":{"password":{"type":"string"}},"password":"private-sentinel"})
+                span.record_exception(ValueError("private-sentinel"))
+                span.set_outputs({"result":"private-sentinel"})
+        trace=mlflow.get_trace(trace_id)
+        root=trace.data.spans[0]
+        assert root.inputs["properties"]["password"]=={"type":"string"}
+        assert "private-sentinel" not in json.dumps(root.to_dict())
+        assert root.events[0].attributes["exception.stacktrace"]=="[WITHHELD]"
+    finally:mlflow.set_tracking_uri(previous)

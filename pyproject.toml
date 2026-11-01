@@ -27,6 +27,10 @@ dependencies = [
   "agentdojo @ git+https://github.com/ethz-spylab/agentdojo.git@089ed468cf3ed0322acc66b0211f26d9d90dbf60",
   "pyjwt[crypto]>=2.10,<3",
   "langchain-core>=1.7.3,<2",
+  "langchain-openai>=1,<2",
+  "grpcio>=1.75,<2",
+  "protobuf>=7,<8",
+  "pyyaml>=6",
 ]
 
 [dependency-groups]

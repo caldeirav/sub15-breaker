@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 import json
 import os
 from pathlib import Path
+import re
 
 from src.banking_contracts.codec import ContractError
 from src.banking_contracts.models import PolicyProfile, TrustedContext
@@ -19,6 +20,13 @@ class StoreApplication:
         self.store, self.identities = store, identities
 
     def __call__(self, path, body, authorization):
+        match=re.fullmatch(r"/claim/([0-9a-f]{32})",path)
+        if match:
+            # Header-only native ext_proc reviews this immutable ticket. There
+            # is no second body ticket/action that could differ from the review.
+            identity=self.identities.actor(authorization)
+            fields(body,())
+            return self.store.claim(match[1],identity.name,identity.uid)
         if path in {"/claim", "/commit"}:
             identity = self.identities.actor(authorization)
             if path == "/claim":
@@ -59,6 +67,9 @@ class StoreApplication:
         if path == "/events":
             fields(body, ())
             return dict(events=self.store.events())
+        if path == "/trial-events":
+            fields(body,("trial_id",))
+            return dict(events=self.store.trial_events(body["trial_id"],principal))
         if path == "/acknowledge":
             fields(body, ("event_id",))
             self.store.acknowledge(body["event_id"])
@@ -70,11 +81,12 @@ class StoreApplication:
 
 
 class ActorApplication:
-    def __init__(self, store, identities, runtime_mounts=(),fault_stage=None):
+    def __init__(self, store, identities, runtime_mounts=(),fault_stage=None,benchmark_claim_path=False):
         self.store, self.identities = store, identities
         self.runtime_mounts=runtime_mounts
         if fault_stage not in {None,"after_claim","after_commit"}:raise ValueError("unsupported_validation_fault")
         self.fault_stage=fault_stage
+        self.benchmark_claim_path=benchmark_claim_path
 
     def __call__(self, path, body, authorization):
         self.identities.driver(authorization)
@@ -86,7 +98,12 @@ class ActorApplication:
                 environment_keys=sorted(os.environ),mounts=list(self.runtime_mounts))
         if path != "/execute": raise ContractError("unknown_runtime_route", "transport")
         fields(body, ("ticket",))
-        work = self.store.call("/claim", body)
+        if self.benchmark_claim_path:
+            if not isinstance(body["ticket"],str) or not re.fullmatch(r"[0-9a-f]{32}",body["ticket"]):
+                raise ContractError("invalid_benchmark_ticket","transport")
+            work=self.store.call("/claim/"+body["ticket"],{})
+        else:
+            work = self.store.call("/claim", body)
         if work["status"] == "completed": return work
         # Immutable validation-template setting, never a request/model argument.
         if self.fault_stage=="after_claim":os._exit(70)
@@ -108,7 +125,7 @@ def main(runtime_mounts=()):
         application = StoreApplication(store, identities)
     else:
         application = ActorApplication(RuntimeClient(os.environ["BANKING_STORE_URL"], "Bearer inject-actor-jwt"), identities,
-            runtime_mounts,os.getenv("BANKING_VALIDATION_FAULT_STAGE"))
+            runtime_mounts,os.getenv("BANKING_VALIDATION_FAULT_STAGE"),os.getenv("BANKING_BENCHMARK_CLAIM_PATH")=="1")
     with BoundedServer(("0.0.0.0", args.port), application) as server:
         server.serve_forever()
 

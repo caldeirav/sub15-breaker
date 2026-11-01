@@ -128,9 +128,11 @@ The benchmark retains the existing three-task slice. The owner subsequently
 revised the 80-request allowance to include acting-agent and LLM-guard requests
 and retries together. The earlier 8/72 allocation and nine-trial completion
 matrix are superseded for this experiment; freeze the revised pilot before any
-live inference. Preserve original failed runs and spent budgets. Native Gemini
-evaluation remains an optional separately authorized post-run evaluator, not
-part of this local-only benchmark gate.
+live inference. Preserve original failed runs and spent budgets. The owner
+subsequently authorized the Gemini calls necessary to review harness execution:
+external post-run Gemini review is now an explicit live wiring deliverable,
+separate from local admission and its 80-request budget. See the focused
+experiment for the versioned suite-level review rubric.
 
 References checked through Context7: [LangGraph runtime context](https://docs.langchain.com/oss/python/langgraph/graph-api),
 [LangChain MCP tools](https://docs.langchain.com/oss/python/langchain/mcp/tools),

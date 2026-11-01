@@ -260,6 +260,12 @@ class StateStore:
                 generation=context.actor_generation, initial_fingerprint=self.fingerprint(json.loads(t["initial"]))))
         return self.snapshot(trial_id, principal)
 
+    def trial_events(self,trial_id,principal):
+        with self.transaction() as db:
+            self._trial(db,trial_id,principal)
+            return [dict(event_id=row["id"],kind=row["kind"],trial_id=row["trial"],payload=json.loads(row["payload"]))
+                for row in db.execute("SELECT * FROM outbox WHERE trial=? ORDER BY rowid",(trial_id,)).fetchall()]
+
     def events(self, limit=100):
         if type(limit) is not int or not 1 <= limit <= 100: fail("invalid_event_limit")
         with self.transaction() as db:
