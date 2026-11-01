@@ -107,4 +107,4 @@ The [human checklist](validation/block-02-harness-review.md), [acceptance record
 
 ## Next step
 
-Block 03a's [typed contracts and harmless trace fixtures](banking-contracts-03a.md) are implemented, independently reviewed and accepted by @caldeirav on 2026-10-31. They leave this live harness unchanged. Actor hosting, gateway enforcement, financial policy, training and performance follow their later gates in [the plan](next-iteration.md).
+The [shared contracts and record-only fixtures](banking-contracts-03a.md) and [opt-in Actor service](banking-actor-service.md) leave this default in-memory harness unchanged. Use [GitHub roadmap #14](https://github.com/caldeirav/sub15-breaker/issues/14) for delivery status and [the dependency reference](next-iteration.md) for the separate Actor/gateway/financial-policy/model/performance gates.

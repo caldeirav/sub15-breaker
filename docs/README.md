@@ -1,6 +1,6 @@
 # Documentation index
 
-The supported research domain is **AgentDojo simulated banking**. The local evaluation harness is accepted; its gateway/Actor enforcement and risk model are not implemented. Current documentation must not use the retired shell dataset or command-only sidecar as the banking architecture.
+The supported research domain is **AgentDojo simulated banking**. The local harness, shared contracts and controlled Actor service have distinct trust/usage scopes; none is automatically a financial-policy guard or latency result. Use [GitHub roadmap #14](https://github.com/caldeirav/sub15-breaker/issues/14) and owning issues for current delivery status. Do not use the retired shell dataset or command-only sidecar as the banking architecture.
 
 ## Current authority and how to use it
 
@@ -12,6 +12,7 @@ The supported research domain is **AgentDojo simulated banking**. The local eval
 | [Evaluation design](evaluation-design-review.md) | Harness correctness versus agent quality, controls and unbiased reporting |
 | [Banking runbook](banking-feasibility.md) | Actual commands, prerequisites and accepted evidence |
 | [Trace contract](mlflow-trace-contract.md) | Model/tool/judge coverage and per-trace score ownership |
+| [Actor service guide](banking-actor-service.md) | Controlled Actor execution, external transactional state, identity, evidence outbox and local operation |
 | [Harness acceptance v3](banking-harness-acceptance-v3.md) | Active acceptance policy: correct evaluation, not universal agent success |
 | [Human checklist](validation/block-02-harness-review.md) / [acceptance record](validation/block-02.json) | @caldeirav's scoped acceptance and reproducible inspection steps |
 | [Implementation plan](implementation-plan.md) / [next iteration](next-iteration.md) | Remaining blocks and accepted record-only 03a scope |

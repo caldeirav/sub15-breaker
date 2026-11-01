@@ -1,5 +1,18 @@
 # MLflow trace and score contract (`banking-traces-v1`)
 
+## Actor-backed execution evidence
+
+The [Actor service](banking-actor-service.md) adds platform-observed Actor/worker identities, current generation/state versions, action tickets, independent committed receipts and a durable evidence outbox. The default in-memory pilot and its historical native-judge protocol remain unchanged.
+
+- Acting-model and native Gemini review traces retain their existing request/response/provenance and scalar-score contracts. The Actor-backed adapter exposes canonical decimal-string schemas, not an implicit float ingestion path.
+- Tool attempt spans identify the remote backend and owning action/ticket. Known outcomes carry receipt identity, keyed before/after fingerprints and authoritative change flags. Password-only changes must not disappear through redacted-state comparison. Unknown effects remain nullable, not false.
+- Runtime controls expose root `runtime/passed` from unique **CODE / banking-actor-service-v1** assessments. Known tool outcomes also carry action-span `tool/execution_error`, `tool/state_changed` and `tool/executed` as applicable. Receipt columns include `tool/receipt_available` and exact decimal-string `tool/state_version_before_exact` / `tool/state_version_after_exact`, avoiding MLflow's double-valued numeric feedback encoding. Unknown execution/after-state stays absent rather than false/zero. An expected crash or rejection may pass its control without implying successful execution or prevented harm.
+- Outbox events preserve attempted tools before computation and commit results with state/receipt changes. Acting-model and native-judge attempts/results are also durably observed. Replayed event traces use `banking.event_id` / `banking.trial_id` metadata and strictly typed, owned `runtime/event_kind` / `runtime/durable_event` assessments.
+- Export acknowledges only fresh readback of exact event contents and both unique CODE assessments. Missing feedback may be completed idempotently; wrong-owner/duplicate/different evidence must not be overwritten. Unavailable MLflow export remains pending and blocks a complete-evidence acceptance claim.
+- Evidence counts distinguish transport attempts, claimed tool attempts, actual results and committed effects. A crash after claim can leave execution unknown with unchanged authoritative state; a lost response after commit is reconciled by its existing receipt, not a repeated write. Lifecycle cleanup and retained failure history are independently visible.
+
+An Actor runtime setting is not proof: retain the actual assignment, worker UID, Actor-UID-correlated gVisor logs and in-sandbox UID/capability/credential probe. Track run-specific delivery/acceptance in the owning GitHub issues rather than treating this contract as a status ledger.
+
 Owner requirement: every model/tool/judge invocation appears in MLflow and relevant scores appear as columns **against each specific trace**. [Issue #22](https://github.com/caldeirav/sub15-breaker/issues/22) owns completeness; #3 owns durable partial evidence, #8 evaluation and #24 end-to-end migration. This contract distinguishes pilot remediation from still-missing distributed execution.
 
 ## Harness acceptance versus quality
