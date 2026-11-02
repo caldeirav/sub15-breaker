@@ -60,8 +60,9 @@ def code_hashes():
 
 
 def make_plan(artifact,*,acting_model,classifier_device="mps",namespace="nd1"):
-    if namespace not in {"nd1","nd2"}:raise ValueError("unsupported_demo_phase")
-    deadlines=MEASURE if namespace=="nd2" else DEMO
+    if namespace not in {"nd1","nd2","nd3"}:raise ValueError("unsupported_demo_phase")
+    measurement=namespace!="nd1"
+    deadlines=MEASURE if measurement else DEMO
     value=manifest(artifact,policy_id=POLICY_ID);adapter=BankingAdapter()
     fixtures={}
     for task in TASKS:
@@ -85,19 +86,21 @@ def make_plan(artifact,*,acting_model,classifier_device="mps",namespace="nd1"):
         for kind,count,role in (("actor",2,"actor"),("read-review",3,"llm_guard"),("payment-review",3,"llm_guard")):
             for index in range(count):cases.append(dict(case_id=f"nd1-probe-{kind}-{index}",task_id="user_task_0",kind="diagnostic",probe=kind,index=index,**{role:1}))
         cases.append(dict(case_id="nd1-encoder-measurement",task_id="user_task_0",kind="encoder_measurement",encoder_forward_cap=12))
+    if measurement:
         for case in cases:case["case_id"]=case["case_id"].replace("nd1-",namespace+"-",1)
     hashes=code_hashes()
     return dict(schema_version="native-demo-matrix-v1",policy_sha256=hashlib.sha256(encoded(POLICY)).hexdigest(),
         artifact_manifest_sha256=digest(value),calibration_sha256=digest(value["calibration"]),model_id=value["model_id"],
         fixtures_sha256=digest(fixtures),fixtures=fixtures,code_sha256=digest(hashes),code_hashes=hashes,acting_model=acting_model,
         input_version=INPUT_VERSION,policy_id=POLICY_ID,image=config["image"],base_template=config["template"],
-        deadlines=asdict(deadlines),mcp_backend_timeout=430 if namespace=="nd2" else 75,control_hook_timeout=2,cases=cases,phase="laptop-measurement-v2" if namespace=="nd2" else "validation",cards=CARDS,
+        deadlines=asdict(deadlines),mcp_backend_timeout=430 if measurement else 75,control_hook_timeout=2,cases=cases,phase="laptop-measurement-v2" if measurement else "validation",cards=CARDS,
         **(dict(namespace=namespace,model_route_timeout=330,model_backend_timeout=315,diagnostic_provider_idle_timeout=120,
-            measurement_protocol=dict(encoder_calls_per_input=6,inputs=["read","payment"],warmup_requests=0,diagnostics_continue_on_error=True,automatic_retries=0)) if namespace=="nd2" else {}),
+            measurement_protocol=dict(encoder_calls_per_input=6,inputs=["read","payment"],warmup_requests=0,diagnostics_continue_on_error=True,automatic_retries=0),
+            **(dict(retained_measurement_phase="nd2",reason="native claim error-code observability; no repeat of successful diagnostics",maximum_local_remaining=120) if namespace=="nd3" else {})) if measurement else {}),
         serving=dict(frontend="managed Responses",backend="Completions via explicit gateway translation",shared_context=8192,
             actor_max_tokens=2048,reviewer_max_tokens=256,temperature=0,max_retries=0,global_settings_changed=False,
             classifier_device=classifier_device,classifier_lifetime="selected classifier arm only; release before LLM/control arm",tokenizer_only_for_llm=True),
-        reconciliation=dict(timeout_seconds=120 if namespace=="nd2" else 30,quiet_seconds=2 if namespace=="nd2" else 1,poll_seconds=1 if namespace=="nd2" else .5,provider_idle_required=True),
+        reconciliation=dict(timeout_seconds=120 if measurement else 30,quiet_seconds=2 if measurement else 1,poll_seconds=1 if measurement else .5,provider_idle_required=True),
         retries=0,fallback=False,quality_scope="imperfect frozen prototype; architecture mechanics distinct from reviewer correctness",full_admission_latency_claim=False)
 
 
@@ -364,7 +367,7 @@ def main():
     parser.add_argument("--list-demo-cases",action="store_true");parser.add_argument("--dry-run",action="store_true")
     parser.add_argument("--demo-case",default="all",choices=["all",*[c["id"] for c in CARDS],*[c["selector"] for c in CARDS]])
     parser.add_argument("--guard",choices=("classifier","llm"));parser.add_argument("--stage",choices=("all","controls","canary","cards","diagnostics"),default="all")
-    parser.add_argument("--phase",choices=("nd1","nd2"),default="nd1")
+    parser.add_argument("--phase",choices=("nd1","nd2","nd3"),default="nd1")
     parser.add_argument("--classifier-device",choices=("cpu","mps"),default="mps",help="Explicit local classifier device; no automatic fallback or model-service change")
     parser.add_argument("--artifact",type=Path,default=BASE/"modernbert-training-v1/model");parser.add_argument("--budget",type=Path,default=BASE/"combined-budget")
     parser.add_argument("--freeze-demo",action="store_true");parser.add_argument("--execute-demo",action="store_true")

@@ -86,6 +86,16 @@ def test_denied_claim_reports_same_clock_timing_without_tool_execution(monkeypat
     assert result["status"]=="admission_failed" and result["actor_timings"]["claim_roundtrip_ns"]>0
 
 
+@pytest.mark.parametrize("code,expected",[("unauthenticated","unauthenticated"),("actor_identity_mismatch","actor_identity_mismatch"),("unsafe credential detail","unclassified_claim_error")])
+def test_claim_diagnostics_preserve_only_allowlisted_safe_codes(code,expected):
+    from src.banking_service.app import ActorApplication
+    from src.banking_contracts.codec import ContractError
+    def deny(*a):raise ContractError(code,"transport")
+    app=ActorApplication(SimpleNamespace(call=deny),SimpleNamespace(driver=lambda auth:None),benchmark_claim_path=True)
+    result=app("/execute",dict(ticket="a"*32),"test")
+    assert result["claim_error_code"]==expected
+
+
 def test_real_grpc_deadline_callback_collects_and_discards_late_allow(spans):
     from concurrent.futures import ThreadPoolExecutor
     import grpc

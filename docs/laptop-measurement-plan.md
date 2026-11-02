@@ -91,3 +91,24 @@ prevents it. Do not assume CUDA/optimized precision/compilation while calling it
 the same unoptimized setup. Production load/queueing and remote network hops can
 make latency worse despite faster hardware. Actual server qualification is a
 separate deployment and measurement, not authorized by this laptop run.
+
+These projections concern the PyTorch classifier path. Qwen's current MLX4-bit
+serving stack is Apple-specific; an NVIDIA deployment would require a separately
+qualified equivalent model/quantization and CUDA-serving backend. Do not transfer
+the laptop classifier/LLM ratio unchanged to a server, or treat that backend port
+as the same measured deployment.
+
+## Native continuation after successful measurements
+
+All eight nd2 model diagnostics and twelve classifier forwards completed. The
+first native allow control then returned an application-level claim failure
+before any tool dispatch. Its trace/state/reconciliation are retained; the
+Actor's response had discarded the safe ContractError code and kept only its
+type. A safe allowlisted claim-code field is added for diagnosis.
+
+`nd3` is the fresh native-only continuation: the same remaining120-local /
+17-review allowance, new image/code binding and fresh native IDs. It contains
+**no** diagnostic or encoder-measurement cases; successful nd2 samples are not
+repeated. Total user-authorized local allowance stays8+120=128. The failed nd2
+allow-control ID is not reset or relabelled successful. No broader IAM relaxation,
+JWT bypass or alternative guard is introduced to get a green result.

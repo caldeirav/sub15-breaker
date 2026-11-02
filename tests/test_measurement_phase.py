@@ -54,6 +54,9 @@ def test_new_matrix_declares_fixed_eight_diagnostics_and_twelve_encoder_calls(mo
     assert next(c for c in p["cases"] if c["kind"]=="encoder_measurement")["encoder_forward_cap"]==12
     assert p["deadlines"]["reviewer"]==300 and p["model_backend_timeout"]>300
     budget(tmp_path/"ledger").freeze_phase(p)
+    continuation=make_plan(tmp_path,acting_model="frozen",namespace="nd3")
+    assert sum(c.get("actor",0)+c.get("llm_guard",0) for c in continuation["cases"])==120
+    assert not any(c["kind"] in {"diagnostic","encoder_measurement"} for c in continuation["cases"])
 
 
 def test_completion_profile_covers_full_chain_without_changing_legacy():

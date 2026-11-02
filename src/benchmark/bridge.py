@@ -123,6 +123,7 @@ class Bridge:
                     result=self.actor.call("/execute",dict(ticket=ticket))
                     record["actor_timings"]=result.get("actor_timings",{})
                     if result["status"]=="admission_failed":
+                        record["claim_failure"]={key:result.get(key) for key in ("claim_error","claim_error_code")}
                         if not self.registry.wait(ticket,30):raise RuntimeError("native_review_drain_timeout")
                         gate=self.registry.result(ticket)
                         if gate and gate.get("cancellation_reason"):self.cancel_and_fence("native_admission_closed")

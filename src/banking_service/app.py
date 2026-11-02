@@ -111,7 +111,11 @@ class ActorApplication:
             else:work = self.store.call("/claim", body)
         except (ContractError,httpx.TransportError) as exc:
             if not self.benchmark_claim_path:raise
-            return dict(status="admission_failed",claim_error=type(exc).__name__,actor_timings=dict(claim_roundtrip_ns=perf_counter_ns()-started))
+            safe_codes={"unauthenticated","actor_identity_required","actor_identity_mismatch","action_expired","unknown_action_ticket",
+                "execution_outcome_unknown","response_too_large","invalid_runtime_json","runtime_transport_error","runtime_unavailable"}
+            code=exc.code if isinstance(exc,ContractError) and exc.code in safe_codes else "unclassified_claim_error"
+            return dict(status="admission_failed",claim_error=type(exc).__name__,claim_error_code=code,
+                actor_timings=dict(claim_roundtrip_ns=perf_counter_ns()-started))
         timings["claim_roundtrip_ns"]=perf_counter_ns()-started
         if work["status"] == "completed": return work
         # Immutable validation-template setting, never a request/model argument.
