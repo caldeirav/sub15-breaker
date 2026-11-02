@@ -104,3 +104,34 @@ latency. No matched-safety, load/HA, production safety or sub-15ms claim follows
 
 Rehearsal/presentation require a separately approved matrix and fresh IDs/state;
 this validation namespace intentionally cannot be reset or clicked until green.
+
+## Recorded setup-only correction (2026-11-02)
+
+The first six controls completed in run `c8b85bfc9db343fdb39152af488e5144`.
+Canary setup run `1a914d2deb4e4d0f8b2f723317ed0259` then failed during
+server dry-run, **before any learned case started or inference was spent**.
+`kubectl replace` had regenerated the restored last-applied annotation from a
+live object. Specs were restored, but that annotation was not byte-identical;
+the initial restoration marker alone did not prove complete metadata restoration.
+The following client-side apply attempted to erase `resourceVersion` and failed.
+
+The correction uses UID/resourceVersion-tested JSON patches for existing owned
+resources and reads back restored spec, labels and annotations. A separate
+zero-inference live setup check proved repeated update/restoration works at
+`.infra/benchmark-guard-harness/native-demo-setup-check-bc881d0ad6cf48be8306ae7561b7b640/`.
+
+An **additive immutable correction**, not a replacement/reset, binds only the
+deployment correction and the runner/budget code needed to verify that binding.
+It cannot change fixtures, reviewer/Actor code, image, IDs or allocations; it is
+allowed only before any demo inference or learned-case start marker exists.
+The original matrix, six spent control markers/traces and failed setup remain.
+
+```sh
+uv run --locked python -m src.benchmark.demo --freeze-setup-correction 1a914d2deb4e4d0f8b2f723317ed0259
+uv run --locked python -m src.benchmark.demo --use-setup-correction --execute-demo --stage canary
+```
+
+Subsequent card and review commands must also include `--use-setup-correction`.
+Do not run controls again. Their enforcement evidence is inherited with its
+original matrix binding; new learned evidence uses the corrected binding. This
+is an explicit infrastructure setup correction, not another model sample.

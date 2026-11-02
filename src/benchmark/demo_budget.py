@@ -7,6 +7,7 @@ import time
 from src.benchmark.training_budget import TrainingBudget,POLICY
 from src.benchmark.campaign_budget import LOCAL,EXTERNAL,usd
 from src.infra.model_budget import atomic,encoded
+from src.integrations.agentdojo.inventory import digest
 
 
 class DemoBudget(TrainingBudget):
@@ -37,9 +38,42 @@ class DemoBudget(TrainingBudget):
             if self.accounted(entries,baseline)+external*usd(POLICY["gemini_hold_per_operation_usd"])>usd(POLICY["gemini_cost_cap_usd"]):raise ValueError("demo_cost_envelope")
             atomic(path,plan);atomic(self.directory/"native-demo-matrix-binding.json",dict(sha256=hashlib.sha256(encoded(plan)).hexdigest()))
 
-    def demo(self):
+    def original_demo(self):
         plan=json.loads((self.directory/"native-demo-matrix-v1.json").read_text())
         if json.loads((self.directory/"native-demo-matrix-binding.json").read_text())["sha256"]!=hashlib.sha256(encoded(plan)).hexdigest():raise RuntimeError("demo_matrix_changed")
+        return plan
+
+    def freeze_setup_correction(self,plan,*,failed_setup_run_id):
+        """Additive binding only; retain all IDs, allocations and control evidence."""
+        with self.locked():
+            entries=self.entries();self.baseline(entries);parent=self.original_demo()
+            if not re.fullmatch(r"[0-9a-f]{32}",failed_setup_run_id):raise ValueError("failed_setup_run_id_required")
+            comparable=dict(plan,code_hashes=parent["code_hashes"],code_sha256=parent["code_sha256"])
+            if comparable!=parent:raise ValueError("setup_correction_may_not_change_protocol_or_allocation")
+            if set(plan["code_hashes"])!=set(parent["code_hashes"]):raise ValueError("setup_correction_code_scope")
+            changed={name for name in parent["code_hashes"] if parent["code_hashes"][name]!=plan["code_hashes"].get(name)}
+            if changed!={"src/benchmark/deployment.py","src/benchmark/demo.py","src/benchmark/demo_budget.py"}:raise ValueError("setup_correction_code_scope")
+            if any(e["case_id"].startswith("nd1-") for e in entries):raise RuntimeError("setup_correction_requires_no_demo_inference_spent")
+            controls={c["case_id"] for c in parent["cases"] if c["kind"]=="control"}
+            started=[json.loads(path.read_text())["case_id"] for path in self.directory.glob("native-case-nd1-*.json")]
+            if any(case_id not in controls for case_id in started):
+                raise RuntimeError("setup_correction_requires_unstarted_learned_cases")
+            effective=dict(plan,setup_correction=dict(parent_matrix_sha256=digest(parent),
+                failed_setup_run_id=failed_setup_run_id,changed_code=sorted(changed),reason="kubectl restore regenerated last-applied annotation; use resourceVersion/UID-tested JSON patches",
+                repeated_cases=[],allocation_changed=False,controls_inherited=True))
+            value=dict(plan=effective,sha256=hashlib.sha256(encoded(effective)).hexdigest())
+            path=self.directory/"native-demo-setup-correction-v1.json"
+            if path.exists():
+                if json.loads(path.read_text())!=value:raise RuntimeError("setup_correction_changed")
+            else:self._exclusive(path,value)
+            return effective
+
+    def demo(self):
+        parent=self.original_demo();path=self.directory/"native-demo-setup-correction-v1.json"
+        if not path.exists():return parent
+        value=json.loads(path.read_text());plan=value["plan"]
+        if (hashlib.sha256(encoded(plan)).hexdigest()!=value["sha256"] or
+                plan["setup_correction"]["parent_matrix_sha256"]!=digest(parent)):raise RuntimeError("setup_correction_changed")
         return plan
 
     def reserve(self,*,role,case_id,trace_id,request=None,model=None):

@@ -22,6 +22,17 @@ def private(path,value):
     return path
 
 
+def resource_patch(current,desired):
+    """CAS update without kubectl's last-applied annotation regeneration."""
+    operations=[dict(op="test",path="/metadata/uid",value=current["metadata"]["uid"]),
+        dict(op="test",path="/metadata/resourceVersion",value=current["metadata"]["resourceVersion"]),
+        dict(op="replace",path="/spec",value=desired["spec"])]
+    for field in ("labels","annotations"):
+        if field in desired["metadata"]:operations.append(dict(op="add",path="/metadata/"+field,value=desired["metadata"][field]))
+        elif field in current["metadata"]:operations.append(dict(op="remove",path="/metadata/"+field))
+    return operations
+
+
 def configure_bridge(cluster,directory,host_ip,port,*,request_timeout=60,backend_timeout=None):
     issuer=json.loads(cluster.kubectl("get","--raw","/.well-known/openid-configuration",capture=True).stdout)["issuer"]
     jwks=json.loads(cluster.kubectl("get","--raw","/openid/v1/jwks",capture=True).stdout)
@@ -42,13 +53,22 @@ def configure_bridge(cluster,directory,host_ip,port,*,request_timeout=60,backend
     if backend_timeout is not None:
         # MCP upstream calls have their own deadline, independent of HTTPRoute.
         objects[2]["spec"]["backend"]={"http":{"requestTimeout":f"{backend_timeout}s"}}
-    for item in objects:
+    updates=[]
+    for index,item in enumerate(objects):
         raw=cluster.kubectl("get",item["kind"],item["metadata"]["name"],"-n",NAMESPACE,"--ignore-not-found","-o","json",capture=True).stdout
         if raw and any(json.loads(raw)["metadata"].get("labels",{}).get(k)!=v for k,v in SCOPE.items()):
             raise RuntimeError("refusing_foreign_benchmark_resource")
+        if raw:
+            current=json.loads(raw);desired=deepcopy(current);desired["spec"]=item["spec"]
+            desired["metadata"].setdefault("labels",{}).update(SCOPE)
+            path=private(Path(directory)/f"bridge-update-{index}.json",resource_patch(current,desired))
+            updates.append(("patch",item["kind"],item["metadata"]["name"],"-n",NAMESPACE,"--type=json","--patch-file",path))
+        else:
+            path=private(Path(directory)/f"bridge-create-{index}.json",item)
+            updates.append(("create","--validate=strict","-f",path))
     path=private(Path(directory)/"gateway-bridge.json",dict(apiVersion="v1",kind="List",items=objects))
-    cluster.kubectl("apply","--dry-run=server","--validate=strict","-f",path)
-    cluster.kubectl("apply","-f",path)
+    for update in updates:cluster.kubectl(*update,"--dry-run=server")
+    for update in updates:cluster.kubectl(*update)
 
 
 @contextmanager
@@ -72,11 +92,18 @@ def temporary_bridge(cluster,directory,host_ip,port,*,request_timeout,backend_ti
                 raise RuntimeError("bridge_restore_refuses_concurrent_change")
             if original is None:cluster.kubectl("delete",kind,name,"-n",NAMESPACE)
             else:
+                observed=deepcopy(current)
                 current["spec"]=original["spec"]
                 for field in ("labels","annotations"):
                     if field in original["metadata"]:current["metadata"][field]=original["metadata"][field]
                     else:current["metadata"].pop(field,None)
-                cluster.kubectl("replace","-f",private(Path(directory)/f"bridge-restore-{index}.json",current))
+                patch=resource_patch(observed,current)
+                cluster.kubectl("patch",kind,name,"-n",NAMESPACE,"--type=json","--patch-file",
+                    private(Path(directory)/f"bridge-restore-{index}.json",patch))
+                restored=cluster.get(kind,name,"-n",NAMESPACE)
+                if (restored["metadata"]["uid"]!=original["metadata"]["uid"] or restored["spec"]!=original["spec"] or
+                        any(restored["metadata"].get(field)!=original["metadata"].get(field) for field in ("labels","annotations"))):
+                    raise RuntimeError("bridge_restoration_readback_differs")
         private(Path(directory)/"bridge-restoration.json",dict(restored=True,resources=len(names)))
 
 

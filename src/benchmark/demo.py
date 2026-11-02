@@ -114,7 +114,8 @@ def require_prior_evidence(budget,plan,case):
         path=budget.directory/("native-result-"+prior["case_id"]+".json")
         if not path.exists():raise RuntimeError("required_native_evidence_missing:"+prior["case_id"])
         result=json.loads(path.read_text())
-        if result["matrix_sha256"]!=digest(plan) or not result["mechanical_pass"]:raise RuntimeError("required_native_evidence_failed")
+        binding=plan.get("setup_correction",{}).get("parent_matrix_sha256") if prior["kind"]=="control" else None
+        if result["matrix_sha256"]!=(binding or digest(plan)) or not result["mechanical_pass"]:raise RuntimeError("required_native_evidence_failed")
         saved=Path(result["record_path"])
         if hashlib.sha256(saved.read_bytes()).hexdigest()!=result["record_sha256"]:raise RuntimeError("prior_native_evidence_changed")
         if prior["kind"]=="canary":canaries.append(json.loads(saved.read_text()))
@@ -190,11 +191,14 @@ def external_reviews(args,plan):
     if budget.demo()!=plan:raise RuntimeError("frozen_demo_matrix_mismatch")
     records={}
     for directory in args.review_demo:
-        if json.loads((directory/"plan.json").read_text())!=plan:raise ValueError("review_plan_mismatch")
+        source_plan=json.loads((directory/"plan.json").read_text())
+        inherited=digest(source_plan)==plan.get("setup_correction",{}).get("parent_matrix_sha256")
+        if source_plan!=plan and not inherited:raise ValueError("review_plan_mismatch")
         for path in directory.glob("nd1-*.json"):
             record=json.loads(path.read_text())
             if "evidence" not in record:continue
             case_id=record["case_id"]
+            if inherited and not case_id.startswith("nd1-control-"):raise ValueError("only_control_evidence_may_be_inherited")
             if case_id in records:raise ValueError("duplicate_review_case")
             record["trace_audit"]=audit_record(record);records[case_id]=record
     required=[c["case_id"] for c in plan["cases"] if c["kind"]!="external_review"]
@@ -326,6 +330,8 @@ def main():
     parser.add_argument("--artifact",type=Path,default=BASE/"modernbert-training-v1/model");parser.add_argument("--budget",type=Path,default=BASE/"combined-budget")
     parser.add_argument("--freeze-demo",action="store_true");parser.add_argument("--execute-demo",action="store_true")
     parser.add_argument("--review-demo",type=Path,nargs="+",help="Review all persisted validation directories once; no agent rerun")
+    parser.add_argument("--freeze-setup-correction",metavar="FAILED_RUN_ID",help="Bind the declared metadata-only setup correction without resetting the matrix")
+    parser.add_argument("--use-setup-correction",action="store_true",help="Explicitly use the immutable additive setup correction")
     args=parser.parse_args()
     if args.list_demo_cases or args.dry_run:
         print(json.dumps(dict(cards=CARDS,implemented_native_flow="existing wiring.run_case",phase="validation",inference_requests=0,cluster_mutations=0,
@@ -335,6 +341,12 @@ def main():
     os.environ["MLFLOW_ENABLE_ASYNC_TRACE_LOGGING"]="false"
     os.environ["MLFLOW_HTTP_REQUEST_MAX_RETRIES"]="0";os.environ["MLFLOW_HTTP_REQUEST_TIMEOUT"]="10"
     plan=make_plan(args.artifact,acting_model=os.getenv("LM_STUDIO_MODEL",VERSIONS["local_model"]))
+    if args.freeze_setup_correction:
+        plan=DemoBudget(args.budget).freeze_setup_correction(plan,failed_setup_run_id=args.freeze_setup_correction)
+    elif args.use_setup_correction:
+        bound=DemoBudget(args.budget).demo()
+        if "setup_correction" not in bound or dict(plan,setup_correction=bound["setup_correction"])!=bound:raise RuntimeError("setup_correction_code_or_protocol_changed")
+        plan=bound
     if args.review_demo:
         mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI","http://localhost:5001"));mlflow.set_experiment("breaker-banking-target-agent")
         return external_reviews(args,plan)

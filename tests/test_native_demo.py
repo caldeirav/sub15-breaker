@@ -69,6 +69,33 @@ def test_real_case_cannot_skip_required_native_controls(tmp_path):
         require_prior_evidence(value,definition,dict(kind="card"))
 
 
+def correction_plan():
+    value=plan();value["cases"][0]["kind"]="canary"
+    value["cases"][1]["kind"]="external_review"
+    value["code_hashes"]={name:"old" for name in ("src/benchmark/deployment.py","src/benchmark/demo.py","src/benchmark/demo_budget.py","src/benchmark/native.py")}
+    return value
+
+
+def test_setup_correction_is_additive_scoped_and_preserves_original_matrix(tmp_path):
+    budget(tmp_path);value=DemoBudget(tmp_path);parent=correction_plan();value.freeze_demo(parent)
+    original=(tmp_path/"native-demo-matrix-v1.json").read_bytes();current=deepcopy(parent)
+    for path in ("src/benchmark/deployment.py","src/benchmark/demo.py","src/benchmark/demo_budget.py"):current["code_hashes"][path]="new"
+    current["code_sha256"]="e"*64
+    effective=value.freeze_setup_correction(current,failed_setup_run_id="f"*32)
+    assert value.demo()==effective and (tmp_path/"native-demo-matrix-v1.json").read_bytes()==original
+    assert effective["setup_correction"]["repeated_cases"]==[] and effective["cases"]==parent["cases"]
+    wrong=deepcopy(current);wrong["cases"][0]["actor"]=2
+    with pytest.raises(ValueError,match="protocol_or_allocation"):value.freeze_setup_correction(wrong,failed_setup_run_id="f"*32)
+
+
+def test_setup_correction_rejects_started_learned_cases(tmp_path):
+    budget(tmp_path);value=DemoBudget(tmp_path);parent=correction_plan();value.freeze_demo(parent)
+    current=deepcopy(parent)
+    for path in ("src/benchmark/deployment.py","src/benchmark/demo.py","src/benchmark/demo_budget.py"):current["code_hashes"][path]="new"
+    (tmp_path/"native-case-nd1-test.json").write_text(json.dumps(dict(case_id="nd1-test")))
+    with pytest.raises(RuntimeError,match="unstarted"):value.freeze_setup_correction(current,failed_setup_run_id="f"*32)
+
+
 def cases():
     return dict(cases=[dict(kind="control",mode=mode,case_id="nd1-control-"+mode) for mode in ("allow","block","error","timeout","cancel")]+
         [dict(kind="canary",arm="llm",case_id="nd1-canary-llm")]+
