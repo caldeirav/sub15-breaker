@@ -98,6 +98,10 @@ The updated read-only API is on `127.0.0.1:8089`; the prior8088 snapshot remains
 available. See the acceptance results for the private read-token file and exact
 telemetry/access instructions. Opening/replaying reports makes no model calls.
 
+The [services-ready golden retest](docs/ready-golden-plan.md) separates cold load/
+priming from measured requests, keeps the classifier resident, and reports both
+verifiers against frozen golden actions rather than counting latency thresholds.
+
 ## Why this design?
 
 1. **Verify before mutation.** Reviewing a trace after an unauthorized transfer is too late to prevent that transfer. Enforcement must inspect the proposed action before the tool consumes it.

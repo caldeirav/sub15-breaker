@@ -170,7 +170,24 @@ def generate(measurement,native,reviews,output,*,budget_dir=BASE/"combined-budge
         missing_native_cases=sorted({c["case_id"] for c in plan["cases"] if c["kind"] in {"control","canary","card"}}-{c["case_id"] for c in cards}),
         paths=dict(measurement=str(measurement),native=str(native),reviews=str(reviews)),
         source_hashes={str(path):hashlib.sha256(path.read_bytes()).hexdigest() for path in sources},owner_acceptance="pending",server_measured=False)
-    output.mkdir(parents=True,exist_ok=False);text=render(report)
+    if plan.get("startup_profile"):
+        from src.benchmark.golden_report import assess,render as golden_render,without_thresholds
+        from src.benchmark.measurement import distribution
+        startup={}
+        from src.benchmark.startup import validate
+        for stage,folder in (("diagnostics",measurement),("native",native)):
+            path=folder/"services-startup.json";value=json.loads(path.read_text())
+            validate(value,plan,stage,entries)
+            startup[stage]=value;sources.append(path)
+        report.pop("decision_latency",None)
+        report.update(namespace=plan["namespace"],qualified=not report["missing_native_cases"] and all(c["demo_ready"] for c in derived_cards),
+            golden_accuracy=assess(a,plan),service_startup=startup,
+            decision_core={name:distribution([r["review"]["classifier_decision_core_ns"]/1e6 for r in encoder if r["input"]==name and r["review"].get("classifier_decision_core_ns") is not None]) for name in {r["input"] for r in encoder}},
+            paired_whole_review=report["measurement"].get("review_comparisons"),native_core=distribution([r["core_ms"] for r in native_decisions]),
+            source_hashes={str(path):hashlib.sha256(path.read_bytes()).hexdigest() for path in sources})
+        report=without_thresholds(report);text=golden_render(report)
+    else:text=render(report)
+    output.mkdir(parents=True,exist_ok=False)
     (output/"report.json").write_text(json.dumps(report,indent=2)+"\n");(output/"report.md").write_text(text)
     (output/"report.html").write_text('<!doctype html><meta charset="utf-8"><title>Full comparison</title><style>body{font:14px monospace;margin:30px}pre{white-space:pre-wrap}</style><pre>'+html.escape(text)+'</pre>')
     return report

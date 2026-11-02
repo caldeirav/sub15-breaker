@@ -43,8 +43,34 @@ def public_metrics(value,depth=0):
     if value is None or type(value) in {int,float,bool}:return value
     if isinstance(value,list):return [public_metrics(v,depth+1) for v in value[:200]]
     if isinstance(value,dict):
-        return {k:public_metrics(v,depth+1) for k,v in value.items() if safe_id(k) and not re.search(r"password|secret|api_key|authorization|prompt|rationale",k,re.I)}
+        return {k:public_metrics(v,depth+1) for k,v in value.items() if safe_id(k) and k not in {"below15","native_core_below15","sub15ms_demonstrated","sub15ms_claim"} and not re.search(r"password|secret|api_key|authorization|prompt|rationale",k,re.I)}
     return value if isinstance(value,str) and re.fullmatch(r"[0-9a-f]{64}",value) else None
+
+
+def golden_summary(value):
+    if not isinstance(value,dict) or not value.get("results"):return dict(recorded=False)
+    rows=[]
+    for row in value["results"]:
+        rows.append(dict(candidate_id=safe_id(row.get("candidate_id")),task_id=safe_id(row.get("task_id")),input_digest=safe_id(row.get("input_digest")),
+            golden=row.get("golden") if row.get("golden") in {"allow","block"} else None,
+            use_cases=[safe_id(v) for v in row.get("use_cases",[])],
+            backends={arm:dict(observed=row.get("backends",{}).get(arm,{}).get("observed") if row.get("backends",{}).get(arm,{}).get("observed") in {"allow","block","error"} else None,
+                correct=row.get("backends",{}).get(arm,{}).get("correct") is True) for arm in ("classifier","llm")}))
+    return dict(recorded=True,unique_inputs=numeric(value.get("unique_inputs")),results=rows,overall=public_metrics(value.get("overall",{})),by_use_case=public_metrics(value.get("by_use_case",{})),
+        scope="frozen golden curated/development inputs; overlapping use-case prefixes are counted once overall")
+
+
+def startup_summary(values):
+    if not isinstance(values,dict):return {}
+    result={}
+    for stage,value in values.items():
+        classifier=value.get("classifier",{})
+        result[stage]=dict(ready=value.get("ready") is True,elapsed_ns=numeric(value.get("elapsed_ns")),classifier_primed=classifier.get("classifier_primed") is True,
+            loading_ns=[numeric(e.get("elapsed_ns")) for e in classifier.get("events",[]) if e.get("operation")=="load_classifier"],
+            priming_forwards=len(classifier.get("startup_priming",[])),scored_as_accuracy=False,
+            priming_samples=[dict(input_digest=safe_id(s.get("input_digest")),pass_index=numeric(s.get("pass_index")),core_ns=numeric(s.get("classifier_core_ns")),elapsed_ns=numeric(s.get("elapsed_ns"))) for s in classifier.get("startup_priming",[])],
+            model_probes=[dict(role=r.get("role") if r.get("role") in {"actor","llm_guard"} else None,status=r.get("status") if r.get("status") in {"completed","error"} else None,physical_requests=numeric(r.get("physical_attempts"))) for r in value.get("model_probes",[])])
+    return result
 
 
 def readiness_summary(value):
@@ -144,8 +170,8 @@ def normalize_run(entry,*,budget=None):
     value=dict(id=safe_id(entry["id"]),phase=phase,mode="saved_replay",schema_version=VERSION,
         complete=bool(results) and all(r["status"] not in {"not_run","setup_failed"} for r in results),
         all_ready=bool(results) and all(r["ready"] for r in results),owner_acceptance="pending",cases=results,events=events,
-        curated_accuracy=public_metrics(report.get("curated_accuracy",report.get("accuracy",{}))),
-        performance={k:public_metrics(report.get(k)) for k in ("decision_core","native_core","native_core_below15","whole_review","paired_whole_review")},
+        curated_accuracy=public_metrics(report.get("curated_accuracy",report.get("accuracy",{}))),golden_accuracy=golden_summary(report.get("golden_accuracy")),service_startup=startup_summary(report.get("service_startup")),
+        performance={k:public_metrics(report.get(k)) for k in ("decision_core","native_core","whole_review","paired_whole_review")},
         external_harness_verdict=report.get("external_harness_verdict") if report.get("external_harness_verdict") in {"supported","not_supported","insufficient_evidence"} else None,limitations=LIMITATIONS,
         inference_on_read=False,live_dispatch_supported=False,source_runtime_code_sha256=plan.get("code_sha256"))
     value["supplemental_evidence"]=[dict(label=Path(p).name,sha256=sha(p)) for p in entry.get("evidence",[])]
@@ -188,6 +214,12 @@ def build_bundle(entries,output,*,budget=None):
     for run in runs:
         lines += ["",f"## {run['id']}","| Case | Expected / observed | Status | Utility | Coverage | Ready |", "| --- | --- | --- | --- | --- | --- |"]
         lines += [f"| {c['case_id']} | {c.get('expected')} / {c.get('observed')} | {c['status']} | {c.get('utility')} | {c.get('enforcement_coverage','unobserved')} | {c['ready']} |" for c in run["cases"]]
+        if run["golden_accuracy"]["recorded"]:
+            lines += ["", "### Both verifiers against frozen golden", "| Input | Golden | Classifier | Correct | LLM | Correct |", "| --- | --- | --- | --- | --- | --- |"]
+            for g in run["golden_accuracy"]["results"]:
+                c=g["backends"]["classifier"];l=g["backends"]["llm"]
+                lines.append(f"| {g['candidate_id']} | {g['golden']} | {c['observed']} | {c['correct']} | {l['observed']} | {l['correct']} |")
+        if run["service_startup"]:lines += ["", "### Explicit startup (not accuracy/timed samples)","```json",json.dumps(run["service_startup"],indent=2),"```"]
         lines += ["", "### Curated accuracy (not held-out)","```json",json.dumps(run["curated_accuracy"],indent=2),"```", "### Performance (distinct boundaries)","```json",json.dumps(run["performance"],indent=2),"```"]
     lines += ["", "## Accounting", "```json",json.dumps(accounting,indent=2),"```","## Limitations"]+["- "+v for v in LIMITATIONS]
     text="\n".join(lines)+"\n";(output/"summary.md").write_text(text)

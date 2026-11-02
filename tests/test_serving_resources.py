@@ -1,4 +1,6 @@
 from types import SimpleNamespace as S
+from contextvars import ContextVar
+import threading
 
 import pytest
 
@@ -103,3 +105,44 @@ def test_encoder_stage_instrumentation_keeps_one_forward_and_unchanged_logits():
     assert set(stages)=={"tokenization_ns","device_enqueue_ns","forward_and_host_result_ns","encoder_total_ns"}
     assert all(value>=0 for value in stages.values())
     assert sum(stages[k] for k in stages if k!="encoder_total_ns")==stages["encoder_total_ns"]
+
+
+def test_resident_classifier_load_prime_measure_close_share_one_thread_and_context(monkeypatch):
+    from src.benchmark.guards import ReviewInput,Verdict,timed_review
+    threads=[];contexts=[];context=ContextVar("trace_marker",default="missing");context.set("startup")
+    class Guard:
+        guard_id="frozen"
+        stage_timings_ns={}
+        def review(self,value):
+            threads.append(threading.get_ident());contexts.append(context.get())
+            self.stage_timings_ns=dict(encoder_total_ns=100);self.decision_core_ns=110;self.calibration_threshold_ns=10;self.input_tokens=20
+            return Verdict(value.digest(),"allow",self.guard_id,0.1)
+        def close(self):threads.append(threading.get_ident())
+    def load(*args,**kwargs):threads.append(threading.get_ident());return Guard(),object()
+    monkeypatch.setattr("src.benchmark.serving.classifier_guard",load)
+    resources=ServingResources("artifact",{},resident=True)
+    value=ReviewInput("synthetic","policy","reads permitted","get_balance",{})
+    resources.prepare(dict(read=value),passes=2)
+    assert resources.snapshot()["classifier_primed"] and resources.snapshot()["explicit_warmup_requests"]==2
+    resources.prepare(dict(read=value),passes=2)
+    with pytest.raises(ValueError,match="inputs_changed"):resources.prepare(dict(other=value),passes=2)
+    resources.select("llm");resources.select("control");assert resources.snapshot()["classifier_weights_loaded"]
+    context.set("native-parent");result=timed_review(resources.select("classifier"),value)
+    assert result["classifier_decision_core_ns"]==110 and result["decision"]=="allow"
+    resources.release_classifier();resources.release_classifier()
+    assert len(set(threads))==1 and threads[0]!=threading.get_ident()
+    assert contexts==["startup","startup","native-parent"]
+
+
+def test_priming_failure_never_means_ready_or_fallback(monkeypatch):
+    from src.benchmark.guards import ReviewInput
+    class Guard:
+        guard_id="frozen"
+        def review(self,value):raise RuntimeError("unavailable")
+        def close(self):pass
+    monkeypatch.setattr("src.benchmark.serving.classifier_guard",lambda *a,**k:(Guard(),object()))
+    resources=ServingResources("artifact",{},resident=True)
+    try:
+        with pytest.raises(RuntimeError,match="priming_failed"):resources.prepare(dict(read=ReviewInput("g","p","policy","get_balance",{})))
+        assert not resources.snapshot()["classifier_primed"] and resources.snapshot()["explicit_warmup_requests"]==1
+    finally:resources.release_classifier()
