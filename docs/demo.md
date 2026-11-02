@@ -62,6 +62,12 @@ release. Set `QUALIFICATION`/`REHEARSAL` to unused `ndN` values with `N >= 11`,
 `BUDGET` to the existing cumulative ledger and `WORK` to a new private output
 directory. Export these shell variables for the Python snippets below.
 
+For service-only startup/checking of the installed stack, use
+`bash scripts/demo_stack.sh start` / `status`; see the
+[lifecycle guide](infra.md#service-only-start-stop-and-status). This starts no demo,
+model probe, classifier priming or judge review. LM Studio/model must already be
+loaded manually. Service readiness is not the frozen campaign/acceptance gate.
+
 **Current limitation:** budget amendments in `demo_budget.py` for the latest
 17+1 reviews are specifically bound to **nd11/nd12**, not reusable under new IDs.
 A new run may need a reviewed additive namespace-specific allowance before

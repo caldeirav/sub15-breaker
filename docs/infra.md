@@ -201,6 +201,90 @@ banking doctor. `--target-stack` is a stricter qualification workflow including 
 complete provider-window proof; the owner-deferred soak means it must not be
 misrepresented as passed or required for the already delivered functional demo.
 
+## Service-only start, stop and status
+
+For an **existing installed stack**, `scripts/demo_stack.sh` manages service
+prerequisites without executing the demo. It checks the lock/environment without
+installing packages. It does not provision missing infrastructure, build/pull
+images, download weights, change serving defaults or recreate/reset any data.
+
+```bash
+# First start LM Studio and manually load the approved model/context8192.
+bash scripts/demo_stack.sh start
+bash scripts/demo_stack.sh status
+bash scripts/demo_stack.sh status --json
+bash scripts/demo_stack.sh stop
+
+# Optional: also start/check the existing saved-replay API on localhost8090.
+bash scripts/demo_stack.sh start --with-review-api
+bash scripts/demo_stack.sh status --with-review-api --json
+```
+
+`start` performs these steps:
+
+1. Check the approved loaded/idle model through `lms ps` and HTTP model metadata,
+   and verify the frozen classifier export/calibration hashes **without loading
+   classifier weights or running any forward pass**. LM Studio/model remain
+   manual/check-only; missing prerequisites fail with an explicit error.
+2. Verify the recorded Podman connection and immutable node IDs, plus the owned
+   pinned registry. Resume only existing stopped owned containers. If the provider
+   is down, start it manually or explicitly name its existing rootful machine:
+   `bash scripts/demo_stack.sh start --machine EXISTING_NAME`. The script never
+   creates/switches/upgrades a VM or changes its rootful setting.
+3. Reuse compatible local MLflow if healthy; otherwise start a private detached
+   localhost server against the **existing** repository `mlflow.db` on port5001,
+   with the existing artifacts under `.infra/mlflow-artifacts`. Missing database/artifacts or
+   an occupied/unhealthy port fails rather than creating a replacement history
+   or killing another process. Health/version verifies a borrowed server's API,
+   not its underlying database identity; the operator must select the correct
+   tracking endpoint. No runs, traces or experiments are created by the manager.
+4. Wait for Kubernetes, PostgreSQL, Cilium, atelet and existing deployments; renew
+   owned driver tokens and verify the banking image/template/WorkerPool/PVC,
+   gateway identity, approved model backend and accepted model route. Missing or
+   scaled-to-zero deployments need operator repair, not an implicit reinstall or
+   replica/profile change. Credential renewal changes only private token files,
+   not keys, manifests, trial state, cumulative budgets or reservations.
+5. If requested, validate/serve the existing saved-replay bundle using its separate
+   limited read token. Never expose provider/platform credentials. Existing API
+   instances are borrowed, not taken over. Missing bundle/source evidence fails.
+
+The bridge/native listener and action registry are **per-run**, not persistent
+services. The demo still creates those and performs its separately allocated
+functional startup probes, classifier load/priming and actual Actor readiness.
+`status.ready=true` means service prerequisites—not model quality, complete
+end-to-end protocol qualification, fresh allocation or authorization to execute.
+Status is read-only, never refreshes credentials/starts processes and returns
+nonzero for missing/busy/expired/incompatible prerequisites. Expired driver tokens
+are an actionable status failure; `start` renews them. No bank tools, generations,
+classifier priming or Gemini calls occur in any lifecycle command.
+
+Ownership/locks and private logs are under `.infra/demo-stack/`. Repeated start
+reuses its recorded resources. Stop checks active bridge/native ports, banking
+Actors and prepared/executing actions **before any shutdown**, then validates all
+owned process PID/start-time/command/session and container ID/start-time records.
+A reused PID, replaced container, external restart or interrupted ambiguous start
+fails closed. No broad `pkill`, `killall`, container prune, volume deletion, Actor
+fencing/deletion, model unload, cluster destroy or shared-VM stop is used.
+
+**Pre-existing services stay running:** if the cluster, registry or MLflow was
+already running before `start`, `stop` leaves it alone. It stops only its own
+detached MLflow/replay processes and containers it resumed, nodes before registry.
+The shared Podman VM and LM Studio are never stopped. This is deliberately not
+an unconditional “stop everything on the machine” command.
+
+The existing gateway profile requires LM Studio on local1234 and MLflow on
+local5001; divergent environment ports fail rather than starting a server the
+gateway cannot reach. Do not concurrently start demo/diagnostic commands during
+lifecycle changes: the lifecycle lock serializes manager operations, not arbitrary
+harness clients or other operators' changes.
+
+Startup failure retains ownership/private logs for diagnosis; it does not roll
+back by deleting data or blindly stopping potentially active work. Resolve the
+reported prerequisite, retry `start`, or use `stop` once quiescent. Do not delete
+lifecycle state to force adoption. `--artifact PATH` selects a compatible local
+export; `--timeout SECONDS` bounds individual startup waits (default180, max600).
+No new inference allocation is created, consumed or reset.
+
 ## Deadlines and transport
 
 `banking_service/deadlines.py` defines `native-measure-v2`:

@@ -209,6 +209,22 @@ Then follow the appropriate guide:
 - **[Run the full test](docs/validation.md#run-the-full-live-comparison):** larger
   three-workflow A/B protocol, separate from the complete offline test suite.
 
+For an **already-installed environment**, use the service-only lifecycle script:
+
+```bash
+bash scripts/demo_stack.sh start
+bash scripts/demo_stack.sh status
+bash scripts/demo_stack.sh stop
+```
+
+Start LM Studio and load the approved model manually first. The script resumes
+owned stopped cluster/registry containers, starts MLflow if absent, renews scoped
+driver credentials and checks services/artifact hashes—**it does not run the demo,
+generate model tokens, prime the classifier or call judges**. `stop` stops only resources
+this manager started, preserving existing/shared services, the Podman VM and data.
+It refuses shutdown while banking work is active. Add `--with-review-api` to
+start/check the retained saved-replay API. [Lifecycle options and limits](docs/infra.md#service-only-start-stop-and-status).
+
 `nd13` above is an inspection example, not an approved run. All recorded nd1–nd12
 execution IDs are spent. Do not replay them, remove markers or repeat failed
 model/actions until they pass. Fresh live runs currently need operator preparation
