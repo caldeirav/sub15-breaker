@@ -82,6 +82,9 @@ passing; visualization remains planning-only.
 The [fixed readiness probe results](docs/actor-readiness-results.md) passed8/8
 with zero trial/model/tool/judge calls. That closes the diagnostic visibility gap,
 not the old failure's cause or the complete-rehearsal acceptance gate (#62).
+The owner-authorized next step is the
+[full acceptance plan with bounded read-only readiness retries](docs/demo-acceptance-plan.md).
+Only startup readiness can retry; model reviews and banking actions cannot.
 
 ## Why this design?
 

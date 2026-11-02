@@ -73,7 +73,7 @@ def compact_observations(plan,records):
             sandbox_probe=record.get("sandbox_probe"),span_tree=spans,score_provenance=record["trace_audit"]["score_provenance"],expected_scores=record.get("expected_scores"),expected_span_scores=record.get("expected_span_scores"),
             telemetry=record.get("telemetry_reconciliation"),late_state=record.get("post_reconciliation_state"),cleanup_errors=record["cleanup_errors"],
             source_record_path=record.get("source_record_path"),source_record_sha256=record.get("source_record_sha256"),
-            derived_view_sha256=sha(record),full_record_artifact=f"runs:/{record['child_run_id']}/wiring/episode.json"))
+            readiness=record.get("readiness"),derived_view_sha256=sha(record),full_record_artifact=f"runs:/{record['child_run_id']}/wiring/episode.json"))
     required=[c["case_id"] for c in plan["cases"] if c["kind"] in {"control","canary","card"}]
     return dict(schema_version="compact-native-wiring-evidence-v2",required_cases=required,records=result,
         counter_semantics="Logical graph model callbacks include FakeMessagesListChatModel fixture steps and final messages. They are NOT physical model requests. Scripted actors have zero physical actor requests; real LLM guards on those fixtures still have physical guard requests. Count each request once, not once per client/gateway span.",

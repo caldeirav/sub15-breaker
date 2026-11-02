@@ -46,6 +46,14 @@ def test_partial_dispatch_cannot_be_promoted_by_original_green_card(tmp_path):
     assert case["original_recorded_ready"] is True and case["ready"] is False and case["enforcement_coverage"]=="partial_unverified"
 
 
+def test_readiness_recovery_remains_visible_separate_from_model_calls(tmp_path):
+    entry=fixture(tmp_path);path=tmp_path/"native/nd7-ok.json";record=json.loads(path.read_text())
+    record["readiness"]=dict(ready=True,recovered=True,retry_count=1,attempts=[dict(attempt=1,status="transient_failure",retryable=True,elapsed_ns=100),dict(attempt=2,status="ready",retryable=False,elapsed_ns=100)])
+    path.write_text(json.dumps(record));run=build_bundle([entry],tmp_path/"bundle")["runs"][0]
+    assert run["cases"][0]["readiness"]["recovered"] is True and run["cases"][0]["physical_actor"]==2
+    assert len([e for e in run["events"] if e["stage"]=="readiness_observation"])==2
+
+
 def test_bundle_and_sources_are_hash_checked(tmp_path):
     entry=fixture(tmp_path);output=tmp_path/"bundle";build_bundle([entry],output)
     (tmp_path/"native/nd7-ok.json").write_text("tampered")

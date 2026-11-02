@@ -44,7 +44,7 @@ def fixture_cohort(artifact,fixtures):
 
 
 def binding(plan):
-    return {k:plan.get(k) for k in ("code_sha256","artifact_manifest_sha256","calibration_sha256","fixtures_sha256","acting_model","image","deadlines","serving","reviewer_prompt_sha256","mcp_connect_timeout","native_limits","capacity")}
+    return {k:plan.get(k) for k in ("code_sha256","artifact_manifest_sha256","calibration_sha256","fixtures_sha256","acting_model","image","deadlines","serving","reviewer_prompt_sha256","mcp_connect_timeout","native_limits","capacity","readiness")}
 
 
 def freeze_campaign(budget,qualification,rehearsal,*,transport_evidence=None,capacity_evidence=None):
@@ -60,6 +60,9 @@ def freeze_campaign(budget,qualification,rehearsal,*,transport_evidence=None,cap
     if qualification["namespace"] in {"nd7","nd8"}:
         extension=budget.directory/"demo-review-extension-v1.json"
         value["review_extension_sha256"]=hashlib.sha256(extension.read_bytes()).hexdigest()
+    if qualification["namespace"] in {"nd9","nd10"}:
+        extension=budget.directory/"demo-acceptance-allowance-v1.json"
+        value["acceptance_allowance_sha256"]=hashlib.sha256(extension.read_bytes()).hexdigest()
     if qualification.get("capacity"):
         if capacity_evidence is None:raise ValueError("capacity_preflight_required")
         evidence_path=Path(capacity_evidence);capacity=json.loads(evidence_path.read_text())
@@ -90,6 +93,9 @@ def require_campaign(budget,plan,*,paired_required=False):
     if "review_extension_sha256" in value:
         if hashlib.sha256((budget.directory/"demo-review-extension-v1.json").read_bytes()).hexdigest()!=value["review_extension_sha256"]:
             raise RuntimeError("review_extension_changed")
+    if "acceptance_allowance_sha256" in value:
+        if hashlib.sha256((budget.directory/"demo-acceptance-allowance-v1.json").read_bytes()).hexdigest()!=value["acceptance_allowance_sha256"]:
+            raise RuntimeError("acceptance_allowance_changed")
     if plan.get("capacity"):
         proof=value.get("capacity_preflight") or {};path=Path(proof.get("path","missing-capacity"))
         if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest()!=proof.get("sha256"):raise RuntimeError("capacity_preflight_changed")
@@ -221,14 +227,21 @@ def report(budget,plan,native,measurement,output,*,reviews):
     judged=json.loads((Path(reviews)/"reviews.json").read_text())
     expected_reviews=17 if plan["protocol"]=="demo-qualification-v1" else 1
     if len(judged)!=expected_reviews or any(r.get("error") for r in judged):raise RuntimeError("qualification_external_review_incomplete")
+    if plan.get("readiness") and (judged[-1].get("value")!="supported" or any(not r.get("agrees") for r in judged[:-1])):
+        raise RuntimeError("acceptance_external_review_failed")
     if json.loads((native/"plan.json").read_text())!=plan:raise ValueError("qualification_plan_differs")
-    cards=[];core=[];whole={};counts=[]
+    cards=[];core=[];whole={};counts=[];readiness_records=[]
     for case in plan["cases"]:
         if case["kind"] not in {"control","canary","card"}:continue
         path=native/(case["case_id"]+".json");record=json.loads(path.read_text());sources.append(path)
         saved=json.loads((budget.directory/("native-result-"+case["case_id"]+".json")).read_text())
         if saved["matrix_sha256"]!=digest(plan) or saved["record_sha256"]!=hashlib.sha256(path.read_bytes()).hexdigest():raise RuntimeError("qualification_record_changed")
         audit=audit_record(record);card=make_card(case,record);cards.append(card)
+        if plan.get("readiness"):
+            ready=record.get("readiness") or {}
+            if not ready.get("ready") or ready.get("policy")!=plan["readiness"] or not 1<=len(ready.get("attempts",[]))<=3:
+                raise RuntimeError("qualification_readiness_evidence_missing")
+            readiness_records.append(dict(case_id=case["case_id"],readiness=ready))
         if record["cleanup_errors"] or record["telemetry_reconciliation"]["status"]!="complete":raise RuntimeError("qualification_unreconciled")
         with budget.locked():entries=budget.entries()
         for role,key in (("actor","managed_responses_dispatches"),("llm_guard","guard_managed_responses_dispatches")):
@@ -257,7 +270,7 @@ def report(budget,plan,native,measurement,output,*,reviews):
     result=dict(namespace=plan["namespace"],protocol=plan["protocol"],matrix_sha256=digest(plan),qualified=len(cards)==14 and all(c["demo_ready"] for c in cards),
         cards=cards,curated_accuracy=accuracy,decision_core=timing,paired_whole_review=paired_whole,native_core=distribution(core),native_core_below15=sum(x<15 for x in core),whole_review={k:distribution(v) for k,v in whole.items()},
         external_harness_verdict=judged[-1]["value"],external_reviews=judged,
-        physical_counts=counts,source_hashes={str(p.resolve()):hashlib.sha256(p.read_bytes()).hexdigest() for p in sources},owner_acceptance="pending",known_limitations=["nd4 rent false block #55","native-context classifier 15ms not generally attained #13","nd4 negative external verdict retained","not a pristine holdout; broader comparison #56"])
+        physical_counts=counts,readiness_records=readiness_records,source_hashes={str(p.resolve()):hashlib.sha256(p.read_bytes()).hexdigest() for p in sources},owner_acceptance="pending",known_limitations=["nd4 rent false block #55","native-context classifier 15ms not generally attained #13","nd4 negative external verdict retained","not a pristine holdout; broader comparison #56"])
     output=Path(output);output.mkdir(exist_ok=False,parents=True);private(output/"report.json",result)
     lines=["# Curated demo qualification",f"Phase: `{plan['namespace']}`. All14 native cases ready: **{result['qualified']}**. Owner acceptance pending.",
         "15ms concerns classifier decision core, not claim latency. All samples/errors retained; no hidden warmups or resampling.",
@@ -266,6 +279,7 @@ def report(budget,plan,native,measurement,output,*,reviews):
         "## Native servicing and whole review", "```json",json.dumps({k:result[k] for k in ("native_core","native_core_below15","whole_review")},indent=2),"```","## Case readiness", "| Case | Decision | Utility | Ready |", "| --- | --- | --- | --- |"]
     lines += [f"| {c['case_id']} | {c['observed_review']} | {c['utility']} | {c['demo_ready']} |" for c in cards]
     lines += ["", f"External harness verdict: **{result['external_harness_verdict']}** (retained, not re-queried).", "Historical rent failure (#55), classifier performance gap (#13), negative nd4 review and later held-out work (#56) remain visible. No model/weights/prompt/threshold changes; no production-safety or universal15ms claim."]
+    if readiness_records:lines += ["", "## Read-only readiness checks (not model/action retries)","```json",json.dumps(readiness_records,indent=2),"```"]
     text="\n\n".join(lines);(output/"report.md").write_text(text);(output/"report.html").write_text('<!doctype html><meta charset="utf-8"><pre>'+html.escape(text)+'</pre>')
     if result["qualified"] and plan["protocol"]=="demo-qualification-v1":
         path=output/"report.json"

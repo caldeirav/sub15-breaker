@@ -53,6 +53,16 @@ def test_review_allowance_is_additive_scoped_and_preserves_v4_history(tmp_path):
     with pytest.raises(RuntimeError,match="extension_changed"):b.external_limit("nd7")
 
 
+def test_acceptance_allowance_is_new_exact_eighteen_and_does_not_rewrite_history(tmp_path):
+    b=budget(tmp_path);before={p.name:p.read_bytes() for p in tmp_path.iterdir() if p.is_file()}
+    assert b.approve_acceptance_allowance(reason="owner authorized full acceptance with readiness-only retries")==18
+    assert b.external_limit("nd9")==18 and b.external_limit("nd10")==18
+    assert b.external_limit("nd8")==128 and b.external_limit("nd11")==128
+    assert all((tmp_path/name).read_bytes()==value for name,value in before.items())
+    path=tmp_path/"demo-acceptance-allowance-v1.json";value=json.loads(path.read_text());value["new_external_limit"]=19;path.write_text(json.dumps(value))
+    with pytest.raises(RuntimeError,match="allowance_changed"):b.external_limit("nd9")
+
+
 def test_new_matrix_declares_fixed_eight_diagnostics_and_twelve_encoder_calls(monkeypatch,tmp_path):
     monkeypatch.setattr("src.benchmark.demo.DIRECTORY",tmp_path)
     (tmp_path/"deployment.json").write_text(json.dumps(dict(deadline_profile="native-measure-v2",image="image@sha256:"+"a"*64,template="owned")))

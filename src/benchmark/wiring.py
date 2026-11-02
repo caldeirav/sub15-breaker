@@ -153,11 +153,11 @@ def audit_record(record,*,trace=None):
 
 def run_case(*,deployment,store,authorization,adapter,bridge,mcp,budget,mask,task_id,control=None,limits=None,
         selected_guard=None,review_builder=None,case_name=None,deadline_profile="legacy",scripted_calls=None,request_model_id=None,
-        cancel_on_review_start=False,reconcile_telemetry=False,provider_probe=None,reconciliation_options=None,verify_admission_readiness=False,capacity_campaign=None):
+        cancel_on_review_start=False,reconcile_telemetry=False,provider_probe=None,reconciliation_options=None,verify_admission_readiness=False,capacity_campaign=None,readiness_policy=None):
     deadlines=profile(deadline_profile)
     case_id=case_name or ("control-"+control if control else "live-"+task_id)
     trial_id="benchmark-"+uuid4().hex
-    actor=None;record=None;cleanup=[];cancellation_thread=None;cancellation_errors=[];trial_created=False;setup_error=None;deleted=False;allocation_started=False
+    actor=None;record=None;cleanup=[];cancellation_thread=None;cancellation_errors=[];trial_created=False;setup_error=None;deleted=False;allocation_started=False;readiness_report=None
     with mlflow.start_run(run_name=case_id,nested=True) as child:
         with mlflow.start_span(name="benchmark_episode",span_type="AGENT") as root:
             scripted=control is not None or scripted_calls is not None
@@ -185,9 +185,15 @@ def run_case(*,deployment,store,authorization,adapter,bridge,mcp,budget,mask,tas
                         raise RuntimeError("actor_runtime_probe_differs")
                     if verify_admission_readiness:
                         with mlflow.start_span(name="verify_actor_store_identity_readiness",span_type="CHAIN") as readiness_span:
-                            ready=actor_client.call("/admission-readiness",{});readiness_span.set_outputs(ready)
-                            if ((ready.get("actor_id"),ready.get("actor_uid"),ready.get("ticket_lifetime_seconds"))!=
-                                    (actor["metadata"]["name"],actor["metadata"]["uid"],deadlines.ticket)):raise RuntimeError("actor_store_identity_or_profile_not_ready")
+                            if readiness_policy:
+                                from src.benchmark.readiness import check
+                                readiness_client=RuntimeClient(base,authorization,timeout=readiness_policy["attempt_timeout_seconds"],boundary="driver_to_actor")
+                                readiness_report=check(readiness_client,actor_id=actor["metadata"]["name"],actor_uid=actor["metadata"]["uid"],ticket_lifetime=deadlines.ticket,
+                                    policy=readiness_policy,on_observation=readiness_span.set_outputs)
+                            else:
+                                ready=actor_client.call("/admission-readiness",{});readiness_span.set_outputs(ready)
+                                if ((ready.get("actor_id"),ready.get("actor_uid"),ready.get("ticket_lifetime_seconds"))!=
+                                        (actor["metadata"]["name"],actor["metadata"]["uid"],deadlines.ticket)):raise RuntimeError("actor_store_identity_or_profile_not_ready")
                     bridge.configure(store,actor_client,trial_id,selected_guard or ControlGuard(control or "allow"),review_builder=review_builder)
                     if cancel_on_review_start:
                         def cancel_started():
@@ -237,7 +243,7 @@ def run_case(*,deployment,store,authorization,adapter,bridge,mcp,budget,mask,tas
                         evidence=observed,measured=dict(measured,**normalized),status=result.status,model_attempts=result.model_attempts,
                         tool_attempts=result.tool_attempts,runtime_proof=proof,sandbox_probe=probe,store_events=events,
                         initial_fingerprint=snapshot["fingerprint"],final_fingerprint=final["fingerprint"],guard_control=control,
-                        producer="scripted" if scripted else "acting_model"))
+                        producer="scripted" if scripted else "acting_model",**(dict(readiness=readiness_report) if readiness_report else {})))
             except Exception as exc:
                 if record is None:
                     setup_error=exc
@@ -245,6 +251,7 @@ def run_case(*,deployment,store,authorization,adapter,bridge,mcp,budget,mask,tas
                         trace_id=root.trace_id,child_run_id=child.info.run_id,status="setup_failed",error=type(exc).__name__,
                         error_code=getattr(exc,"code",None),cleanup_errors=cleanup)
                     if getattr(exc,"transport",None):exc.partial_record["error_transport"]=exc.transport
+                    if getattr(exc,"readiness",None):exc.partial_record["readiness"]=exc.readiness
                 raise
             finally:
                 if cancellation_thread and cancellation_thread.is_alive():

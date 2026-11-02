@@ -11,6 +11,20 @@ from src.integrations.agentdojo.inventory import digest
 
 
 class DemoBudget(TrainingBudget):
+    def approve_acceptance_allowance(self,*,reason):
+        """Fresh owner-approved17+1 review allocation; no old allowance or ledger reset."""
+        if not isinstance(reason,str) or not reason.strip():raise ValueError("acceptance_reason_required")
+        with self.locked():
+            entries=self.entries();baseline=self.baseline(entries);path=self.directory/"demo-acceptance-allowance-v1.json"
+            if path.exists():return self.external_limit("nd9",entries=entries)
+            if any(e["case_id"].split("-",1)[0] in {"nd9","nd10"} for e in entries):raise RuntimeError("acceptance_already_spent")
+            issued=sum(e["role"] in EXTERNAL for e in entries[baseline["prefix_length"]:])
+            if sum(e["role"] in EXTERNAL for e in entries)+18>POLICY["gemini_total"] or self.accounted(entries,baseline)+18*usd(POLICY["gemini_hold_per_operation_usd"])>usd(POLICY["gemini_cost_cap_usd"]):
+                raise ValueError("acceptance_global_envelope")
+            self._exclusive(path,dict(schema_version="demo-acceptance-allowance-v1",parent_policy_sha256=digest(POLICY),namespaces=["nd9","nd10"],
+                maximum_new_external_operations=18,new_external_limit=issued+18,prefix_length=len(entries),prefix_sha256=digest(entries),reason=reason,global_caps_unchanged=True))
+            return issued+18
+
     def approve_review_extension(self,*,namespaces,reason):
         """Owner-approved additive eight-review allowance, restricted to fresh demo IDs."""
         if namespaces!=["nd7","nd8"] or not isinstance(reason,str) or not reason.strip():raise ValueError("review_extension_scope")
@@ -25,11 +39,21 @@ class DemoBudget(TrainingBudget):
 
     def external_limit(self,namespace,*,entries=None):
         path=self.directory/"demo-review-extension-v1.json"
-        if not path.exists():return POLICY["new_gemini_maximum"]
-        value=json.loads(path.read_text());entries=self.entries() if entries is None else entries
-        if (value.get("parent_policy_sha256")!=digest(POLICY) or value.get("namespaces")!=["nd7","nd8"] or value.get("additional_external")!=8 or
-                value.get("global_caps_unchanged") is not True or digest(entries[:value["prefix_length"]])!=value["prefix_sha256"]):raise RuntimeError("review_extension_changed")
-        return POLICY["new_gemini_maximum"]+(8 if namespace in value["namespaces"] else 0)
+        entries=self.entries() if entries is None else entries;limit=POLICY["new_gemini_maximum"]
+        if path.exists():
+            value=json.loads(path.read_text())
+            if (value.get("parent_policy_sha256")!=digest(POLICY) or value.get("namespaces")!=["nd7","nd8"] or value.get("additional_external")!=8 or
+                    value.get("global_caps_unchanged") is not True or digest(entries[:value["prefix_length"]])!=value["prefix_sha256"]):raise RuntimeError("review_extension_changed")
+            limit+=8 if namespace in value["namespaces"] else 0
+        acceptance=self.directory/"demo-acceptance-allowance-v1.json"
+        if acceptance.exists():
+            value=json.loads(acceptance.read_text());baseline=self.baseline(entries);prefix=entries[:value["prefix_length"]]
+            issued=sum(e["role"] in EXTERNAL for e in prefix[baseline["prefix_length"]:])
+            if (value.get("parent_policy_sha256")!=digest(POLICY) or value.get("namespaces")!=["nd9","nd10"] or value.get("maximum_new_external_operations")!=18 or
+                    value.get("new_external_limit")!=issued+18 or value.get("global_caps_unchanged") is not True or len(prefix)!=value["prefix_length"] or digest(prefix)!=value["prefix_sha256"]):
+                raise RuntimeError("acceptance_allowance_changed")
+            if namespace in value["namespaces"]:limit=value["new_external_limit"]
+        return limit
 
     def freeze_phase(self,plan):
         """Fresh nd2+ IDs; never replace nd1 or its consumed requests/reviews."""
