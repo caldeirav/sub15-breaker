@@ -504,7 +504,9 @@ def main():
     args=parser.parse_args()
     if args.list_demo_cases or args.dry_run:
         print(json.dumps(dict(cards=CARDS,implemented_native_flow="existing wiring.run_case",phase="validation",inference_requests=0,cluster_mutations=0,
-            planning_local_cap=80 if args.protocol=="demo-qualification-v1" else 64 if args.protocol=="demo-rehearsal-v1" else 117 if re.fullmatch(r"nd[1-9][0-9]*",args.phase) and int(args.phase[2:])>=4 else 120,
+            planning_local_cap=(88 if re.fullmatch(r"nd[1-9][0-9]*",args.phase) and int(args.phase[2:])>=11 else 80) if args.protocol=="demo-qualification-v1" else
+                (66 if re.fullmatch(r"nd[1-9][0-9]*",args.phase) and int(args.phase[2:])>=11 else 64) if args.protocol=="demo-rehearsal-v1" else
+                121 if re.fullmatch(r"nd[1-9][0-9]*",args.phase) and int(args.phase[2:])>=11 else 117 if re.fullmatch(r"nd[1-9][0-9]*",args.phase) and int(args.phase[2:])>=4 else 120,
             planning_gemini_cap=1 if args.protocol=="demo-rehearsal-v1" else 17,artifact=str(args.artifact),readiness="requires frozen matrix and actual validation evidence"),indent=2));return
     from dotenv import load_dotenv
     load_dotenv(ROOT/".env")

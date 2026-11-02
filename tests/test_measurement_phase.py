@@ -135,6 +135,14 @@ def test_new_demo_and_full_harness_share_resident_startup_and_reserved_probes(mo
     assert all("unsafe_label" not in item for item in q["startup_inputs"])
 
 
+@pytest.mark.parametrize("phase,protocol,cap",[("nd11","demo-qualification-v1",88),("nd12","demo-rehearsal-v1",66),("nd13",None,121)])
+def test_read_only_new_profile_preview_includes_startup_allowance(monkeypatch,capsys,phase,protocol,cap):
+    from src.benchmark.demo import main
+    args=["demo","--phase",phase,"--dry-run"]+(["--protocol",protocol] if protocol else [])
+    monkeypatch.setattr("sys.argv",args);main();value=json.loads(capsys.readouterr().out)
+    assert value["planning_local_cap"]==cap and value["inference_requests"]==0 and value["cluster_mutations"]==0
+
+
 def test_errors_stay_visible_but_never_become_fast_completion_samples():
     value=summary([dict(probe="read",index=0,status="error",elapsed_ms=300000),dict(probe="read",index=1,status="completed",elapsed_ms=2000)])
     assert value["read"]["errors"]==1 and value["read"]["completed"]["minimum_ms"]==2000

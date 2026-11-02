@@ -3,8 +3,8 @@
 Implementation: `src/benchmark/review_backend.py`; backend delivery #59.
 Visualization #60 is **planned only**. This server is a read-only adapter over
 immutable saved evidence, not a model runner, banking service or general file API.
-The latest [accepted qualification/rehearsal package](demo-acceptance-results.md)
-is served on owner-local port8089; port8088 is the earlier retained snapshot.
+The latest [services-ready golden qualification/rehearsal package](demo-acceptance-results.md)
+is served on owner-local port8090; ports8088/8089 are retained earlier snapshots.
 
 ## Build and serve
 
@@ -84,6 +84,13 @@ schema versions rather than guess the meaning of a missing field.
 - Capacity snapshots are labelled recorded-at-run-start, not current live health.
   The banking service separately exposes authenticated read-only `/capacity`;
   it is not proxied to a browser by this replay API.
+- New ready-service runs expose `golden_accuracy`: expected verdict vs classifier/
+  LLM prediction/correctness, unique-input totals, confusion/errors/coverage and
+  overlapping use-case groups. `service_startup` contains readiness, loading,
+  fixed priming samples/counts and separately reserved model probes. Startup is
+  never scored as accuracy or a measured test request. Rehearsal native outcomes
+  remain separate from the qualification's paired action accuracy; no duplicate
+  replay is invented. Latency-attainment counters are omitted in the projection.
 - `manifest.json` and all original source files remain local/operator-private.
   Server startup verifies payload/source hashes and never silently serves a
   tampered bundle. Source artifacts must be retained for provenance checks.

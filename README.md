@@ -12,7 +12,27 @@ The comparison is between **A: generative verification** and **B: one compact ne
 
 For delivery status, dependencies and owner acceptance, use the [GitHub roadmap](https://github.com/caldeirav/sub15-breaker/issues/14) and [implementation issues](https://github.com/caldeirav/sub15-breaker/issues). This README introduces the architecture and current comparison; linked reports retain detailed methods, results and earlier failures.
 
-## Latest full comparison — 2026-11-02
+## Current demo acceptance — ready services and golden accuracy
+
+Both verifiers scored **5/5 (100%) against five frozen golden actions**, with no
+errors, false allows or false blocks. Native qualification and a fresh rehearsal
+each passed **14/14 cases** using original golden utility/effect/receipt checkers.
+Services are checked and the resident classifier explicitly primed BEFORE timed
+or scored requests; startup costs are reported separately, not hidden. In the
+paired phase, the first initialization core was363.393ms (startup) and the first
+measured core after readiness was13.648ms. Native timing still varies; readiness
+is not a latency guarantee. The report focuses on accuracy, not threshold counts.
+
+See [current acceptance results](docs/demo-acceptance-results.md),
+[startup/golden methods and complete evidence](docs/ready-golden-results.md) and
+[API contract](docs/demo-review-api.md). Latest local package:
+`.infra/benchmark-guard-harness/ready-golden-review-package/summary.html`.
+Latest read-only API: `127.0.0.1:8090` (private limited read token; access in results).
+Old reports/failures remain archived. This is curated demo evidence, not general
+held-out safety; #55/#13/#56 and owner sign-off #45/#48 remain separate. No frontend
+or live-execution API was implemented; visualization is planning-only #60.
+
+## Historical broader comparison — nd4, 2026-11-02
 
 The fixed `nd4` test ran both guards on identical reviewed actions and executed
 all three supported banking workflows under each guard. See the dedicated
@@ -66,16 +86,16 @@ It preserves the database/history and prepares a saved-evidence backend for a
 future visual demo. Visualization is planning-only (#60); no frontend or live-run
 controls are added.
 
-**Current review status:** nd7 passed all14 native cases and both guards scored4/4
+**Historical nd7/nd8 status:** nd7 passed all14 native cases and both guards scored4/4
 on fixed curated inputs. Capacity correction worked, but nd8 stopped before
 inference at an Actor readiness JSON/transport error (#62); it is not a pass.
 The consolidated saved-evidence package is at
 `.infra/benchmark-guard-harness/demo-review-verified-package/summary.html`.
 The read-only API runs on `127.0.0.1:8088`; the linked contract/results explain
 private read-token setup, source hashes, telemetry, failures and limitations.
-All609 offline tests pass on Python3.11–3.13. Owner acceptance remains pending.
+That backend delivery passed609 offline tests on Python3.11–3.13. Owner sign-off remains separate.
 
-PRs #57/#61 are now merged into `main`. The next focused work is
+PRs #57/#61 are merged into `main`. The subsequent focused work was
 [Actor readiness diagnostics and non-effectful verification](docs/actor-readiness-plan.md)
 for #62. It does not repeat spent model runs or declare the incomplete rehearsal
 passing; visualization remains planning-only.
@@ -85,20 +105,20 @@ not the old failure's cause or the complete-rehearsal acceptance gate (#62).
 The owner-authorized next step is the
 [full acceptance plan with bounded read-only readiness retries](docs/demo-acceptance-plan.md).
 Only startup readiness can retry; model reviews and banking actions cannot.
-**Full demo acceptance now passed:**14/14 qualification +14/14 rehearsal cases,
+**Archived nd9/nd10 acceptance passed:**14/14 qualification +14/14 rehearsal cases,
 both guards4/4 on paired inputs, and both harness reviews supported. All28 live
 readiness checks passed first attempt; controlled HTTP tests verify retry recovery.
 #62 is closed on the operational mitigation, not a claim of the old fault's cause.
-See [complete acceptance results](docs/demo-acceptance-results.md). Owner sign-off
+See [archived nd9/nd10 results](docs/demo-acceptance-results-nd9-nd10.md). Owner sign-off
 #45/#48 and separate quality/performance work remain open; historical failures and
 classifier15ms misses are preserved. No visualization frontend was implemented.
-The latest consolidated report is
+That phase's retained consolidated report is
 `.infra/benchmark-guard-harness/demo-acceptance-review-package/summary.html`.
-The updated read-only API is on `127.0.0.1:8089`; the prior8088 snapshot remains
+That retained read-only API is on `127.0.0.1:8089`; the prior8088 snapshot remains
 available. See the acceptance results for the private read-token file and exact
 telemetry/access instructions. Opening/replaying reports makes no model calls.
 
-The [services-ready golden retest](docs/ready-golden-plan.md) separates cold load/
+The completed [services-ready golden retest](docs/ready-golden-plan.md) separates cold load/
 priming from measured requests, keeps the classifier resident, and reports both
 verifiers against frozen golden actions rather than counting latency thresholds.
 

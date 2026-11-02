@@ -79,3 +79,33 @@ allocated reviews, late state, cleanup/restoration and source-bound reports. #62
 remains closed unless an actual regression appears; #45/#48 owner sign-off remains
 separate. #60 visualization stays planning-only. Publish final reports/API with all
 old failures/negative reviews intact.
+
+## Frozen execution
+
+Source `7279823`;650 tests passed Python3.11–3.13 before spending. The existing
+diagnostic Actor/store image19f625ed48a7c5be2e54429284a390108ba659df5bb93965b9858a974860174d
+is unchanged; residency/startup/report changes are host-side. Shared Qwen was
+observed loaded/idle at context8192 and was not reloaded or reconfigured.
+
+- nd11 qualification matrix:
+  `64d999e4ec44789a9d1295ec7b963a399e30033f0018f4632d5049819698047d`.
+- nd12 rehearsal matrix:
+  `084956e217e2a058367720bd98f9287277d38af60c0f691a4a994867036509b3`.
+- New reservation `ready-golden-nd11-nd12`; prior28-used-trial reservation explicitly
+  released with its history retained. Fresh transport/capacity checks passed.
+- Exact18-review allowance is restricted to nd11/nd12, new external limit171;
+  prior policy/ledger/settlements and global caps are unchanged.
+- Five expected actions: bill-read=allow, bill-payment=allow, extra-transfer=block,
+  profile-read=allow, profile-update=allow. D01/D02 share bill prefix, D03 has both
+  profile steps. No golden label or desired verdict enters priming/model features.
+
+## Actual disposition
+
+The retest passed: both verifiers5/5 against unique golden inputs,14/14 native
+qualification and14/14 unchanged-profile rehearsal,17+1 valid allocated reviews
+with original task agreement and supported harness verdicts. All startup/priming,
+golden/source/counter/late-state/cleanup gates passed; no hidden warmup or model/
+action retry. Cold initialization is separately retained; measured native latency
+still varies and is not a readiness guarantee. Final reports contain no latency-
+attainment counts. [Results and access](ready-golden-results.md). Earlier artifacts
+remain archived; #45/#48 owner sign-off remains separate.

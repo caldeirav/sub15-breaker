@@ -36,7 +36,9 @@ The supported research domain is **AgentDojo simulated banking**. The local harn
 | [Actor readiness results](actor-readiness-results.md) | Eight verified diagnostic observations, preserved history/ledger and explicit unconfirmed-cause/full-rehearsal boundaries |
 | [Demo acceptance with bounded readiness retries](demo-acceptance-plan.md) | Owner-authorized read-only retry policy and fresh nd9/nd10 full qualification/rehearsal; no model/action retries |
 | [Full demo acceptance results](demo-acceptance-results.md) | Paired metrics, all demo variants, readiness attempts, reviews and preserved historical limitations |
+| [Archived nd9/nd10 acceptance](demo-acceptance-results-nd9-nd10.md) | Original arm-local/cold-first acceptance retained unchanged apart from archive labelling |
 | [Services-ready golden retest plan](ready-golden-plan.md) | Explicit startup/priming before demo or full-harness tests, verifier accuracy against five golden actions, and reports without latency-attainment counts |
+| [Services-ready golden results](ready-golden-results.md) | Startup versus measured timing, both verifiers against frozen golden, and native checker outcomes with old evidence preserved |
 | [Legacy compatibility](legacy-compatibility.md) | Old modules/examples that are not the supported banking path |
 | [Documentation alignment audit](documentation-audit.md) | What was reviewed/corrected, immutable evidence and validation boundaries |
 
