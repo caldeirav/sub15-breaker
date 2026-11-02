@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BreakerSubstrate — Live guard comparison</title>
+  <link rel="stylesheet" href="/assets/style.css">
+  <script src="/assets/app.js" defer></script>
+</head>
+<body>
+  <aside>
+    <a class="brand" href="/">B<span>BreakerSubstrate</span></a>
+    <p class="eyebrow">LIVE DEMO / NATIVE ENFORCEMENT</p>
+    <h2>Choose a scenario</h2>
+    <nav id="scenarios" aria-label="Demo scenarios"></nav>
+    <div class="sidebar-note"><strong>One shared model server.</strong><p>Both routes use the same agent and gateway. Arms run one after another, never as competing model workloads.</p></div>
+    <div id="allocation" class="small">Sign in to inspect the frozen allocation.</div>
+  </aside>
+  <main>
+    <header>
+      <div><p class="eyebrow">AGENT SUBSTRATE × AGENTGATEWAY</p><h1>Before the action, a decision.</h1><p class="muted">A live comparison of classifier and generative guardrails at the same native boundary.</p></div>
+      <span id="connection" class="badge">Locked</span>
+    </header>
+    <section id="login-panel" class="panel login">
+      <div><h2>Unlock the local demo</h2><p>Use the dedicated UI run token—not a model, platform or banking credential. Opening this page does not run inference.</p></div>
+      <form id="login-form"><label for="token">UI run token</label><div class="input-row"><input id="token" type="password" autocomplete="off" required minlength="32" maxlength="128"><button type="submit">Unlock</button></div></form>
+    </section>
+    <div id="notice" class="notice" role="status" aria-live="polite"></div>
+    <section class="panel scenario">
+      <div><p id="scenario-kind" class="eyebrow"></p><h2 id="scenario-title"></h2><p id="scenario-description"></p><p id="scenario-golden" class="golden"></p></div>
+      <div class="run-control"><button id="run" class="primary" disabled>Run both routes</button><p id="run-note" class="small">An explicit click is required. No automatic reruns.</p></div>
+    </section>
+    <div class="run-heading"><h2>Execution routes</h2><span id="run-phase" class="muted">No live run yet</span></div>
+    <p id="order" class="small">The frozen order is shown when a run starts. Startup and priming are separate from measured requests.</p>
+    <section class="lanes" aria-label="Live comparison">
+      <article class="panel lane classifier" id="classifier"><div class="lane-heading"><div><span class="eyebrow">ROUTE B</span><h2>Classifier</h2></div><span class="badge lane-status">Waiting</span></div><p class="muted">One encoder forward + frozen calibration</p><div class="hero-metric"><span class="metric-value">—</span><span class="small metric-label">Whole guard review median · ms</span></div><div class="result" aria-live="polite">Awaiting an explicit Run.</div><ol class="timeline" aria-label="Classifier live trace"></ol><div class="lane-footer"></div></article>
+      <article class="panel lane llm" id="llm"><div class="lane-heading"><div><span class="eyebrow">ROUTE A</span><h2>LLM reviewer</h2></div><span class="badge lane-status">Waiting</span></div><p class="muted">Generative verdict through the shared gateway</p><div class="hero-metric"><span class="metric-value">—</span><span class="small metric-label">Whole guard review median · ms</span></div><div class="result" aria-live="polite">Awaiting an explicit Run.</div><ol class="timeline" aria-label="LLM live trace"></ol><div class="lane-footer"></div></article>
+    </section>
+    <section class="panel breakdown"><div class="section-heading"><div><p class="eyebrow">WHAT WE ARE SHOWCASING</p><h2>The decision guardrail, in context</h2></div><span class="badge">Observed timings</span></div><p class="muted">Compare whole guard reviews at the same boundary. Classifier core is a subset—not a separate phase to add. Different agent proposals may produce different review counts.</p><div class="table-scroll"><table><thead><tr><th scope="col">Boundary</th><th scope="col">Classifier route · median ms / n</th><th scope="col">LLM route · median ms / n</th></tr></thead><tbody id="timings"></tbody></table></div><p class="small">Nested timers are not additive. Model HTTP includes gateway + provider; gateway spans also include backend time. No fabricated “pure gateway” or queue latency. Fault controls have no comparable model-inference timing.</p></section>
+    <section class="panel"><div class="section-heading"><h2>Final evidence and external review</h2><span id="review-status" class="badge">Not started</span></div><p id="review">Original golden checkers, receipts and state effects determine the case outcome. Gemini reviews persisted evidence only after both arms; its time is outside the guardrail comparison.</p><details><summary>Startup, readiness and post-run observations</summary><ol id="system-events" class="timeline"></ol></details></section>
+    <footer>Local synthetic banking research. Curated cases are not held-out safety evidence. Rent false block, native latency variability and historical negative results remain limitations. No real payments, universal latency promise or inferred human acceptance.</footer>
+  </main>
+</body>
+</html>

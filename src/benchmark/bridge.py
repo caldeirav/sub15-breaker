@@ -12,6 +12,7 @@ import mlflow
 from mlflow.tracing.fluent import with_active_span
 
 from src.agent_runtime.contracts import ToolOutcome
+from src.agent_runtime.observability import emit
 from src.banking_contracts.codec import ContractError
 from src.banking_service.http import body_object
 from src.benchmark.guards import ReviewInput
@@ -84,6 +85,7 @@ class Bridge:
             self.lock.release()
 
     def dispatch(self,call,parent):
+        emit("actor_dispatch", "started", tool=call.name)
         span=mlflow.start_span_no_context(name="banking_actor_dispatch",span_type="TOOL",parent_span=parent)
         record=dict(call_id=call.call_id,tool=call.name,arguments=call.arguments,span_id=span.span_id,trial_id=self.trial_id)
         ticket=None
@@ -104,6 +106,7 @@ class Bridge:
                 if prepared["status"]!="prepared":raise RuntimeError("unexpected_prepared_status")
                 ticket=prepared["ticket"]
                 record["snapshot_prepare_ns"]=perf_counter_ns()-prepare_started
+                emit("prepare", "finished", tool=call.name, duration_ns=record["snapshot_prepare_ns"])
                 # Context is caller/backend-owned, never model-supplied authority.
                 materialize=perf_counter_ns();issues=()
                 if self.review_builder:
@@ -114,6 +117,7 @@ class Bridge:
                         "Synthetic banking wiring control; learned policy evaluation is not claimed.",call.name,arguments,
                         state={"state_version":snapshot["state_version"]})
                 record["review_materialization_ns"]=perf_counter_ns()-materialize
+                emit("projection", "finished", tool=call.name, duration_ns=record["review_materialization_ns"])
                 self.registry.register(ticket,review,self.guard,parent=span,input_issues=issues)
                 with self.condition:
                     self.active_ticket=ticket
@@ -152,6 +156,8 @@ class Bridge:
                 record["after_fingerprint"]=self.store.call("/snapshot",dict(trial_id=self.trial_id))["fingerprint"]
                 span.set_outputs(record)
                 self.actions.append(record)
+                emit("actor_dispatch", "finished", tool=call.name, status=outcome.status, duration_ns=elapsed,
+                     actor_timings=record.get("actor_timings",{}))
                 return outcome
         except Exception as exc:
             record.update(status="unknown",error=type(exc).__name__,ticket=ticket,
@@ -281,6 +287,8 @@ class MCPClient:
         return tools
 
     def execute(self,call):
+        started=perf_counter_ns()
+        emit("mcp_gateway", "started", tool=call.name)
         with mlflow.start_span(name="gateway_mcp_tool",span_type="TOOL") as span:
             span.set_inputs(dict(call_id=call.call_id,name=call.name,arguments=call.arguments,url=self.base+"/benchmark/mcp"))
             self.bridge.bind(call,span)
@@ -304,4 +312,7 @@ class MCPClient:
                             outcome=ToolOutcome(call.call_id,action["status"],action.get("output"),action.get("ticket"),action.get("guard") or {})
                             span.set_outputs(asdict(outcome));return outcome
                     raise
-            finally:self.bridge.pending=None
+            finally:
+                self.bridge.pending=None
+                emit("mcp_gateway", "finished", tool=call.name, duration_ns=perf_counter_ns()-started,
+                     trace_id=span.trace_id, span_id=span.span_id)

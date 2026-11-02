@@ -92,11 +92,11 @@ def build_harness_judge(model):
         inference_params={"temperature":0,"max_tokens":8192,"timeout":60,"num_retries":0})
 
 
-def review_harness(judge,*,observations,target_trace_id,reserve,scope="approved-three-task-banking-wiring",required_cases=None):
+def review_harness(judge,*,observations,target_trace_id,reserve,scope="approved-three-task-banking-wiring",required_cases=None,rubric_version=RUBRIC_VERSION):
     """Caller supplies persisted facts, never code verdicts or a success summary."""
     with mlflow.start_span(name="external_harness_review",span_type="LLM") as span:
         payload=dict(inputs=dict(scope=scope),outputs=observations,
-            expectations=dict(rubric_version=RUBRIC_VERSION,required_cases=required_cases if required_cases is not None else ["user_task_0","user_task_2","user_task_13"],
+            expectations=dict(rubric_version=rubric_version,required_cases=required_cases if required_cases is not None else ["user_task_0","user_task_2","user_task_13"],
                 claims_excluded=["utility_win_rate","trained_guard","A/B_performance","production_acceptance"]))
         span.set_inputs(dict(target_trace_id=target_trace_id,model=judge.model,**payload))
         from src.benchmark.privacy import Mask
@@ -123,13 +123,13 @@ def review_harness(judge,*,observations,target_trace_id,reserve,scope="approved-
             mlflow.log_assessment(trace_id=target_trace_id,assessment=feedback)
             result=dict(value=feedback.value if valid else None,rationale=feedback.rationale,
                 error=None if valid else "invalid_or_failed_native_review",judge_trace_id=span.trace_id,
-                target_trace_id=target_trace_id,model=judge.model,rubric_version=RUBRIC_VERSION)
+                target_trace_id=target_trace_id,model=judge.model,rubric_version=rubric_version)
             metadata=feedback.metadata or {}
             for name,key in (("input_tokens","mlflow.assessment.judgeInputTokens"),("output_tokens","mlflow.assessment.judgeOutputTokens"),("cost_usd","mlflow.assessment.judgeCost")):
                 if key in metadata:result[name]=metadata[key]
         except Exception as exc:
             result=dict(value=None,error=type(exc).__name__,judge_trace_id=span.trace_id,
-                target_trace_id=target_trace_id,model=judge.model,rubric_version=RUBRIC_VERSION,
+                target_trace_id=target_trace_id,model=judge.model,rubric_version=rubric_version,
                 error_stage=stage,error_detail=mask(str(exc))[:2048],
                 native_feedback=mask(feedback.to_dictionary()) if feedback is not None else None,
                 usage_available=False)

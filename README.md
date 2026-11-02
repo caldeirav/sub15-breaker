@@ -204,8 +204,10 @@ Then follow the appropriate guide:
 
 - **[Local stack setup and checks](docs/infra.md):** tools, cluster, banking image,
   credentials, managed model/MCP routes, readiness and safe cleanup.
-- **[Run or replay the five-card demo](docs/demo.md):** saved replay needs no
-  inference; a new live qualification/rehearsal needs fresh approved allocations.
+- **[Run the five-card web demo](docs/demo.md#live-web-interface--end-to-end):**
+  the live web UI selects any card and runs both arms sequentially with
+  real-time observations, golden checks and guardrail/component timings. Live clicks
+  and post-run Gemini reviews need fresh approved allocations.
 - **[Run the full test](docs/validation.md#run-the-full-live-comparison):** larger
   three-workflow A/B protocol, separate from the complete offline test suite.
 

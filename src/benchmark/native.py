@@ -16,6 +16,7 @@ import mlflow
 from src.benchmark import extproc_wire as pb
 
 from src.benchmark.guards import Verdict,timed_review
+from src.agent_runtime.observability import emit
 
 
 class ControlGuard:
@@ -93,13 +94,20 @@ class Registry:
                 elif not alive():
                     result=dict(input_digest=entry.value.digest(),guard_id=entry.guard.guard_id,decision="error",risk=None,
                         review_latency_ns=0,error="admission_request_cancelled_before_review",model_invocations=0)
-                else:result=timed_review(entry.guard,entry.value)
+                else:
+                    emit("guard_review", "started", tool=entry.value.tool, trace_id=span.trace_id, span_id=span.span_id)
+                    result=timed_review(entry.guard,entry.value)
+                    emit("guard_review", "finished", tool=entry.value.tool, decision=result["decision"],
+                         duration_ns=result["review_latency_ns"], core_ns=result.get("classifier_decision_core_ns"),
+                         trace_id=span.trace_id, span_id=span.span_id)
                 if not alive():
                     result.update(discarded_decision=result["decision"],review_error=result.get("error"),decision="error",error="review_finished_after_request_cancelled",
                         cancellation_reason=entry.cancellation_reason)
             result.update(ticket=ticket,admission_service_ns=perf_counter_ns()-started,
                 trace_id=span.trace_id,span_id=span.span_id)
             span.set_outputs(result)
+            emit("native_admission", "finished", decision=result["decision"], discarded=result.get("discarded_decision"),
+                 duration_ns=result["admission_service_ns"], trace_id=span.trace_id, span_id=span.span_id)
             with self.lock:entry.result=result
             return result
         finally:

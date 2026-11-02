@@ -247,7 +247,7 @@ expected statuses; utility=false may be correct on a denial/fault control.
 Known limitations remain actionable: unfixed rent false block (#55), v2 failed
 transfer (not promoted), native after-readiness performance variability (#13/#11),
 unrun larger held-out evaluation (#56), uncompleted soak (#39), distribution/SBOM
-gaps (#10) and planning-only frontend (#60). Historical nd4 negative review, nd2
+gaps (#10) and separate live UI delivery/acceptance (#60). Historical nd4 negative review, nd2
 unknown claim failure and nd6/nd8 incomplete rehearsals stay unchanged in raw
 artifacts/Git history. Passing later tests does not establish old fault causes.
 

@@ -6,8 +6,8 @@
 ## Scope and dependency direction
 
 This is a local guard benchmark over synthetic AgentDojo banking. The supported
-entry point is `src.benchmark.demo`, orchestrating the existing `wiring.run_case`;
-it is not a new agent loop. One compiled agent proposes actions under either
+CLI entry point is `src.benchmark.demo`; the live web entry point is `src.demo_ui`.
+Both orchestrate the existing `wiring.run_case`, not a new agent loop. One compiled agent proposes actions under either
 reviewer. The LangGraph agent executes in the host-side Python harness, not inside
 a Substrate Actor; pinned tool computation runs inside the Actor. Schema/state/
 identity controls and private evaluation remain outside the agent loop.
@@ -170,8 +170,12 @@ See [trace contracts and acceptance](validation.md#trace-and-score-ownership).
 No real payments, generic shell executor, multi-agent hierarchy, production HA,
 new IAM or rollback engine is implemented. The optional two-hour soak remains
 incomplete (#39); functional readiness is not a sustained-uptime qualification.
-The review API is saved evidence only; a visualization frontend remains planned
-(#60), with no live-execution API.
+The saved-review API remains read-only. The separate [live demo UI](demo.md#live-web-interface--end-to-end)
+uses an authenticated loopback Run endpoint, frozen fresh allocations and one
+worker owning the shared hook/bridge. Two lanes are displayed side by side but
+execute sequentially on the single Qwen server. Opening/selecting/reconnecting
+does not dispatch; only an explicit idempotent Run POST can do so. No generic
+command/path input or browser infrastructure/provider credentials are accepted.
 
 Historical `LocalBankingPipeline`, `ActorBankingTrial`, `src.agent.graph`, the
 command-only sidecar/dataset/raw-SDK grader/Streamlit dashboard and placeholder

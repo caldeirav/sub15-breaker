@@ -10,7 +10,7 @@ These guides describe implemented behavior, not an old sprint plan.
 | [Model and calibration](model.md) | Shared review input, labels, training populations, frozen artifact, risk calculation, LLM protocol and research limits |
 | [Testing and validation](validation.md) | AgentDojo data/checkers, metrics, controls, MLflow ownership, offline tests and full live A/B procedure |
 | [Local infrastructure](infra.md) | Prerequisites, versions, owned-stack setup, artifact handoff, credentials, checks and teardown |
-| [Demo guide](demo.md) | Five cards, safe replay, live qualification/rehearsal lifecycle and read-only API contract |
+| [Demo guide](demo.md) | Live five-card UI, sequential paired runs, real-time observations, golden/timing panels, operator allocations, prerequisites and separate saved-review API |
 | [Latest demo results — nd11/nd12](results/demo-nd11-nd12.md) | Versioned protocol, golden accuracy, measured performance, startup appendix, costs and evidence IDs |
 
 ## Documentation and evidence policy
