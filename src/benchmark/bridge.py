@@ -1,5 +1,6 @@
 """Serial banking MCP bridge to the existing store and real Actor HTTP service."""
 from dataclasses import asdict
+from collections import deque
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 import json
 import threading
@@ -162,28 +163,87 @@ class Bridge:
 
 class BridgeServer(ThreadingHTTPServer):
     daemon_threads=True
-    def __init__(self,address,bridge):self.bridge=bridge;super().__init__(address,Handler)
+    request_queue_size=128
+    def __init__(self,address,bridge,*,max_connections=32,idle_timeout=45,max_requests=128):
+        if max_connections<1 or idle_timeout<=0 or max_requests<1:raise ValueError("invalid_bridge_transport_limits")
+        self.bridge=bridge;self.idle_timeout=idle_timeout;self.max_requests=max_requests
+        self.slots=threading.BoundedSemaphore(max_connections)
+        self.transport_lock=threading.Lock();self.transport_events=deque(maxlen=4096);self.connection_sequence=0
+        super().__init__(address,Handler)
+
+    def event(self,**value):
+        # Deliberately exclude tokens, peer addresses, RPC IDs and banking payloads.
+        with self.transport_lock:self.transport_events.append(value)
+
+    def transport_snapshot(self):
+        with self.transport_lock:return list(self.transport_events)
+
+    def get_request(self):
+        request,address=super().get_request();request.settimeout(self.idle_timeout)
+        return request,address
+
+    def process_request(self,request,address):
+        if not self.slots.acquire(blocking=False):
+            self.event(kind="connection_rejected",reason="connection_limit");self.shutdown_request(request);return
+        try:super().process_request(request,address)
+        except BaseException:
+            self.slots.release();raise
+
+    def process_request_thread(self,request,address):
+        try:super().process_request_thread(request,address)
+        finally:self.slots.release()
 
 
 class Handler(BaseHTTPRequestHandler):
+    protocol_version="HTTP/1.1"
+    def setup(self):
+        super().setup()
+        with self.server.transport_lock:
+            self.server.connection_sequence+=1;self.connection_id=self.server.connection_sequence
+        self.requests=0
+        self.server.event(kind="connection_open",connection=self.connection_id)
+    def finish(self):
+        try:super().finish()
+        finally:self.server.event(kind="connection_close",connection=self.connection_id,requests=self.requests)
+    def handle_one_request(self):
+        self.connection.settimeout(self.server.idle_timeout)
+        super().handle_one_request()
+    def handle_expect_100(self):
+        self.send_error(417);return False
     def log_message(self,*args):pass
-    def do_GET(self):self.reply(200 if self.path=="/health" else 404,{"ready":self.path=="/health"})
+    def do_GET(self):
+        if self.headers.get("content-length") is not None or self.headers.get("transfer-encoding") is not None:
+            self.close_connection=True;self.reply(400,{"error":"unexpected_body"});return
+        self.reply(200 if self.path=="/health" else 404,{"ready":self.path=="/health"})
     def reply(self,status,value):
-        data=json.dumps(value,allow_nan=False).encode();self.send_response(status)
-        self.send_header("content-type","application/json");self.send_header("content-length",str(len(data)));self.end_headers();self.wfile.write(data)
+        data=json.dumps(value,allow_nan=False).encode();self.requests+=1
+        if self.requests>=self.server.max_requests:self.close_connection=True
+        self.send_response(status)
+        self.send_header("content-type","application/json");self.send_header("content-length",str(len(data)))
+        if self.close_connection:self.send_header("connection","close")
+        self.end_headers();self.wfile.write(data)
+        self.server.event(kind="response",connection=self.connection_id,status=status,bytes=len(data))
     def do_POST(self):
+        started=perf_counter_ns();method="invalid"
         try:
-            self.connection.settimeout(45)
             sizes=self.headers.get_all("content-length",[])
             if self.path!="/mcp" or len(sizes)!=1 or self.headers.get("transfer-encoding"):raise ValueError("unsupported_request")
+            if not sizes[0].isascii() or not sizes[0].isdigit():raise ValueError("invalid_content_length")
             size=int(sizes[0])
             if not 0<size<=131072:raise ValueError("body_limit")
             raw=self.rfile.read(size)
             if len(raw)!=size:raise ValueError("short_body")
             body=body_object(raw)
+            method=body.get("method")
+            method=method if method in {"server/discover","initialize","tools/list","tools/call"} else "other"
             if "id" not in body:self.reply(202,{})
             else:self.reply(200,self.server.bridge.rpc(body))
-        except Exception:self.reply(400,{"error":"invalid_banking_bridge_request"})
+        except Exception:
+            # Unread bytes must never become another request on a reused socket.
+            self.close_connection=True
+            try:self.reply(400,{"error":"invalid_banking_bridge_request"})
+            except OSError:pass
+        finally:self.server.event(kind="rpc",connection=self.connection_id,method=method,elapsed_ns=perf_counter_ns()-started)
 
 
 class MCPClient:
@@ -207,15 +267,17 @@ class MCPClient:
 
     def discover(self):
         tools=self.rpc("tools/list",{})["tools"]
-        canonical=set(self.bridge.catalog.names)
+        self.last_discovery=tools
+        canonical=set(self.bridge.catalog.names);names={}
         for tool in tools:
             candidates=[name for name in canonical if tool["name"]==name or tool["name"].endswith("_"+name)]
             if len(candidates)!=1:raise RuntimeError("unrecognized_gateway_tool_name")
             name=candidates[0]
-            if name in self.names or tool["inputSchema"]!=self.bridge.catalog.schemas()[name]["arguments"]:
+            if name in names or tool["inputSchema"]!=self.bridge.catalog.schemas()[name]["arguments"]:
                 raise RuntimeError("gateway_tool_schema_or_name_mismatch")
-            self.names[name]=tool["name"]
-        if set(self.names)!=canonical:raise RuntimeError("gateway_tool_catalog_incomplete")
+            names[name]=tool["name"]
+        if set(names)!=canonical:raise RuntimeError("gateway_tool_catalog_incomplete")
+        self.names=names
         return tools
 
     def execute(self,call):

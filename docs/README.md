@@ -28,6 +28,8 @@ The supported research domain is **AgentDojo simulated banking**. The local harn
 | [Architecture-demo diagnosis](architecture-demo-diagnosis.md) | Frozen-model diagnosis, canary/context and serialization defects, and a minimal native-demo corrective plan |
 | [Five-case live-demo development plan](native-guard-live-demo-plan.md) | Selectable positive/negative cards, input/cancellation corrections, scoped allocation and receipt-backed readiness criteria |
 | [Full comparison plan](full-comparison-plan.md) / [results and analysis](full-comparison-results.md) | Classifier-only15ms boundary, fixed paired accuracy, all three native workflows, retained failures/counter interpretation and reproducible report artifacts |
+| [Focused demo transport/qualification plan](demo-transport-qualification-plan.md) | Follow-up to merged PR #49: bounded transport, original five-card slice, curated paired reviews and separately gated rehearsal; owner acceptance remains separate |
+| [Focused demo results](demo-qualification-results.md) | Curated action correctness/performance, native qualification and rehearsal evidence; historical failures and acceptance boundaries retained |
 | [Legacy compatibility](legacy-compatibility.md) | Old modules/examples that are not the supported banking path |
 | [Documentation alignment audit](documentation-audit.md) | What was reviewed/corrected, immutable evidence and validation boundaries |
 

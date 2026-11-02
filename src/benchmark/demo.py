@@ -58,13 +58,17 @@ def code_hashes():
         "src/benchmark/encoder.py","src/agent_runtime/runner.py","src/banking_service/app.py","src/banking_service/deadlines.py",
         "src/banking_service/deploy.py","src/banking_service/dataset_replay.py","src/banking_service/store.py","src/banking_contracts/tools.py",
         "src/benchmark/serving.py","src/benchmark/reconciliation.py","src/benchmark/performance.py","src/benchmark/measurement.py",
-        "src/benchmark/accuracy.py","src/benchmark/comparison_report.py"]
+        "src/benchmark/accuracy.py","src/benchmark/comparison_report.py","src/benchmark/demo_qualification.py"]
     return {name:hashlib.sha256((ROOT/name).read_bytes()).hexdigest() for name in names}
 
 
-def make_plan(artifact,*,acting_model,classifier_device="mps",namespace="nd1"):
+def make_plan(artifact,*,acting_model,classifier_device="mps",namespace="nd1",protocol=None,rehearsal_of=None):
     if not re.fullmatch(r"nd[1-9][0-9]*",namespace):raise ValueError("unsupported_demo_phase")
-    full_comparison=int(namespace[2:])>=4
+    if protocol not in {None,"demo-qualification-v1","demo-rehearsal-v1"}:raise ValueError("unsupported_demo_protocol")
+    if protocol and int(namespace[2:])<5:raise ValueError("fresh_demo_protocol_namespace_required")
+    if (protocol=="demo-rehearsal-v1")!=(rehearsal_of is not None):raise ValueError("rehearsal_parent_required")
+    full_comparison=int(namespace[2:])>=4 and protocol is None
+    bounded=full_comparison or protocol is not None
     measurement=namespace!="nd1"
     deadlines=MEASURE if measurement else DEMO
     value=manifest(artifact,policy_id=POLICY_ID);adapter=BankingAdapter()
@@ -87,6 +91,19 @@ def make_plan(artifact,*,acting_model,classifier_device="mps",namespace="nd1"):
                 producer=card["producer"],expected=card["expected"],target_step=2 if scripted else "single_proposed_mutation"))
     cases.append(dict(case_id="nd1-review",task_id=None,kind="external_review",gemini_harness_judge=1))
     accuracy=None
+    if protocol:
+        for case in cases:
+            if case["kind"]=="card" and case.get("producer")=="acting_model":
+                case["actor"]=8
+                if case["arm"]=="llm":case["llm_guard"]=12
+            if protocol=="demo-rehearsal-v1":case.pop("gemini_task_judge",None)
+        if protocol=="demo-qualification-v1":
+            from src.benchmark.demo_qualification import fixture_cohort
+            accuracy=fixture_cohort(artifact,fixtures)
+            for index,row in enumerate(accuracy["rows"]):
+                cases.append(dict(case_id=f"nd1-accuracy-{index:02d}",kind="accuracy",task_id=row["task_id"],llm_guard=1,candidate_id=row["candidate_id"],input_digest=row["input_digest"]))
+                for repeat in range(3):cases.append(dict(case_id=f"nd1-probe-{row['candidate_id']}-{repeat}",task_id=row["task_id"],kind="diagnostic",probe=row["candidate_id"],input=row["candidate_id"],index=repeat,llm_guard=1))
+            cases.append(dict(case_id="nd1-encoder-measurement",task_id="user_task_0",kind="encoder_measurement",encoder_forward_cap=24))
     if full_comparison:
         for case in cases:
             if case["kind"]=="card" and case.get("producer")=="acting_model":
@@ -119,9 +136,11 @@ def make_plan(artifact,*,acting_model,classifier_device="mps",namespace="nd1"):
             actor_max_tokens=2048,reviewer_max_tokens=256,temperature=0,max_retries=0,global_settings_changed=False,
             classifier_device=classifier_device,classifier_lifetime="selected classifier arm only; release before LLM/control arm",tokenizer_only_for_llm=True),
         reconciliation=dict(timeout_seconds=120 if measurement else 30,quiet_seconds=2 if measurement else 1,poll_seconds=1 if measurement else .5,provider_idle_required=True),
-        reviewer_prompt_version="v2" if full_comparison else "v1",
-        reviewer_prompt_sha256=hashlib.sha256(LLM_PROMPTS["v2" if full_comparison else "v1"].encode()).hexdigest(),
-        native_limits=dict(model_attempts=8 if full_comparison else 16,tool_attempts=12 if full_comparison else 24,seconds=deadlines.episode),
+        reviewer_prompt_version="v2" if bounded else "v1",
+        reviewer_prompt_sha256=hashlib.sha256(LLM_PROMPTS["v2" if bounded else "v1"].encode()).hexdigest(),
+        native_limits=dict(model_attempts=8 if bounded else 16,tool_attempts=12 if bounded else 24,seconds=deadlines.episode),
+        **(dict(protocol=protocol,rehearsal_of=rehearsal_of,mcp_connect_timeout=30,verify_admission_readiness=True,
+            transport_probes=4,stop_on_card_failure=True) if protocol else {}),
         **(dict(accuracy=accuracy,decision_latency_target_ms=15,decision_latency_scope="tokenization+device enqueue+forward/host result+calibration/threshold; excludes tracing, projection, transport") if accuracy else {}),
         retries=0,fallback=False,quality_scope="imperfect frozen prototype; architecture mechanics distinct from reviewer correctness",full_admission_latency_claim=False)
 
@@ -309,6 +328,9 @@ def external_reviews(args,plan):
 def execute(args,plan):
     budget=DemoBudget(args.budget)
     if (budget.phase(plan["namespace"]) if plan.get("namespace") else budget.demo())!=plan:raise RuntimeError("frozen_demo_matrix_mismatch")
+    if plan.get("protocol"):
+        from src.benchmark.demo_qualification import require_campaign
+        require_campaign(budget,plan,paired_required=plan["protocol"]=="demo-qualification-v1")
     deadlines=profile(plan["deadlines"]["name"])
     deployment=Deployment();config=json.loads((DIRECTORY/"deployment.json").read_text());deployment.verify_deployment(config);deployment.refresh_credentials()
     original,template=benchmark_template(deployment);changed=dict(original,template=template);manifest_path=DIRECTORY/"deployment.json";previous=manifest_path.read_bytes()
@@ -331,9 +353,15 @@ def execute(args,plan):
                 mlflow.log_dict(resources.snapshot(),"protocol/startup.json")
                 service=server(registry,STORE_HOST,"0.0.0.0:8173");stack.callback(lambda:service.stop(3).wait(5))
                 http=BridgeServer(("0.0.0.0",8172),bridge);threading.Thread(target=http.serve_forever,daemon=True).start();stack.callback(http.server_close);stack.callback(http.shutdown)
-                stack.enter_context(temporary_bridge(deployment.cluster,directory,host,8172,request_timeout=deadlines.mcp_route,backend_timeout=plan["mcp_backend_timeout"]))
+                stack.callback(lambda:private(directory/"bridge-transport.json",http.transport_snapshot()))
+                stack.enter_context(temporary_bridge(deployment.cluster,directory,host,8172,request_timeout=deadlines.mcp_route,backend_timeout=plan["mcp_backend_timeout"],connect_timeout=plan.get("mcp_connect_timeout")))
                 if plan.get("model_route_timeout"):stack.enter_context(model_timeouts(deployment.cluster,directory,request_timeout=plan["model_route_timeout"],backend_timeout=plan["model_backend_timeout"]))
-                base=stack.enter_context(gateway_forward(deployment.cluster,directory));mcp=MCPClient(base,token,bridge,timeout=deadlines.mcp_client);mcp.discover()
+                base=stack.enter_context(gateway_forward(deployment.cluster,directory));mcp=MCPClient(base,token,bridge,timeout=deadlines.mcp_client)
+                if plan.get("transport_probes"):
+                    from src.benchmark.demo_qualification import discovery_probes,effective_transport
+                    effective_transport(deployment.cluster,directory)
+                    discovery_probes(mcp,http,plan["transport_probes"],directory)
+                else:mcp.discover()
                 def reserve_guard(request):
                     span=mlflow.get_current_active_span();budget.reserve(role="llm_guard",case_id=active["case_id"],trace_id=span.trace_id,request=request,model=plan["acting_model"])
                 client=stack.enter_context(httpx.Client(transport=ModelTransport(base,on_request=reserve_guard),timeout=deadlines.reviewer,trust_env=False,follow_redirects=False))
@@ -364,7 +392,7 @@ def execute(args,plan):
                                 task_id=case["task_id"],control=mode if is_control else None,selected_guard=guard,review_builder=rb,scripted_calls=calls,
                                 case_name=case["case_id"],deadline_profile=deadlines.name,request_model_id=plan["acting_model"],cancel_on_review_start=mode=="cancel",
                                 limits=Limits(**plan["native_limits"]),reconcile_telemetry=True,
-                                verify_admission_readiness=bool(plan.get("accuracy")),
+                                verify_admission_readiness=bool(plan.get("accuracy")) or plan.get("verify_admission_readiness",False),
                                 provider_probe=lambda **kw:provider_status(plan["acting_model"],**kw),
                                 reconciliation_options={k:v for k,v in plan["reconciliation"].items() if k!="provider_idle_required"})
                             record["serving_resources"]=resources.snapshot()
@@ -389,6 +417,7 @@ def execute(args,plan):
                                 raise RuntimeError("uncovered_durable_store_action")
                             if case["kind"]=="canary" and any((action.get("guard") or {}).get("decision")=="error" for action in record["evidence"]["actions"]):raise RuntimeError("learned_backend_canary_unavailable")
                             print(json.dumps(dict(case_id=case["case_id"],decision=card["observed_review"],demo_ready=card["demo_ready"],trace_id=card["trace_id"])),flush=True)
+                            if plan.get("stop_on_card_failure") and not card["demo_ready"]:raise RuntimeError("demo_qualification_card_failed")
             result=dict(run_id=parent.info.run_id,directory=str(directory),cards=cards,all_selected_ready=all(c["demo_ready"] for c in cards),external_review_complete=False,
                 full_admission_latency_claim=False,scoped_cases_only=True,review_comparisons=case_comparisons(plan,records))
             private(directory/"review-comparisons.json",result["review_comparisons"])
@@ -413,6 +442,8 @@ def main():
     parser.add_argument("--demo-case",default="all",choices=["all",*[c["id"] for c in CARDS],*[c["selector"] for c in CARDS]])
     parser.add_argument("--guard",choices=("classifier","llm"));parser.add_argument("--stage",choices=("all","controls","canary","cards","diagnostics"),default="all")
     parser.add_argument("--phase",default="nd1",help="Fresh ndN namespace; nd1–nd3 historical protocols, nd4+ full comparison. Freeze explicitly before execution.")
+    parser.add_argument("--protocol",choices=("demo-qualification-v1","demo-rehearsal-v1"))
+    parser.add_argument("--rehearsal-of",help="Frozen qualification namespace; requires separately preallocated campaign and successful source-bound qualification")
     parser.add_argument("--classifier-device",choices=("cpu","mps"),default="mps",help="Explicit local classifier device; no automatic fallback or model-service change")
     parser.add_argument("--artifact",type=Path,default=BASE/"modernbert-training-v1/model");parser.add_argument("--budget",type=Path,default=BASE/"combined-budget")
     parser.add_argument("--freeze-demo",action="store_true");parser.add_argument("--execute-demo",action="store_true")
@@ -423,12 +454,13 @@ def main():
     args=parser.parse_args()
     if args.list_demo_cases or args.dry_run:
         print(json.dumps(dict(cards=CARDS,implemented_native_flow="existing wiring.run_case",phase="validation",inference_requests=0,cluster_mutations=0,
-            planning_local_cap=117 if re.fullmatch(r"nd[1-9][0-9]*",args.phase) and int(args.phase[2:])>=4 else 120,planning_gemini_cap=17,artifact=str(args.artifact),readiness="requires frozen matrix and actual validation evidence"),indent=2));return
+            planning_local_cap=80 if args.protocol=="demo-qualification-v1" else 64 if args.protocol=="demo-rehearsal-v1" else 117 if re.fullmatch(r"nd[1-9][0-9]*",args.phase) and int(args.phase[2:])>=4 else 120,
+            planning_gemini_cap=1 if args.protocol=="demo-rehearsal-v1" else 17,artifact=str(args.artifact),readiness="requires frozen matrix and actual validation evidence"),indent=2));return
     from dotenv import load_dotenv
     load_dotenv(ROOT/".env")
     os.environ["MLFLOW_ENABLE_ASYNC_TRACE_LOGGING"]="false"
     os.environ["MLFLOW_HTTP_REQUEST_MAX_RETRIES"]="0";os.environ["MLFLOW_HTTP_REQUEST_TIMEOUT"]="10"
-    plan=make_plan(args.artifact,acting_model=os.getenv("LM_STUDIO_MODEL",VERSIONS["local_model"]),classifier_device=args.classifier_device,namespace=args.phase)
+    plan=make_plan(args.artifact,acting_model=os.getenv("LM_STUDIO_MODEL",VERSIONS["local_model"]),classifier_device=args.classifier_device,namespace=args.phase,protocol=args.protocol,rehearsal_of=args.rehearsal_of)
     if args.freeze_setup_correction:
         plan=DemoBudget(args.budget).freeze_setup_correction(plan,failed_setup_run_id=args.freeze_setup_correction)
     elif args.use_setup_correction:

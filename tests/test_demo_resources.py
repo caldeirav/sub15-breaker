@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.benchmark.deployment import model_timeouts,resource_patch,temporary_bridge
+from src.benchmark.deployment import configure_bridge,model_timeouts,resource_patch,temporary_bridge
 
 
 class Cluster:
@@ -82,3 +82,16 @@ def test_model_timeout_profile_preserves_auth_and_restores_owned_resources(tmp_p
         assert policy["backend"]["http"]["requestTimeout"]=="315s"
         assert policy["traffic"]["retry"]["attempts"]==0 and policy["traffic"]["authorization"]["policy"]=="unchanged"
     assert cluster.resources==original
+
+
+def test_mcp_tcp_connect_budget_is_distinct_from_response_and_preserves_no_retries(tmp_path):
+    class Capture:
+        def kubectl(self,*args,**kwargs):
+            if args[:2]==("get","--raw"):
+                return SimpleNamespace(stdout=json.dumps(dict(issuer="issuer") if "openid-configuration" in args[2] else dict(keys=[])))
+            return SimpleNamespace(stdout="")
+    configure_bridge(Capture(),tmp_path,"192.0.2.1",8172,request_timeout=450,backend_timeout=430,connect_timeout=30)
+    policy=json.loads((tmp_path/"gateway-bridge.json").read_text())["items"][2]["spec"]
+    assert policy["backend"]==dict(tcp=dict(connectTimeout="30s"),http=dict(requestTimeout="430s"))
+    assert policy["traffic"]["retry"]["attempts"]==0 and policy["traffic"]["jwtAuthentication"]["mode"]=="Strict"
+    with pytest.raises(ValueError,match="connect_timeout"):configure_bridge(Capture(),tmp_path,"host",8172,connect_timeout=60)

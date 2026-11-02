@@ -33,7 +33,8 @@ def resource_patch(current,desired):
     return operations
 
 
-def configure_bridge(cluster,directory,host_ip,port,*,request_timeout=60,backend_timeout=None):
+def configure_bridge(cluster,directory,host_ip,port,*,request_timeout=60,backend_timeout=None,connect_timeout=None):
+    if connect_timeout is not None and not 0.1<=connect_timeout<request_timeout:raise ValueError("invalid_mcp_connect_timeout")
     issuer=json.loads(cluster.kubectl("get","--raw","/.well-known/openid-configuration",capture=True).stdout)["issuer"]
     jwks=json.loads(cluster.kubectl("get","--raw","/openid/v1/jwks",capture=True).stdout)
     def obj(api,kind,name,spec):
@@ -53,6 +54,8 @@ def configure_bridge(cluster,directory,host_ip,port,*,request_timeout=60,backend
     if backend_timeout is not None:
         # MCP upstream calls have their own deadline, independent of HTTPRoute.
         objects[2]["spec"]["backend"]={"http":{"requestTimeout":f"{backend_timeout}s"}}
+    if connect_timeout is not None:
+        objects[2]["spec"].setdefault("backend",{})["tcp"]={"connectTimeout":f"{connect_timeout}s"}
     updates=[]
     for index,item in enumerate(objects):
         raw=cluster.kubectl("get",item["kind"],item["metadata"]["name"],"-n",NAMESPACE,"--ignore-not-found","-o","json",capture=True).stdout
@@ -72,7 +75,7 @@ def configure_bridge(cluster,directory,host_ip,port,*,request_timeout=60,backend
 
 
 @contextmanager
-def temporary_bridge(cluster,directory,host_ip,port,*,request_timeout,backend_timeout):
+def temporary_bridge(cluster,directory,host_ip,port,*,request_timeout,backend_timeout,connect_timeout=None):
     names=[("AgentgatewayBackend","benchmark-banking-mcp"),("HTTPRoute","benchmark-banking-mcp"),
         ("AgentgatewayPolicy","benchmark-banking-mcp"),("NetworkPolicy","benchmark-gateway-host-bridge")]
     before=[]
@@ -80,9 +83,14 @@ def temporary_bridge(cluster,directory,host_ip,port,*,request_timeout,backend_ti
         raw=cluster.kubectl("get",kind,name,"-n",NAMESPACE,"--ignore-not-found","-o","json",capture=True).stdout
         before.append(json.loads(raw) if raw else None)
     private(Path(directory)/"bridge-original-resources.json",before)
-    configure_bridge(cluster,directory,host_ip,port,request_timeout=request_timeout,backend_timeout=backend_timeout)
+    configure_bridge(cluster,directory,host_ip,port,request_timeout=request_timeout,backend_timeout=backend_timeout,connect_timeout=connect_timeout)
     applied=[cluster.get(kind,name,"-n",NAMESPACE) for kind,name in names]
-    try:yield
+    try:
+        policy=applied[2]["spec"]
+        if connect_timeout is not None and policy.get("backend",{}).get("tcp",{}).get("connectTimeout")!=f"{connect_timeout}s":
+            raise RuntimeError("mcp_connect_timeout_not_applied")
+        private(Path(directory)/"bridge-applied-resources.json",applied)
+        yield
     finally:
         for index,((kind,name),original,expected) in enumerate(zip(names,before,applied,strict=True)):
             current=cluster.get(kind,name,"-n",NAMESPACE)
@@ -195,11 +203,11 @@ def native_hook(cluster,directory,host_ip,port,*,timeout_seconds=25):
 
 
 @contextmanager
-def gateway_forward(cluster,directory):
+def gateway_forward(cluster,directory,*,admin=False):
     with socket.socket() as sock:sock.bind(("127.0.0.1",0));port=sock.getsockname()[1]
     log=(Path(directory)/"gateway-forward.log").open("w")
     process=subprocess.Popen(["kubectl","--kubeconfig",str(cluster.kubeconfig),"--context",cluster.context,
-        "port-forward","-n",NAMESPACE,"service/"+GATEWAY,f"{port}:8080","--address=127.0.0.1"],env=environment(),stdout=log,stderr=subprocess.STDOUT)
+        "port-forward","-n",NAMESPACE,("deployment/" if admin else "service/")+GATEWAY,f"{port}:{15000 if admin else 8080}","--address=127.0.0.1"],env=environment(),stdout=log,stderr=subprocess.STDOUT)
     try:
         deadline=time.monotonic()+20
         while True:
