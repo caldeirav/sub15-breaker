@@ -1,5 +1,6 @@
 """Current guide structure and byte-preserved historical resource regressions."""
 import hashlib
+import re
 
 from src.infra.common import ROOT
 
@@ -48,3 +49,18 @@ def test_versioned_demo_report_retains_performance_denominators_and_source_ids()
                      "332 local /202 external", "conservative holds", "#17"):
         assert required in text
     assert "Below15ms" not in text and "native_core_below15" not in text
+
+
+def test_sequence_diagram_message_text_has_no_unescaped_statement_separators():
+    # Mermaid treats bare semicolons as newlines, even inside message text.
+    # Entity escapes such as #59; are allowed. Keep this regression offline.
+    for path in (ROOT / "docs").rglob("*.md"):
+        for diagram in re.findall(r"```mermaid\n(.*?)```", path.read_text(), re.DOTALL):
+            if not diagram.lstrip().startswith("sequenceDiagram"):
+                continue
+            for line in diagram.splitlines():
+                if ":" not in line:
+                    continue
+                message = line.split(":", 1)[1]
+                unescaped = re.sub(r"#[a-zA-Z0-9]+;", "", message)
+                assert ";" not in unescaped, f"{path}: unescaped semicolon in {line.strip()}"

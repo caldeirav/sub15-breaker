@@ -61,7 +61,7 @@ sequenceDiagram
     Note over B,N: Register ticket, canonical review input and selected guard
     B->>R: Execute opaque ticket
     R->>N: POST /claim/TICKET
-    N->>N: Resolve registered ticket; review once
+    N->>N: Resolve registered ticket and review once
     alt effective allow
         N->>S: Forward exact ticket claim
         S-->>R: Verified private snapshot
@@ -70,7 +70,7 @@ sequenceDiagram
         S-->>R: Atomic receipt and state/outbox commit
         R-->>B: Result and receipt
     else block, error or cancelled
-        N-->>R: Deny claim; no target computation
+        N-->>R: Deny claim without target computation
         R-->>B: Explicit non-executed/error outcome
     end
     B-->>G: Result or explicit unknown/error
