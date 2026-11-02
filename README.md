@@ -1,337 +1,187 @@
 # BreakerSubstrate
 
-**Pre-execution action verification for agentic runtimes, without generating verification tokens on the classifier path.**
+**Compare a compact classifier with an LLM reviewer before an agent's tool action executes.**
 
-BreakerSubstrate (`sub15-breaker`) is the research reference architecture for the AgentSubstrate Day NA 2026 session [“Instant Circuit Breakers: Sub-15ms Action Verification in Agent Substrate”](https://atecon.dev/). It investigates a practical question: **can a compact, calibrated classifier reject a dangerous tool action before execution, with less overhead than asking a generative model to review it?**
+BreakerSubstrate (`sub15-breaker`) is a research reference implementation for
+[“Instant Circuit Breakers: Sub-15ms Action Verification in Agent Substrate”](https://atecon.dev/).
+It asks whether one calibrated, non-generative encoder pass can review a proposed
+action with less overhead than generating a verification response, while retaining
+useful task completion and honest evidence about mistakes.
 
-The reference use case is a **simulated banking agent**. A user asks it to pay a bill, adjust a scheduled payment or update an address. The model proposes typed tool calls; untrusted invoices or tool responses may try to redirect those calls. We reuse AgentDojo's synthetic tasks, tools, state and executable checkers rather than build a new financial benchmark or expose a general-purpose shell.
+The use case is **simulated banking**: pay a bill, adjust rent or update an address.
+The agent proposes typed calls; a reviewer outside its reasoning loop decides
+whether the runtime may execute them. Both reviewers use the same contextual input
+and the same native pre-execution boundary. Only the reviewer changes.
 
-The comparison is between **A: generative verification** and **B: one compact neural encoder inference over the same action and trusted context**. Both belong at the same native Substrate pre-execution boundary, outside the agent's reasoning loop. The **sub-15ms target applies to classifier decision computation**, not ticket claims or tool execution. Report its exact boundary, input sizes and misses; it is not a universal safety guarantee or hardware-independent SLA.
+> Research software, not a production safety system. Use synthetic data only—no
+> real bank APIs, payment credentials or privileged shell executor. A classifier
+> can be wrong. Denial, stopping an Actor and undoing prior effects are different;
+> no rollback or universal containment is promised. The 15ms research target is
+> **classifier decision computation**, not native admission or complete task time.
 
-> **Research software, not a production safety boundary.** Use synthetic data only; do not connect real bank APIs, money, payment credentials or a privileged executor. A denied request is not acknowledged Actor termination, and neither denial nor termination rolls back prior effects.
+## How this uses AgentDojo
 
-For delivery status, dependencies and owner acceptance, use the [GitHub roadmap](https://github.com/caldeirav/sub15-breaker/issues/14) and [implementation issues](https://github.com/caldeirav/sub15-breaker/issues). This README introduces the architecture and current comparison; linked reports retain detailed methods, results and earlier failures.
+[AgentDojo](https://github.com/ethz-spylab/agentdojo) is an extensible environment
+for evaluating tool-using agents exposed to prompt injection through untrusted
+tool data. See the research paper,
+[AgentDojo: A Dynamic Environment to Evaluate Prompt Injection Attacks and Defenses for LLM Agents](https://arxiv.org/pdf/2406.13352).
 
-## Current demo acceptance — ready services and golden accuracy
+We reuse its **banking tasks, synthetic initial state, 11 tools, released attack
+fixtures, reference trajectories and executable outcome checkers**. We do not use
+AgentDojo's agent pipeline as our orchestrator: a pinned adapter supplies assets
+to one suite-neutral LangGraph agent, and tools execute in Agent Substrate Actors.
+References and checker answers stay evaluator-only, never acting-model or guard
+features. This is a small adapted research slice, **not an official full-suite
+AgentDojo benchmark or leaderboard result**.
 
-Both verifiers scored **5/5 (100%) against five frozen golden actions**, with no
-errors, false allows or false blocks. Native qualification and a fresh rehearsal
-each passed **14/14 cases** using original golden utility/effect/receipt checkers.
-Services are checked and the resident classifier explicitly primed BEFORE timed
-or scored requests; startup costs are reported separately, not hidden. In the
-paired phase, the first initialization core was363.393ms (startup) and the first
-measured core after readiness was13.648ms. Native timing still varies; readiness
-is not a latency guarantee. The report focuses on accuracy, not threshold counts.
+The dependency is pinned to commit
+`089ed468cf3ed0322acc66b0211f26d9d90dbf60`, package `0.1.35`, banking benchmark
+`v1.2.2`. The live comparison covers `user_task_0` (bill), `user_task_2` (rent) and
+`user_task_13` (address); the five-card demo uses bill/address and explicit
+negative/fault controls. [Data, checker semantics and test design](docs/validation.md).
 
-See [current acceptance results](docs/demo-acceptance-results.md),
-[startup/golden methods and complete evidence](docs/ready-golden-results.md) and
-[API contract](docs/demo-review-api.md). Latest local package:
-`.infra/benchmark-guard-harness/ready-golden-review-package/summary.html`.
-Latest read-only API: `127.0.0.1:8090` (private limited read token; access in results).
-Old reports/failures remain archived. This is curated demo evidence, not general
-held-out safety; #55/#13/#56 and owner sign-off #45/#48 remain separate. No frontend
-or live-execution API was implemented; visualization is planning-only #60.
-
-## Historical broader comparison — nd4, 2026-11-02
-
-The fixed `nd4` test ran both guards on identical reviewed actions and executed
-all three supported banking workflows under each guard. See the dedicated
-[results, background, methods and analysis](docs/full-comparison-results.md),
-[frozen test plan](docs/full-comparison-plan.md). The generated local HTML report
-is at `.infra/benchmark-guard-harness/nd4-full-comparison-report-final/report.html`.
-HTML/JSON artifacts require the retained local run bundle and are not repository
-links; the Markdown analysis is checked into the repository.
-
-| Measured result | Classifier | LLM |
-| --- | ---: | ---: |
-| Decision core,147-token read: subsequent median |13.45ms |Not a comparable LLM kernel measurement |
-| Decision core,282-token payment: subsequent median |16.74ms |Not a comparable LLM kernel measurement |
-| Whole-review subsequent medians: read / payment |21.64 /24.67ms |374.87 /363.14ms |
-| Fixed18-action development accuracy |16/18 (88.9%) |17/18 (94.4%) |
-| False allows / false blocks in that cohort |0 /2 |0 /1 |
-| Known permitted-read regression |Passed |Passed with versioned v2 instruction |
-| Genuine workflow utility |1/3 |3/3 |
-
-**This is not an all-variants pass.** Classifier profile update encountered an
-MCP connection timeout before admission; classifier rent adjustment was blocked
-despite the legitimate amount-only effect. These remain visible, not retried.
-The classifier-only cores in actual native servicing were36–257ms, above15ms;
-the short warmed-loop read result is not a universal latency claim. The small,
-previously examined development cohort is not a pristine holdout or safety
-certificate, and workflow utility includes transport/agent effects—not just
-reviewer accuracy. The external harness verdict remains `not_supported`, with a
-documented logical-callback/physical-request interpretation disagreement.
-
-All578 baseline offline tests passed on Python3.11–3.13. PR #49 merged with the
-implementation and evidence; owner acceptance remains pending. #54 (transport), #55 (classifier
-rent false block) and further classifier-performance work remain open. Opening
-the reports makes no model calls; spent phases must not be reset or sampled again.
-
-The focused follow-up is [PR #57](https://github.com/caldeirav/sub15-breaker/pull/57):
-[transport, original five-card qualification and rehearsal plan](docs/demo-transport-qualification-plan.md).
-It preserves the broader failures above. Curated demo correctness is not held-out
-accuracy, and rehearsal success does not substitute for owner acceptance.
-The [focused results and evidence](docs/demo-qualification-results.md) distinguish
-completed qualification (both guards4/4 on fixed curated inputs;14/14 native cases
-ready; scoped harness review supported) from the **incomplete rehearsal**: nd6
-stopped at the durable store's100-trial capacity after seven prerequisites (#58).
-No trial history or spent IDs were reset; owner acceptance remains blocked.
-This does not establish general accuracy or15ms native classifier performance.
-
-The capacity-corrected follow-up is [PR #61](https://github.com/caldeirav/sub15-breaker/pull/61):
-[end-to-end plan](docs/demo-review-backend-plan.md),
-[testing/review results](docs/demo-review-backend-results.md), and
-[read-only review API contract](docs/demo-review-api.md).
-It preserves the database/history and prepares a saved-evidence backend for a
-future visual demo. Visualization is planning-only (#60); no frontend or live-run
-controls are added.
-
-**Historical nd7/nd8 status:** nd7 passed all14 native cases and both guards scored4/4
-on fixed curated inputs. Capacity correction worked, but nd8 stopped before
-inference at an Actor readiness JSON/transport error (#62); it is not a pass.
-The consolidated saved-evidence package is at
-`.infra/benchmark-guard-harness/demo-review-verified-package/summary.html`.
-The read-only API runs on `127.0.0.1:8088`; the linked contract/results explain
-private read-token setup, source hashes, telemetry, failures and limitations.
-That backend delivery passed609 offline tests on Python3.11–3.13. Owner sign-off remains separate.
-
-PRs #57/#61 are merged into `main`. The subsequent focused work was
-[Actor readiness diagnostics and non-effectful verification](docs/actor-readiness-plan.md)
-for #62. It does not repeat spent model runs or declare the incomplete rehearsal
-passing; visualization remains planning-only.
-The [fixed readiness probe results](docs/actor-readiness-results.md) passed8/8
-with zero trial/model/tool/judge calls. That closes the diagnostic visibility gap,
-not the old failure's cause or the complete-rehearsal acceptance gate (#62).
-The owner-authorized next step is the
-[full acceptance plan with bounded read-only readiness retries](docs/demo-acceptance-plan.md).
-Only startup readiness can retry; model reviews and banking actions cannot.
-**Archived nd9/nd10 acceptance passed:**14/14 qualification +14/14 rehearsal cases,
-both guards4/4 on paired inputs, and both harness reviews supported. All28 live
-readiness checks passed first attempt; controlled HTTP tests verify retry recovery.
-#62 is closed on the operational mitigation, not a claim of the old fault's cause.
-See [archived nd9/nd10 results](docs/demo-acceptance-results-nd9-nd10.md). Owner sign-off
-#45/#48 and separate quality/performance work remain open; historical failures and
-classifier15ms misses are preserved. No visualization frontend was implemented.
-That phase's retained consolidated report is
-`.infra/benchmark-guard-harness/demo-acceptance-review-package/summary.html`.
-That retained read-only API is on `127.0.0.1:8089`; the prior8088 snapshot remains
-available. See the acceptance results for the private read-token file and exact
-telemetry/access instructions. Opening/replaying reports makes no model calls.
-
-The completed [services-ready golden retest](docs/ready-golden-plan.md) separates cold load/
-priming from measured requests, keeps the classifier resident, and reports both
-verifiers against frozen golden actions rather than counting latency thresholds.
-
-## Why this design?
-
-1. **Verify before mutation.** Reviewing a trace after an unauthorized transfer is too late to prevent that transfer. Enforcement must inspect the proposed action before the tool consumes it.
-2. **Separate proposal from authority.** The acting model, its explanations and tool-returned text are untrusted. Identity, policy, intent provenance and state versions must come from services outside the agent—not from its assertion that an action is safe.
-3. **Separate reasoning from classification.** A generative reviewer produces tokens; a compact encoder can make a binary classification in one forward pass. Lower and more predictable overhead is a hypothesis to test at comparable quality, not an assumed advantage.
-4. **Use calibrated estimates, not verbal confidence.** A score between zero and one is not automatically a meaningful probability. Independent labels, held-out calibration, error rates and coverage are necessary.
-5. **Retain benchmark controls and isolation.** A model can miss an unsafe action. Reuse the working platform, schema/state checks, limits and sandbox; do not build production IAM, elaborate security policy or HA for this benchmark.
-6. **Measure rather than manufacture the comparison.** Do not add artificial delays to A, assume millisecond performance for B, hide failures or count a denied-everything agent as a successful system.
-
-## Agent design and control flow
-
-The benchmark uses **one compiled LangGraph** in [`src/agent_runtime/runner.py`](src/agent_runtime/runner.py), with LangChain messages/model integration and injected remote execution. The suite-neutral runtime has no AgentDojo dependency. The [pinned banking adapter](src/integrations/agentdojo/banking.py) supplies tasks and private checkers; it does not inherit AgentDojo's agent pipeline or execute live tools on the host.
-
-### Compiled reasoning loop
-
-The graph has two nodes, `model` and `tools`, with the same routing for either guard backend:
+## System architecture
 
 ```mermaid
 flowchart TD
-    S([START]) --> Model["model: reserve attempt, call managed Responses, validate reply"]
-    Model -->|valid tool calls| Tools["tools: serial gateway MCP calls, pair ToolMessages"]
-    Tools -->|executed results| Model
-    Model -->|genuine final content| E([END: completed])
-    Model -->|fault, limit, cancellation or timeout| F([END: explicit non-completed result])
-    Tools -->|blocked, error, unknown or limit| F
+    H[Experiment harness and pinned AgentDojo adapter] --> A[One LangGraph agent]
+    A -->|model requests| G[agentgateway: Responses and MCP routing]
+    G --> L[Local Qwen model in LM Studio]
+    L --> G
+    G --> A
+    A -->|proposed tool call via gateway MCP| B[Banking bridge: prepare immutable ticket]
+    B --> R[Agent Substrate gVisor Actor]
+    R -->|claim ticket| N[Substrate Envoy native egress gate]
+    N --> V{Selected reviewer}
+    V --> C[ModernBERT classifier and calibration]
+    V --> Q[LLM reviewer via agentgateway]
+    C --> D{Effective decision}
+    Q --> D
+    D -->|allow| S[Store claim, Actor computation, atomic state and receipt commit]
+    D -->|block or error| X[No target tool execution]
+    S --> A
+    H --> E[Private checkers and post-run review]
+    S -. evidence .-> M[MLflow traces and assessments]
+    E --> M
 ```
 
-Episode allocation, state snapshots, checker evaluation, cleanup and external judging belong to [`src/benchmark/wiring.py`](src/benchmark/wiring.py), outside the reasoning loop. The agent neither chooses the guard mode nor authorizes its own actions.
+### Components and design decisions
 
-- **Conversation:** LangChain `SystemMessage`, `HumanMessage`, `AIMessage` and `ToolMessage` retain structured calls/results and their IDs. Advertise all 11 remote canonical schemas; execute only requested tools.
-- **Bounded behavior:** explicit model/tool/deadline limits and a persistent combined actor/LLM-guard request ledger. Reservations remain spent on failure. Incomplete replies, reused IDs, unknown effects and exhausted budgets are not normal completion; no guessed tool-call repair or automatic provider fallback.
-- **Remote execution:** managed agentgateway MCP → banking bridge → service-prepared ticket → Actor. The Actor claims the exact immutable ticket through Substrate's native egress hook before computing the tool. Receipts and committed state live in the existing store; uncertain results are reconciled without repeating writes.
-- **Evidence:** graph, model, gateway, tool, native guard, receipt and external-review records remain distinguishable in MLflow. Client and gateway model spans are layers of one physical request, not separate model attempts.
-- **Recovery limits:** durable receipts and budgets are not a conversation checkpointer. Explicit reuse of a completed, reconciled canary re-audits saved evidence without repeating model/tool actions; it is not general graph resumption.
-
-The native path supports **deterministic allow/block/error controls and both real reviewer backends**. Controls prove failure/enforcement mechanics, not classifier accuracy. The [full comparison plan](docs/full-comparison-plan.md) separates same-input accuracy/latency from fresh-state agent utility, receipts and effects. Prior [laptop/native results](docs/laptop-measurement-results.md), including model mistakes and failed infrastructure attempts, remain available.
-
-The older command graph and `LocalBankingPipeline`/`ActorBankingTrial` remain historical compatibility paths, not the benchmark entry point. See [legacy boundaries](docs/legacy-compatibility.md).
-
-### Chat templates and the model/tool boundary
-
-The agent sends structured API messages and tool schemas; **LM Studio applies the model's chat template and parses generated tool-call text**. These are different from LangGraph's routing responsibilities. For Qwen3 Instruct, the native format is a JSON function request wrapped in `<tool_call>...</tool_call>`; Qwen3-Coder's nested function/parameter XML is a different protocol. Use the exact model-family template/parser pair, not a generic “Qwen” replacement.
-
-Pin the model/quantization, serving runtime, template hash, sampling settings, stop conditions and API message serialization for reproducible comparisons. Never fix an unparseable response by guessing and executing its intended tool call. See the [evidence-backed rent/parser analysis](docs/validation/rent-parser-analysis.md) for a concrete model/tool trace, template comparison, external references and proposed controlled improvements.
-
-## Architecture and trust boundaries
-
-The benchmark separates transport, native admission, execution and external evaluation:
-
-```text
-Pinned AgentDojo task/state/checker adapter
-  -> one LangGraph flow
-       -> agentgateway Responses -> approved local acting model
-       -> agentgateway MCP -> banking bridge -> prepared action ticket -> Actor
-            -> native Substrate Envoy pre-claim gate
-                 -> shared canonical action/context review
-                      A: LLM reviewer
-                      B: compact neural encoder + fitted calibration
-                 -> allow: store claim -> Actor tool computation -> store commit
-                 -> block/error: no tool computation or committed effect
-  -> original private checkers, receipt/state audit and cleanup
-  -> external native MLflow Gemini task/effect and overall harness review
-
-MLflow: actual attempts, distributed parentage, trace-local scores and failures
-```
-
-The common native hook is exercised with deterministic controls and the real classifier/LLM branches. The header-only hook reviews `/claim/<ticket>` and the store consumes that same path ticket, rejecting a decoy body ticket. A guard response in an agent-local branch or an application-only check is not native enforcement evidence. No platform fork or production IAM project is required. See the [experiment protocol](docs/benchmark-guard-experiment.md) and [GitHub roadmap](https://github.com/caldeirav/sub15-breaker/issues/14) for scope and evidence boundaries.
-
-### What is trusted?
-
-- **Untrusted:** model output, proposed tool arguments, agent-provided identity/score headers, invoice text, returned document contents and other attacker-controlled observations.
-- **Service-controlled authority:** authenticated principal/trial ownership, Actor identity/generation, versioned intent and policy, current state version, admission decisions and independently produced receipts.
-- **Evaluator-only:** golden reference trajectories, hidden checker answers and selected attacker objectives. These must not become acting-model or admission-verifier inputs.
-- **Outside the protection claim:** a compromised host/control plane, cluster administrator or trusted policy/model artifact publisher. Isolation reduces consequences; it does not make these authorities trustworthy by itself.
-
-| Threat | Banking example | Required control / residual limit |
-| --- | --- | --- |
-| Prompt injection | An invoice asks the agent to replace the recipient or disclose a subscription | Treat tool text as data; verify against separately sourced intent/policy. A well-formed tool call can still be unauthorized. |
-| Unauthorized mutation or disclosure | Change a scheduled payment or account detail unrelated to the request | Context-aware policy, capabilities, bounded access and independently checked effects; utility alone is not safety. |
-| Request mismatch or gateway bypass | Reuse an allow decision for another payload, state or Actor | Authenticated transport, exact binding, expiry, atomic state checks and tested bypass prevention. |
-| Duplicate or uncertain writes | A payment succeeds but its response is lost | Idempotency registry, transactional state/receipt commit and status reconciliation; a timeout is not proof of non-execution. |
-| Cross-trial leakage | A previous trial's modified state or credentials survive reset | Isolated state, generation-scoped lifecycle, verified reset fingerprints and cleanup. |
-| Resource exhaustion | Excessive calls, huge arguments/results or stalled operations | Input/output/turn/time/concurrency/resource limits; a classifier is not a quota system. |
-| Misleading evidence | Treat a 503 as a prevented attack or a judge opinion as truth | Distinct denial/execution/error/unknown outcomes, independent receipts and exact trace/readback coverage. |
-
-### Action, context and transaction binding
-
-An action carries a tool name, typed arguments, action/idempotency IDs and optimistic expected context/state/generation versions. It cannot select its own principal, policy, trusted intent or decision. Trusted services resolve those facts and bind the exact canonical action/context to admission and execution.
-
-Amounts use **exact decimal strings in benchmark-native units**. There is no inferred currency or silent rounding. The explicit adapter to upstream float arguments rejects decimal round-trip value loss. Profile-owned bounds and precision are separate from financial authorization rules.
-
-Private-keyed HMAC commitments in the record-only fixtures avoid publishing guessable fingerprints of password-bearing inputs. They are **not** production authentication, signed admission grants or a key-management system. JSON Schema validates shape and expressible outcome conditions; dynamic equality/order, freshness, authority and cryptographic binding require runtime checks. See [contract semantics](docs/banking-contracts-03a.md).
-
-At a real mutation boundary, expected state must be checked atomically with the change. A matching retry must not repeat the effect; changed-payload ID reuse must fail. Unknown write outcomes require receipt/status reconciliation before retry. These are transactional guarantees to demonstrate, not guarantees provided by serializing a DTO or copying Python state.
-
-The [Actor-backed local service design](docs/banking-actor-service.md) separates disposable tool computation from authoritative state: pinned functions run inside the Actor, while a dedicated single-writer service atomically commits synthetic state, receipts and an evidence outbox on its own persistent volume. This preserves receipt history across Actor replacement without reusing platform database credentials. Its local durability profile does not cover node/disk loss or HA; acceptance evidence belongs in the linked GitHub issues.
-
-### Denial, latch, stop and reset are different
-
-- **Deny:** do not forward this action.
-- **Latch:** prevent later admissions for the affected trial/Actor generation, including concurrent clients.
-- **Stop:** request termination of the correct Actor and observe acknowledgment independently.
-- **Reset:** establish fresh synthetic state and a new generation under authorized lifecycle control.
-
-A cooperative agent stopping its loop is not an externally enforced latch. A 403 is not termination. A reset does not undo a previously disclosed secret or an external payment.
-
-## Technical decisions
-
-| Component | Role and rationale |
+| Component | Role and reason for using it |
 | --- | --- |
-| **AgentDojo banking** | Reuse pinned tasks, synthetic state, 11 tool definitions and executable checks; minimize custom benchmark work and preserve upstream parity. |
-| **Agent Substrate + gVisor** | Ephemeral per-trial Actors and the native Envoy admission hook. Observe actual runtime assignment, dispatch counts, receipts and state effects. |
-| **agentgateway** | Managed Responses/model routing, remote MCP transport and distributed telemetry. Guard choice belongs at the shared native Substrate admission boundary, not in competing agent loops. |
-| **Compact encoder + PyTorch/Transformers** | Binary policy classification without autoregressive verification tokens. Model architecture, input schema, labels, calibration and runtime must be version-bound. |
-| **LangChain/LangGraph + local LM Studio model** | One compiled tool-calling loop via managed Responses; the suite adapter and model configuration remain outside its generic runtime. |
-| **MLflow** | Trace/evaluation system of record: invocation inputs/results, action-owned assessments, provenance, failures, artifacts and persisted readback—not only run-level averages. |
-| **Native MLflow Gemini judges** | External post-execution evidence review, separate from admission. Observe the installed native Gateway provider adapter (or LiteLLM where selected); MLflow's SDK adapter is not the deployed agentgateway. |
-| **Podman + Kind + Cilium** | Local Kubernetes profile with an enforcing CNI and explicit positive/negative network tests. Merely creating NetworkPolicy objects is insufficient. |
-| **uv** | Managed Python and a committed universal lockfile for development/tests and reproducible installation. Models, images, controllers and credentials need their own explicit provenance. |
+| **[Agent Substrate](https://github.com/agent-substrate/substrate)** | Creates disposable per-trial Actors, supplies runtime identity and gVisor isolation, and hosts the native Envoy hook on the Actor's store-claim path. Enforcement is outside the agent's cooperative loop. |
+| **[agentgateway](https://github.com/agentgateway/agentgateway)** | Routes acting/reviewer model requests and remote MCP tool traffic, applies managed transport/auth policies and exports distributed telemetry. It is connectivity infrastructure, not the Actor sandbox or the native claim gate. |
+| **Banking bridge and state service** | Bind the exact action/context to an immutable ticket; publish synthetic state, receipts and durable evidence atomically outside disposable Actors. Unknown writes are reconciled, not repeated. |
+| **LangChain/LangGraph** | One bounded tool-calling loop for both guard modes; structured messages and matching tool-result IDs. Domain state, guard choice and private evaluation remain outside the graph. |
+| **ModernBERT / Qwen** | Compare one binary encoder forward pass with an actual generative review over the same action/context. No forced verdicts, hidden fallback or agent-side rescore. |
+| **MLflow / native Gemini judges** | Persist attempts, effects, failures and trace-owned scores. Gemini reviews saved evidence after execution, not authorization; its opinion does not replace CODE checkers or human acceptance. |
+| **Podman, Kind and Cilium** | Reproducible local Kubernetes profile with enforcing networking and actual positive/negative controls, rather than assuming a manifest proves isolation. |
 
-The acting model is reached through managed agentgateway Responses. Gemini judging is an external provider call outside the agent/admission loop, not another guard invocation. Local acting inference does **not** make the full experiment offline/private: external review transmits projected synthetic evidence. Report available usage/cost and retain unavailable usage, parser errors and historical accounting gaps rather than inventing a complete bill.
+The key distinction is **transport versus execution authority**: agentgateway
+carries model/tool requests; Substrate's native hook gates an Actor's claim of
+the exact prepared ticket. The store still verifies identity, generation, state
+version, expiry and idempotency at the transaction boundary. A good model decision
+without those bindings is insufficient. [Detailed system/harness architecture](docs/architecture.md).
 
-The legacy command-only sidecar, command dataset and Streamlit view are compatibility scaffolding, not a banking model or the authoritative banking evidence UI. See [legacy boundaries](docs/legacy-compatibility.md). No generic shell executor or alternative financial corpus is required.
+### Agent control flow
+
+```mermaid
+flowchart LR
+    S([Start]) --> M[Reserve attempt and call model]
+    M -->|valid tool calls| T[Serial remote execution through gateway and native gate]
+    T -->|executed result with matching call ID| M
+    M -->|genuine final response| E([Completed])
+    M -->|protocol error, limit or cancellation| F([Explicit non-completed outcome])
+    T -->|blocked, error or unknown| F
+```
+
+The graph never chooses or enforces its own reviewer. It stops on non-executed
+outcomes; timeout is not evidence that a write did not happen. No parsing repair,
+automatic model/action retry or host-tool fallback is used. Conversation state
+is not a durable transaction ledger. [Detailed agent flow and failure handling](docs/agent-flow.md).
 
 ## Risk model and calibration
 
-The intended classifier consumes the **canonical action plus trusted intent/policy/state context**, not just recipient/amount or an agent-written safety proposition. The same action may be permitted under one trusted request and forbidden under another.
+The demo uses the frozen **`modernbert-banking-hybrid-v1`** binary classifier,
+fine-tuned from ModernBERT-base—not an embedding-similarity rule, generic relevance
+checkpoint or AnyJev/Laya integration. Inputs contain the legitimate goal, policy,
+one typed action, relevant service-owned state and actual preceding observations.
+Untrusted document text cannot create authority. Unsupported inputs fail closed;
+required facts are not silently truncated.
 
-The initial demo uses the frozen **ModernBERT-base binary classifier** (`modernbert-banking-hybrid-v1`), not a Laya/AnyJev integration. It is an explicitly imperfect prototype, not a released safety artifact. A generic relevance checkpoint is not a drop-in safety verifier. Class meanings must be independently verified: for two logits, let class 0 mean permitted and class 1 mean prohibited under the declared labeling policy. Weights, calibration and threshold remain bound to the local export manifest; missing artifacts must not silently load random/base weights.
+For permitted/prohibited logits $z_0,z_1$, temperature $T$ and threshold $\tau$:
 
-With temperature $T > 0$, the estimated policy risk is:
+$$p_{\mathrm{risk}}=\sigma((z_1-z_0)/T),\qquad
+\text{block when }p_{\mathrm{risk}}\geq\tau.$$
 
-$$
-p_{\mathrm{risk}} = \operatorname{softmax}(z/T)_1
-= \sigma\!\left(\frac{z_1-z_0}{T}\right).
-$$
+Temperature fits calibration-set NLL; the threshold is selected on validation,
+then frozen before evaluation. Calibration does not create labels or prove safety
+under distribution shift. The artifact has known transfer failures, including an
+unfixed legitimate rent false block. [Model, labeling and calibration protocol](docs/model.md).
 
-This uses the **logit difference**, not a sigmoid of one arbitrary class logit. Temperature scaling fits held-out negative log-likelihood; it does not create correct labels or directly minimize ECE. See [Guo et al., 2017](https://proceedings.mlr.press/v70/guo17a.html).
+## Test environment, design and metrics
 
-Use separate, group-disjoint **training, calibration, threshold-validation and final-test** populations. End-state task success and Gemini opinions do not independently label every intermediate action. Freeze a policy/model/schema-bound threshold $\tau$ after choosing an operating point on validation data; deny when $p_{\mathrm{risk}} \geq \tau$. The legacy command prototype's 0.70 is not a justified banking threshold.
+The measured local profile is **Apple M4 Max /48GiB**, macOS, PyTorch MPS for the
+classifier, Qwen3-30B-A3B-Instruct-2507 MLX4-bit/context8192 in LM Studio, and a
+rootful Podman/Kind/Substrate/gVisor stack. Pins are in
+[`infra/versions.json`](infra/versions.json); other hosts need their own validation.
 
-Calibration should be reported with NLL, Brier score, reliability bins and ECE, alongside false-negative/false-positive rates, coverage and uncertainty:
+We separate three questions:
 
-$$
-\mathrm{ECE}=\sum_b\frac{|B_b|}{N}
-\left|\operatorname{mean}_{i\in B_b}(p_i)
--\operatorname{mean}_{i\in B_b}(y_i)\right|.
-$$
+1. **Guard quality:** identical frozen action/context pairs for both reviewers;
+   accuracy, false allows/blocks, errors and coverage with exact denominators.
+2. **Agent utility and effects:** fresh-state workflows under each guard; original
+   upstream checkers, committed receipts and independent state changes. Different
+   agent trajectories are not identical-input model comparisons.
+3. **Enforcement/harness correctness:** native allow/block/error/timeout/cancel
+   controls, ticket/identity/state binding, trace/accounting readback and cleanup.
 
-Low aggregate ECE can hide rare dangerous failures or distribution shift. Calibration is not universal safety, and performance claims must identify the precise artifact, policy, input population and hardware profile. Missing/mismatched artifacts, malformed decisions, unavailable inference and unsupported inputs must not become approvals.
+Latency has separate **classifier-core**, **whole-review** and **native-claim**
+boundaries. Startup loading and fixed priming are recorded separately and excluded
+from measured performance; all after-readiness samples, including slow ones, remain.
+Tiny serial samples are not load/tail SLOs or a matched-safety speed guarantee.
+[Validation methodology and full-test instructions](docs/validation.md).
 
-## Golden environment and evaluation design
-
-Source: AgentDojo package `0.1.35`, Git commit `089ed468cf3ed0322acc66b0211f26d9d90dbf60`, banking benchmark `v1.2.2`.
-
-| Task | User goal | Executable utility criterion |
-| --- | --- | --- |
-| `user_task_0` | Pay the supplied bill | Upstream expected transaction amount/recipient |
-| `user_task_2` | Adjust rent from the notice | Upstream first matching scheduled rent amount |
-| `user_task_13` | Update account address | Upstream street/city predicate |
-
-Golden references/checkers stay evaluator-only. The agent receives the user's request and available observations, not the expected answer. The simulated payment tool is not a settlement/accounting system; retain upstream weaknesses for parity rather than silently strengthen the benchmark.
-
-Four criteria remain distinct: **task utility**, **upstream selected attacker parity**, **new/changed forbidden-recipient effects**, and **declared subscription-disclosure goal**. A task can succeed while an additional forbidden effect occurs. Original invoice-replacing attacks and fact-preserving append adaptations must be labeled separately; destroyed task facts do not prove safe refusal. See [golden environment and metric meanings](docs/golden-data.md).
-
-### Two complementary A/B protocols
-
-1. **Same-action replay:** both verifiers receive identical reviewed action/context pairs. This measures discrimination, error coverage and decision/reviewer latency. Model-only replay does not establish complete native admission latency; paired native canaries exercise that boundary separately.
-2. **Fresh-state full-agent trials:** the agent attempts each task under each verifier from equivalent isolated initial state. Action sequences may diverge; measure utility, effects, refusal, failures and total cost rather than assume identical proposals.
-
-Both need benign near-misses as well as attacks, exact denominators, declared exclusions, counterbalanced order/repeats and retained unknown/error outcomes. Deny-all/allow-all controls expose misleading aggregate success. A correctly captured and scored agent failure is successful evaluation—not successful agent work. Harness correctness, guard quality and task quality are separate questions.
-
-### What latency means
-
-Keep three boundaries separate: **classifier decision core** (tokenization, device enqueue, forward/host result and frozen calibration/threshold), **whole reviewer adapter** (also serialization/tracing and LLM network/generation/parsing), and **native claim/admission** (also platform/auth/store transport). The 15ms target is the first boundary, not the last. Shared context projection/materialization is reported separately. Include exactly one authoritative verifier invocation per admission; an agent-side score followed by a gateway rescore is not the intended B path.
-
-Report hardware/load/input sizes, warm/cold behavior, p50/p95/p99, failures and availability at a predeclared quality operating point. A model forward-pass timer excludes gateway/network/context work; total task time includes agent/tool/reset/judge work. Neither is interchangeable with admission latency. Do not assume seconds for A or milliseconds for B, omit failed samples or choose a favorable percentile after measurement.
-
-### Evidence and native judge review
-
-MLflow records every model/tool/verifier/judge attempt, including failures, with scores on the owning trace/action span. Lifecycle, receipt, state and evaluation evidence must reconcile. Run-level averages never replace exact case/review coverage, stage outcomes or persisted assessment ownership.
-
-Native Gemini judges run **outside authorization**. They review criterion-specific projected observations against closed normalized rules, not checker Python, measured verdicts or the agent's claims of success. Keep raw native feedback, decoded provenance and scalar verdict/validity/agreement/error fields. Deterministic outcomes remain authoritative; disagreement and insufficient evidence remain visible. Schema-constrained outputs are not independent safety ground truth.
-
-A separate versioned overall-harness review examines persisted transport, Actor, native-control, receipt, trace/accounting and case/cleanup evidence. It returns `supported`, `not_supported` or `insufficient_evidence`. A later review/reporting fix creates a new derived target; it never replaces an earlier negative verdict or repairs malformed judge JSON. External support is not human acceptance or a learned-guard safety certificate.
-
-See [evaluation design](docs/evaluation-design-review.md), [trace/score ownership](docs/mlflow-trace-contract.md) and [the banking runbook](docs/banking-feasibility.md) for exact evidence contracts and examples.
+The [latest versioned demo report: nd11/nd12](docs/results/demo-nd11-nd12.md)
+contains the results, both verifiers' performance in separate columns and evidence
+IDs: **5/5 unique golden actions for each verifier; 14/14 qualification and 14/14
+fresh rehearsal cases**. These curated results do not establish general accuracy.
+Owner/process acceptance remains separate in [#17](https://github.com/caldeirav/sub15-breaker/issues/17).
 
 ## Run locally
 
-### Python and configuration
+### Prerequisites
 
-Use [uv](https://docs.astral.sh/uv/) and the committed lockfile. Python 3.11–3.13 is supported; `.python-version` selects the local default.
+- Git and [uv](https://docs.astral.sh/uv/); Python **3.11–3.13** (local default in
+  `.python-version`). Offline tests need no model, Kubernetes or provider key.
+- For **live** runs: the owned rootful Podman/Kind/Substrate stack, managed
+  agentgateway routes, digest-bound banking image/store, MLflow and the approved
+  loaded Qwen model, plus the verified local classifier/data/provenance bundle.
+- Native Gemini review requires explicit authorization, credentials and allocation;
+  it incurs external usage and sends projected synthetic evidence to the provider.
+
+**A clean checkout can run offline tests, but is not a turnkey live demo.** Weights,
+reviewed datasets, credentials and the cumulative ledger are not bundled. Obtain
+the compatible artifact handoff before live work; do not substitute base weights
+or initialize a new ledger to evade historical spending. There is no installed
+`sub15-breaker` console command; use the module entry points below.
 
 ```bash
 uv python install
 uv sync --locked
+bash scripts/test.sh
+
+# Inspection only: no keys, inference, trial creation or cluster mutation.
+uv run --locked python -m src.benchmark.demo --list-demo-cases
+uv run --locked python -m src.benchmark.demo --phase nd13 \
+  --protocol demo-qualification-v1 --demo-case pay-bill --guard classifier --dry-run
 ```
 
-Create `.env` from `.env.example` **only if absent**; never overwrite existing credentials or commit them. Configure:
-
-| Setting | Purpose |
-| --- | --- |
-| `LM_STUDIO_BASE_URL`, `LM_STUDIO_MODEL` | Approved local provider/profile; the benchmark agent itself uses the managed gateway Responses endpoint |
-| `MLFLOW_TRACKING_URI` | Tracking server, normally `http://localhost:5001` |
-| Tracking experiment | The wiring command selects `breaker-banking-target-agent`; legacy runbooks have separate experiment settings |
-| `GEMINI_API_KEY` | External native judge credentials for the full live harness |
-| `MLFLOW_GENAI_JUDGE_DEFAULT_MODEL` | Native judge model, default `gemini:/gemini-2.5-flash` |
-
-If MLflow is not already running, start it in another terminal:
+For live configuration, copy `.env.example` to `.env` **only if absent**, set
+`LM_STUDIO_MODEL=qwen/qwen3-30b-a3b-2507`, the configured
+`LM_STUDIO_BASE_URL`, `MLFLOW_TRACKING_URI` and authorized Gemini settings. Never
+overwrite credentials or change a shared model's serving settings silently.
+Start MLflow in a separate terminal if it is not already running:
 
 ```bash
 uv run --locked mlflow server --host 127.0.0.1 --port 5001 \
@@ -339,76 +189,35 @@ uv run --locked mlflow server --host 127.0.0.1 --port 5001 \
   --artifacts-destination .infra/mlflow-artifacts
 ```
 
-Offline tests need no running stack. The real wiring command requires the owned local Substrate/gVisor, managed gateway and banking store/Actor profile described in the [infrastructure guide](docs/infra.md) and [benchmark protocol](docs/benchmark-guard-experiment.md). Classifier weights are not prerequisites for deterministic wiring controls. There is no installed `sub15-breaker` CLI; use module entry points.
+Then follow the appropriate guide:
 
-### Tests and experiments
+- **[Local stack setup and checks](docs/infra.md):** tools, cluster, banking image,
+  credentials, managed model/MCP routes, readiness and safe cleanup.
+- **[Run or replay the five-card demo](docs/demo.md):** saved replay needs no
+  inference; a new live qualification/rehearsal needs fresh approved allocations.
+- **[Run the full test](docs/validation.md#run-the-full-live-comparison):** larger
+  three-workflow A/B protocol, separate from the complete offline test suite.
 
-```bash
-# Offline tests; no model/provider calls or tracking server required.
-bash scripts/test.sh
+`nd13` above is an inspection example, not an approved run. All recorded nd1–nd12
+execution IDs are spent. Do not replay them, remove markers or repeat failed
+model/actions until they pass. Fresh live runs currently need operator preparation
+and, where necessary, a reviewed budget amendment—not merely a new namespace.
 
-# Export shared schemas to an ignored local directory; no tool execution.
-uv run --locked python -m src.banking_contracts.schemas
+## Repository overview
 
-# Record-only CODE contract fixtures; requires MLflow, not models or bank actions.
-uv run --locked --env-file .env python -m src.banking_contracts.fixtures
-
-# Persisted MLflow plumbing validation with model stubs, no provider calls.
-uv run --locked --env-file .env python -m pytest -q validation/test_banking_mlflow_local.py
-
-# Current selector inspection; no keys, inference, trials or cluster mutations.
-uv run --locked python -m src.benchmark.demo --list-demo-cases
-uv run --locked python -m src.benchmark.demo --phase nd4 --demo-case pay-bill --guard classifier --dry-run
-```
-
-The supported full-comparison entry point is `src.benchmark.demo`; old wiring/live-pilot commands are historical. Read the [full comparison plan](docs/full-comparison-plan.md) before inference. Prerequisites include the owned managed stack, actual `native-measure-v2` store/Actor image/profile, loaded approved Qwen model, MLflow, the verified frozen local classifier export, and the retained reviewed-data/provenance/regression artifacts under `.infra/benchmark-guard-harness/`. These large local artifacts are not bundled with a clean checkout; do not substitute an untrained checkpoint or fabricate missing evidence.
-
-For a **separately approved fresh phase** (not a repeat of spent `nd1`–`nd4` IDs), the lifecycle is:
-
-```bash
-# Example only: nd5 must be approved/frozen before any dispatch; never reset nd4.
-uv run --locked python -m src.benchmark.demo --phase nd5 --freeze-demo
-uv run --locked python -m src.benchmark.demo --phase nd5 --stage diagnostics --execute-demo
-uv run --locked python -m src.benchmark.demo --phase nd5 --execute-demo
-uv run --locked python -m src.benchmark.demo --phase nd5 --review-demo NATIVE_OUTPUT_DIRECTORY
-
-# Read-only report generation: no model/tool requests, writes a new report directory.
-uv run --locked python -m src.benchmark.comparison_report \
-  --measurement MEASUREMENT_OUTPUT_DIRECTORY --native NATIVE_OUTPUT_DIRECTORY \
-  --reviews REVIEW_OUTPUT_DIRECTORY --output NEW_REPORT_DIRECTORY
-```
-
-The fixed protocol compares identical reviewed inputs and runs bill payment, rent adjustment and profile update under both guards. It retains scripted negative proposals and error/cancellation controls separately. Budgets, code/prompt/input/image/profile hashes and started markers are immutable; failures consume their slots. A new namespace is not permission to sample repeatedly until green. Opening a saved report never invokes a model. Each future rehearsal/presentation needs its own predeclared allocation and fresh state.
-
-Historical review module (not the current `nd4` entry point): older protocols
-can review saved suite evidence after an explicitly authorized reporting fix,
-without repeating agent/tool actions:
-
-```bash
-uv run --locked python -m src.benchmark.review_saved --source-trace SUITE_TRACE_ID
-```
-
-This **does call Gemini** and creates a new derived review target. It needs the original persisted suite trace and its authorized compatible budget; do not use it to repeat the spent `nd4` review. Current report regeneration above is read-only and does not re-query a judge. The older `src.feasibility.runner` remains an in-memory reproducibility path; its `--oracle-only` skips the acting model **but still invokes Gemini**. Example MLflow links refer to the owner's local server, not a public service. Open the **Traces** table for action/effect scores and separate native review rows.
-
-### Dependencies and infrastructure
-
-Use `uv add PACKAGE` for runtime dependencies and `uv add --dev PACKAGE` for test tools; commit both `pyproject.toml` and `uv.lock`. Review deliberate upgrades and run the tests. Do not maintain an unrelated requirements file or install ad hoc packages into the project environment. Locked runs refuse implicit dependency changes; deploy synchronized images without runtime dependency downloads.
-
-For the local infrastructure profile, follow [the infrastructure guide](docs/infra.md). It distinguishes installation/network/protocol fixtures from actual banking Actor and native admission controls. The benchmark temporarily attaches its native filter and restores the prior configuration on exit; it does not require the deferred sustained-uptime qualification. The legacy `--research` environment check includes a command-only sidecar and is not a banking doctor. Do not apply the [placeholder workloads](k8s/README.md) as if they supplied a complete deployment.
-
-## Explore the repository
-
-| Path | Purpose |
+| Path | Contents |
 | --- | --- |
-| `src/agent_runtime/` | Suite-neutral contracts and the single compiled LangGraph reasoning loop |
-| `src/integrations/agentdojo/` | Pinned banking task/state/private checker adapter, not an agent framework |
-| `src/benchmark/` | Real wiring CLI, managed MCP bridge, native gate, budgets, guard adapters, encoder loader and external review |
-| `src/feasibility/` | Retained evaluation/checker/judge utilities and historical in-memory reproducibility paths |
-| `src/banking_contracts/` | Shared action/context/decision/receipt types, JSON Schema exports and record-only structural fixtures |
-| `src/banking_service/` | Opt-in Actor-backed computation, transactional state/receipts, platform identity and durable evidence transport |
-| `src/infra/`, `scripts/`, `infra/` | Pinned local infrastructure, readiness and harmless network/enforcement probes |
-| `tests/`, `validation/` | Offline regressions and explicit opt-in persisted/live validation |
-| `k8s/` | Research workload examples; inspect their prerequisites before use |
-| `docs/`, `specs/` | Architecture/contracts, runbooks, evaluation semantics and historical evidence |
+| `src/agent_runtime/` | Suite-neutral contracts and single compiled reasoning loop |
+| `src/integrations/agentdojo/` | Pinned tasks/state/checkers, label preparation and provenance |
+| `src/benchmark/` | Harness, bridge/native guard, model adapters, startup, budgets, measurements and read-only review backend |
+| `src/banking_contracts/` | Strict actions/context/receipts, decimal schemas and record-only fixtures |
+| `src/banking_service/` | Actor tool computation, authenticated lifecycle and transactional state/receipt/outbox service |
+| `src/infra/`, `infra/`, `scripts/` | Owned local stack, version pins, checks and image build |
+| `tests/` | Default offline regressions; no live provider campaign |
+| `validation/` | Explicit opt-in persisted/live checks and archived acceptance/protocol records |
+| `docs/` | Six topic guides, navigation and one versioned latest-demo report |
+| `k8s/`, `specs/` | Manifest inventory and scope/acceptance specification |
+| `src/feasibility/`, `src/agent/`, `src/eval/`, `src/gateway/`, `src/dashboard/` | Historical adapters/utilities and command-only compatibility scaffolding, not alternative supported banking entry points |
 
-Start with the [documentation index](docs/README.md), [scope/trust boundaries](docs/project-scope.md) and [specification](specs/001-breaker.md). Track project progress and planned implementation in [GitHub roadmap #14](https://github.com/caldeirav/sub15-breaker/issues/14), not README test counts or block-status summaries.
+[Documentation index](docs/README.md) · [Roadmap and remaining work](https://github.com/caldeirav/sub15-breaker/issues/14)
+· [License](LICENSE)

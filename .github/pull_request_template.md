@@ -2,7 +2,7 @@
 
 Linked issue(s):
 Validation block / evidence:
-Current banking scope and golden environment: `docs/project-scope.md`, `docs/golden-data.md`.
+Current scope/architecture and golden environment: `docs/architecture.md`, `docs/validation.md`.
 
 ## Acceptance gates
 
@@ -14,7 +14,7 @@ Current banking scope and golden environment: `docs/project-scope.md`, `docs/gol
 - [ ] The publication guard passes for **this block's own evidence record**. Do not reuse accepted block-01/block-02 sign-off for block 03a or later features.
 - [ ] No kubeconfigs, secrets, model weights, or sensitive raw traces are included.
 - [ ] Issues are marked fixed only if all their acceptance criteria are satisfied.
-- [ ] Every applicable model/tool/verifier/judge attempt is traceable in MLflow, including failures; per-trace scalar score columns and span/action ownership pass persisted readback (banking contract: `docs/mlflow-trace-contract.md`).
+- [ ] Every applicable model/tool/verifier/judge attempt is traceable in MLflow, including failures; per-trace scalar score columns and span/action ownership pass persisted readback (`docs/validation.md#trace-and-score-ownership`).
 - [ ] Evaluation asserts exact expected case/criterion rows and zero hidden scorer errors before aggregate means; historical verdicts/failed runs and derived-audit provenance remain intact.
 
 ## Results and remaining limitations

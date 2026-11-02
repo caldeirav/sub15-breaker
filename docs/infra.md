@@ -1,289 +1,253 @@
-# Local infrastructure and validation
+# Local environment and operation
 
-This is block 01 of the [implementation roadmap](https://github.com/caldeirav/sub15-breaker/issues/14), accepted and merged in PR #18. It establishes a local control plane and **non-executing** network/gateway fixtures. It does not implement the banking Actor service/reset, risk verifier or Actor stop. The accepted [banking harness](banking-feasibility.md) runs independently in memory; no cluster setup is required to use its current golden tasks.
+[Quick start](../README.md#run-locally) · [Architecture](architecture.md)
+· [Demo](demo.md) · [Full validation](validation.md)
 
-**Banking scope update:** the [current target](project-scope.md) reuses simulated banking tools rather than building a generic shell executor. This foundation remains valid infrastructure evidence, but it does not deploy a banking Actor service, transactional state/reset or a banking gateway verifier. The [local pilot](banking-feasibility.md) bypasses that distributed boundary by design and is not infrastructure acceptance. Follow the revised [block dependencies](implementation-plan.md) before enabling real workloads; no live bank APIs or payment credentials are needed.
+## Prerequisites and supported profile
 
-The existing `check_env.sh --research` readiness profile still includes the **legacy command-only sidecar**; it is not a banking-harness doctor. Do not start that sidecar, set shell reset URLs or deploy `k8s/` placeholders just to run the banking harness. Workload migration has separate gates; [the manifest inventory](../k8s/README.md) identifies what is illustrative rather than deployable.
+Run commands from the repository root. Offline development requires Git, uv and
+Python3.11–3.13. The live measured profile is macOS/Apple Silicon, rootful Podman
+with cgroupv2, a dedicated single-node Kind cluster and gVisor Actors. Native-host
+MPS inference and the Linux VM are different execution environments; do not
+assume MPS exists in cluster containers. Other hosts/backends need qualification.
 
-## Supported profile and trust boundaries
+Allow at least8GiB VM memory (16+ recommended), several cores and substantial disk
+for images/toolchains; the measured host has48GiB unified memory. Install Podman
+and uv separately. Review shared VM/connection changes with the operator—setup
+does not authorize replacing a machine, upgrading global helpers or deleting data.
 
-The initial validation environment is macOS/Apple Silicon, a rootful Podman machine with cgroup v2, and a dedicated single-node Kind cluster. The scripts support downloading macOS/Linux arm64/amd64 binaries, but other host combinations need their own live validation. Allow at least 8 GiB VM RAM (16+ recommended), several CPU cores, and substantial free disk for cluster/control-plane images and Go caches. No KVM is needed for the intended gVisor path; microVMs and native-host MPS are not part of this profile.
+Authoritative pins: [`infra/versions.json`](../infra/versions.json), compatibility/
+review exceptions: [`infra/version-policy.json`](../infra/version-policy.json).
 
-Pins are in [`infra/versions.json`](../infra/versions.json):
-
-| Component | Pin |
+| Component | Reviewed pin |
 | --- | --- |
-| Podman host / guest | 5.8.9, same source commit; retained existing rootful machine |
-| krunkit / guest OS | 1.3.2 / Fedora CoreOS44.20260928.3.2, guest image pinned by digest |
-| Kind / Kubernetes | v0.33.0 / v1.37.0, node image pinned by digest |
-| kubectl / Helm / Go | v1.37.0 / v3.22.1 / go1.27.3 |
-| Cilium | 1.20.4, kube-proxy retained, Kubernetes IPAM |
-| Gateway API / agentgateway | v1.7.0 / v1.7.0 |
-| Substrate / kubectl-ate | v1.0.0-rc.1, checkout commit pinned |
-| Probe image | Python 3.12 slim Bookworm, multi-architecture digest pinned |
-| LM Studio / mapped MLX engine | 0.4.28+2 / 1.13.1; approved local Instruct model, loaded context8192 |
+| Podman host/guest; krunkit |5.8.9;1.3.2 |
+| Guest OS |Fedora CoreOS44.20260928.3.2, digest-bound |
+| Kind; Kubernetes |0.33.0;1.37.0, digest-bound node |
+| kubectl; Helm; Go |1.37.0;3.22.1;1.27.3 |
+| Cilium; Gateway API; agentgateway |1.20.4;1.7.0;1.7.0 |
+| Substrate / kubectl-ate |1.0.0-rc.1, checkout `f86fde9dfb5424c8d16f613de80469bdbef06541` |
+| LM Studio; MLX engine |0.4.28+2;1.13.1 |
+| Acting/reviewer model |Qwen3-30B-A3B-Instruct-2507 MLX4-bit, identifier `qwen/qwen3-30b-a3b-2507`, loaded context8192 |
 
-The Kind configuration enables ClusterTrustBundle, ClusterTrustBundleProjection, PodCertificateRequest, and the certificates v1beta1 API required by this Substrate release. It disables the default CNI so Cilium can enforce NetworkPolicy. **Kind must not wait for NodeReady before Cilium installation**: nodes need the CNI to become ready. The script waits after installation instead.
-
-### Version freshness and actual runtime selection
-
-`infra/versions.json` is a reproducibility pin, not proof of freshness or of the
-running component. `infra/version-policy.json` records reviewed compatibility
-lines, review deadlines and explicit temporary exceptions. Check current release
-metadata without installing anything:
+Pins describe a tested baseline, not latest-release recommendations or proof of
+what is currently running. Check freshness without installing/upgrading:
 
 ```bash
 uv run --locked python -m src.infra.releases
 ```
 
-The scheduled **Infrastructure version freshness** workflow performs the same
-read-only check. New versions, expired exceptions, overdue manual release checks
-and unreachable release metadata fail the relevant check; nothing is upgraded
-automatically. A passing freshness check does not certify a running stack or
-authorize an upgrade. Retaining a supported major/minor is deliberate: do not
-silently jump to Helm4, a Kubernetes prerelease or a new Podman major to get a
-larger version number. Host/VM state, image digests and end-to-end capabilities
-must still be observed and tested after changes.
+Expired exceptions, drift or inaccessible metadata fail the relevant check. A
+passing release check is not runtime/availability acceptance. On macOS the actual
+loaded krunkit helper is checked separately; an unrelated PATH binary is not proof.
+The preflight rejects known-risk helpers below1.3.1. Do not automatically restart
+a disappearing VM and call recovery a stability pass.
 
-For the Kubernetes profile, the gateway runtime is the controller-managed
-dataplane container, **not** a standalone `agentgateway` executable found on the
-host PATH. Installing a controller does not create model or MCP backends. Check
-the selected dataplane's `/app/agentgateway --version`, serving image digest,
-XDS readiness and current route/backend/policy conditions together.
-
-On macOS/libkrun, Podman and the hypervisor helper have separate versions. The
-preflight now requires an observed **krunkit >=1.3.1** because older helpers have a
-known reboot/control-API issue (Podman #29084 / fix #29101). It checks the running
-helper path where available, not an unrelated binary's version. This minimum is
-only a prerequisite: it is not proof of VM stability. Do not repeatedly restart a
-disappearing VM and call the recovery accepted; retain guest boot/shutdown logs
-and diagnose the event. No provider swap, VM recreation or shared helper upgrade
-is automatic.
-
-The [target-stack review](validation/target-stack-review-2026-11-01.md) records the
-observed reboot, corrected gateway diagnosis and remaining integration gaps.
-Current remediation and the gate before the architecture sprint are owned by
-[issue #38](https://github.com/caldeirav/sub15-breaker/issues/38).
-
-## Qualify the managed model/tool infrastructure
-
-The owner has deferred the two-hour reliability window to
-[#39](https://github.com/caldeirav/sub15-breaker/issues/39). The strict full
-workflow below remains available and has not been relabeled as passed. It is
-not the critical path for the next functional harness slice. That slice must
-still check current component identity/configuration, auth, gateway protocol,
-budgets and persisted telemetry. Real model serving is not yet proved on this
-path; prioritise a bounded canary on the new harness rather than duplicating a
-standalone model campaign. See the [runtime/harness boundaries](agent-harness-architecture.md).
-
-These commands target the **existing** Kubernetes gateway and owned cluster.
-They do not install a standalone gateway or enable an unrestricted executor.
-The gateway uses port8080 for the authenticated local-model Responses endpoint
-and port8081 for authenticated, non-executing protocol fixtures. Both listeners
-use the same managed dataplane. Fixtures are not banking tools.
-
-```bash
-# Scope-checked token renewal; no image build, state reset or key replacement.
-uv run --locked python -m src.banking_service.deploy --refresh-credentials
-
-# Configure and exercise the managed gateway, local model metadata, MCP and OTLP.
-# Uses deterministic recording fixtures, not model generation or banking tools.
-uv run --locked --env-file .env python -m src.infra.target_stack --configure
-
-# Observe the existing provider for two hours. Use a new evidence directory.
-# No automatic restart, provider replacement or inference is performed.
-caffeinate -i uv run --locked --env-file .env python -m src.infra.stability \
-  --directory .infra/target-stack/provider-window
-
-# Actual gVisor controls, including all11 tools, resets, crash/reconciliation,
-# store restart and durable evidence readback; no model or paid judge calls.
-uv run --locked --env-file .env python -m src.banking_service.runtime_controls
-```
-
-The read-only stability monitor may overlap normal fixture/runtime checks. A
-failed sample, changed guest boot or node identity, host sleep/sampling gap, or
-host/guest version mismatch fails the window. Short diagnostic windows cannot
-satisfy the two-hour criterion. `caffeinate` prevents idle sleep only for this
-command; it does not change global power settings.
-
-Kubernetes AI backends need **two explicit protocol settings**:
-`policies.ai.routes["/v1/responses"] = "Responses"` selects the client format,
-while `ai.provider.custom.formats = [Completions]` selects the upstream format.
-Declaring only a Completions provider does not change the default Completions
-frontend parser. Retry attempts are explicitly zero; no other provider is a
-fallback. Model-side tokenization/chat-template application remains in LM
-Studio, not the gateway.
-
-The current MCP revision2026-07-28 is sessionless. It uses `server/discover`,
-namespaced per-request `_meta`, and `MCP-Protocol-Version`, `MCP-Method` and,
-where applicable, `MCP-Name` headers. Do not label an old `initialize` handshake
-as a2026 flow. The protocol matrix tests2026 sessionless calls and a separate,
-explicit2025-11-25 compatibility path, including session cleanup where used.
-It also checks signature/audience/subject enforcement and direct-backend denial.
-
-Gateway spans export directly through **OTLP/HTTP `/v1/traces`** to the configured
-local MLflow server with a server-controlled experiment header. Application and
-gateway traces use `breaker-banking-target-agent`; infrastructure-only runs are
-tagged and do not supply task utility scores. The matrix verifies persisted
-parentage, CODE feedback ownership and absence of actual probe credentials and
-sensitive marker values. Public tool-schema declarations remain visible. The
-upstream Substrate collector's Jaeger/debug pipeline is not silently presented
-as the MLflow export path or modified to dump application prompts.
-
-Only after the complete provider window and persisted protocol/privacy proof
-may the explicitly authorized local serving probe run:
-
-```bash
-uv run --locked --env-file .env python -m src.infra.serving_probe \
-  --execute-authorized-probes --stability-directory .infra/target-stack/provider-window
-```
-
-This reserves **five of the eight compatibility requests**, including two
-expected authentication denials and three generations (text, canonical function
-call, final text after an explicitly synthetic tool result). It executes no
-banking tool and is not a task-utility trial. All reservations, raw outcomes,
-failures and unknowns persist under the separate sprint ledger; none are refunded
-or replaced. The one-campaign marker prevents accidental resampling. Never
-delete it or the budget files to obtain preferred results. The nine final agent
-trials retain their separate72-request cap. No Gemini or paid fallback is used.
-
-Finally bind current infrastructure to the actual Actor run and all persisted
-proofs, then use the no-inference doctor for independent inspection:
-
-```bash
-uv run --locked --env-file .env python -m src.infra.qualification \
-  --stability-directory .infra/target-stack/provider-window \
-  --runtime-controls-run ACTUAL_POST_UPDATE_RUNTIME_RUN_ID
-bash scripts/check_env.sh --cluster breaker-substrate --target-stack
-```
-
-The doctor fails on absent, stale, partial or changed qualification. It does not
-generate a new model response or infer readiness from health/model listings.
-Operator bootstrap credentials remain local; workload credentials are scoped,
-short-lived and excluded from argv and public traces. Neither a passing doctor
-nor requirements/update authorization is a passing human-test attestation.
-
-This qualification does not implement the LangGraph banking graph or canonical
-banking MCP application. Those are application sprint work on the tested
-infrastructure. It also does not approve production transport/HA, financial
-policy, a trained risk model or a universal agent-completion guarantee.
-
-Infrastructure installers necessarily create privileged Kubernetes/Kind components such as Cilium and Substrate's node agent. Those trusted infrastructure processes are not agent sandboxes. The benign probe workloads run nonroot with read-only root filesystems, dropped capabilities, bounded resources, and no ambient Kubernetes service-account token. The gateway additionally uses its chart's explicitly scoped XDS token projection. No arbitrary shell executor is deployed by setup.
-
-## Install tools and start Podman
-
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/), Podman, git, and curl first. On macOS, install Podman using its official installer or your package manager, then initialize/start a machine if needed:
-
-```bash
-podman machine list
-# Only if no machine exists:
-podman machine init --cpus 8 --memory 16384 --disk-size 100
-# If the machine is stopped:
-podman machine start
-podman info
-```
-
-The validated profile uses a rootful connection. If yours is rootless, explicitly stop that machine, use `podman machine set --rootful MACHINE_NAME`, and start it again. This changes your machine's default connection, so review the effect on other workloads; the project scripts do not make that host-wide change automatically. A stopped or unreachable provider fails preflight without deleting anything.
+## 1. Install dependencies and project tools
 
 ```bash
 uv python install
 uv sync --locked
-bash scripts/install_tools.sh --with-go
-bash scripts/check_env.sh
+podman machine list
 ```
 
-The installer downloads pinned Kind, kubectl, Helm, and kubectl-ate binaries into ignored `.tools/bin`, checking upstream SHA-256 files before installation. `--with-go` also installs the exact upstream Go toolchain used by Substrate's installer. These are system/Go tools, not Python dependencies; all project Python dependencies still use uv. Release checksums are downloaded over HTTPS from upstream, not independently signed attestations. Tool installation is local, not a replacement of your system binaries or shell profile.
-
-Scripts prepend `.tools/bin`. For interactive commands:
+Only if no suitable machine exists, explicitly provision one:
 
 ```bash
+podman machine init --cpus 8 --memory 16384 --disk-size 100
+podman machine start
+```
+
+If an existing machine is stopped, start only the intended machine. The supported
+connection must be rootful; changing that mode requires an operator-approved stop,
+`podman machine set --rootful MACHINE_NAME` and restart, accounting for other
+workloads. Do not make this change blindly on an active shared machine.
+
+```bash
+podman info
+bash scripts/install_tools.sh --with-go
+bash scripts/check_env.sh
 export PATH="$PWD/.tools/bin:$PATH"
 ```
 
-## Create or repair the dedicated cluster
+Tools download into `.tools/`, with upstream HTTPS checksums and pinned source;
+they do not replace system binaries/shell profiles. Python dependencies remain in
+`pyproject.toml`/`uv.lock`; use uv, not ad hoc pip/requirements files.
+
+## 2. Create/verify the owned stack
 
 ```bash
 bash scripts/setup_infra.sh
-```
-
-Setup creates only `breaker-substrate`, using ignored `.infra/clusters/breaker-substrate/kubeconfig`, installs Cilium, Gateway API and agentgateway, then installs Substrate from the pinned release checkout using prebuilt release images. It checks the checkout commit and rejects tracked modifications, untracked files, and ignored artifacts before executing installer code. Go caches stay outside that checkout. No local image registry is needed; in particular, port 5001 remains available for MLflow. The upstream installer also records its configuration in the user's normal ate-setup cache; treat those files as local operator artifacts, not version-controlled evidence.
-
-The upstream Substrate Kind installer invokes `docker info`. A **scoped** `scripts/libexec/docker` adapter forwards that command to Podman only within the installer's environment. No global Docker alias, socket, or executable is replaced. Prebuilt-image installation avoids Docker buildx/ko builds.
-
-Substrate's release installer supplies PostgreSQL, RustFS snapshot storage, certificate controller, API server, router/egress, identity service, and atelet. Credential injection is disabled. Its ingress allowlist initially admits only the local `atenet-client` identity. The default `ate-client` bootstrap identity used by kubectl-ate is a **global owner of this disposable local install**, not a production authorization setup. Do not grant untrusted workloads Kubernetes token-minting/exec privileges or reuse this install as a shared platform. The Substrate router currently uses its default Envoy dataplane; the separate agentgateway controller is for the breaker HTTP authorization tests. Installing that controller does not automatically put it in front of every Actor.
-
-Setup is idempotent for the same owned node configuration. Ownership is bound to a hashed Podman connection identity and immutable node-container IDs, not merely a retained local name. A changed provider or same-named replacement is rejected before adoption, kubeconfig refresh, or deletion. A change to the node image/Kind configuration requires explicit destruction/recreation. Existing unrelated clusters are not touched. `kagenti` was removed once during this environment repair with explicit user authorization; deleting it is **not** part of the reusable setup.
-
-Creation never automatically deletes anything on failure. If Kind creation is interrupted before the ownership identity is recorded, inspect the partial node containers and explicitly remove only the intended incomplete cluster before retrying; setup refuses to silently claim it. A normal controller/install failure after ownership is recorded can be resumed by phase. Keep the marker and private kubeconfig together; do not edit an identity mismatch away to force adoption.
-
-For staged diagnosis:
-
-```bash
-bash scripts/setup_infra.sh cluster
-bash scripts/setup_infra.sh controllers
-bash scripts/setup_infra.sh substrate
 bash scripts/setup_infra.sh verify
-```
-
-`verify` checks rollouts, current GatewayClass acceptance, established CRDs, certificate APIs, Substrate services, and an authenticated read-only ATE API call. It server-dry-runs the updated WorkerPool example; it does not create a WorkerPool or Actor. A successful process exit, CRD creation, or Gateway `Programmed` condition alone is not treated as end-to-end readiness.
-
-An explicit `--skip-substrate` on setup/verify limits that run to the networking/controller foundation. It is not a passing result for the full foundation block.
-
-## Run independent network and gateway checks
-
-```bash
 bash scripts/setup_infra.sh network-check
 bash scripts/setup_infra.sh enforcement-check
 ```
 
-`network-check` creates restricted, benign HTTP/client pods in `breaker-netcheck` and proves:
+Setup creates only the dedicated `breaker-substrate` cluster and private
+`.infra/clusters/breaker-substrate/kubeconfig`; it installs Cilium, Gateway API,
+agentgateway and Substrate from its checked clean pinned checkout/release images.
+Kind starts without waiting for NodeReady until Cilium is installed. Required
+certificate APIs/feature gates and actual rollout/authenticated API readiness are
+verified. Gateway `Programmed` or CRD existence alone does not prove readiness.
 
-- trusted client -> target succeeds;
-- untrusted client -> control succeeds;
-- untrusted client -> target times out (ingress denied);
-- trusted client -> control times out (egress denied);
-- both positive controls still succeed after the negative checks.
+Ownership binds the selected provider and immutable node-container IDs. A
+same-named replacement or changed connection rejects before adoption/deletion.
+Failures never auto-delete a cluster or retained state. A partially created,
+unowned node needs operator inspection, not edited ownership markers. Resume
+owned installation by `cluster`, `controllers`, `substrate` or `verify` phases.
+`--skip-substrate` is explicitly partial, not full-stack acceptance.
 
-It connects to actual pod IPs and requires successful positive controls, so an unavailable server cannot masquerade as isolation. Only a timeout while **establishing the connection** counts as a denied path. A post-connect send/response stall, unrelated exec error, or connection refusal fails the check rather than counting as isolation.
+The enforcement check creates the owned fixture namespace/Gateway reused by
+`target_stack --configure`; installing the controller alone does not create it.
+These checks make no model calls. Network checks require healthy positive controls
+before/after the negative paths; the recorder accepts non-executing sentinels only.
 
-`enforcement-check` uses the actual agentgateway dataplane, a deterministic authorizer, and an HTTP recorder in `breaker-enforcement`. The recorder **does not execute commands**. The fixture accepts only `fixture:allow`/`fixture:allow:...` sentinels, authenticates a random test bearer token, and issues a short-lived HMAC grant bound to the exact buffered body. The recorder verifies that grant and rejects replay. Tokens/keys are ignored local test artifacts and Kubernetes Secrets, never committed credentials.
+Substrate installs trusted PostgreSQL, snapshot storage, certificate/API/identity/
+router/atelet services. Those privileged infrastructure processes are not agent
+sandboxes. Bootstrap global-owner identity is for the disposable local operator,
+not a shared production trust model. A scoped installer-only Docker adapter uses
+Podman; no global Docker alias/socket is replaced.
 
-The authorizer rejects any client-supplied grant. Do not remove that header with an ordinary late request-header modifier: agentgateway's [filter order](https://agentgateway.dev/docs/kubernetes/latest/documentation/about/policies/filter-order/) places header modification after external authorization, which can erase the newly issued trusted grant too. An early stripping design would need a separately validated PreRouting policy; this fixture deliberately uses explicit rejection instead.
+## 3. Configure model, tracking and banking service
 
-The harness checks positive forwarding/body integrity (including Unicode), policy denial, missing/wrong credentials, injected authorizer errors, malformed/duplicate/extra JSON fields, separate character/UTF-8 byte limits, method/content-type/size rejection, forged client grants, and direct recorder Service/Pod-IP bypass. It also scales the authorizer to zero, requires no forwarding during the outage, restores it in a `finally` block, and verifies recovery with a positive control. A positive must produce exactly one record; a negative must produce none. Default-deny networking admits only client -> gateway -> authorizer/recorder plus DNS and **gateway -> controller XDS on TCP 9978**. Blocking XDS leaves a `Programmed` Gateway with an unready proxy, so the harness waits for the dataplane Deployment too. Do not interrupt fault injection unnecessarily; if the process is forcibly killed, restore `deployment/fixture-authorizer` to one replica and rerun the checks.
+Create `.env` from `.env.example` only if absent; preserve existing secrets.
 
-These are integration controls for the pinned HTTP fixture path. They do not prove Actor network isolation, trained-model semantics, all proxy framing/timeout cases, or sub-15ms latency. Those remain acceptance work in [#1](https://github.com/caldeirav/sub15-breaker/issues/1) and [#4](https://github.com/caldeirav/sub15-breaker/issues/4). `k8s/` research examples are not deployed automatically. Their executor/model image placeholders remain intentional blockers.
+| Setting | Live harness use |
+| --- | --- |
+| `LM_STUDIO_BASE_URL` |Configured upstream provider, typically `http://localhost:1234/v1`; agent requests still use managed gateway |
+| `LM_STUDIO_MODEL` |Exact approved loaded identifier; set `qwen/qwen3-30b-a3b-2507` for the measured profile |
+| `MLFLOW_TRACKING_URI` |HTTP tracking server, normally `http://localhost:5001` |
+| `GEMINI_API_KEY` / supported `GOOGLE_API_KEY` fallback |Authorized external native review only; not needed for offline tests/replay |
+| `MLFLOW_GENAI_JUDGE_DEFAULT_MODEL` |Pinned external review profile, default `gemini:/gemini-2.5-flash` |
+| `LITELLM_LOCAL_MODEL_COST_MAP=True` |Use bundled lock-bound pricing, not remote import-time pricing downloads |
 
-## Recorded block-01 acceptance and future revalidation
+The benchmark selects experiment **`breaker-banking-target-agent`**. The older
+`BANKING_MLFLOW_EXPERIMENT` setting belongs to the compatibility feasibility runner.
+Start MLflow only if absent, using the [README command](../README.md#run-locally).
+Do not replace the existing database/artifact store just to get an empty experiment.
 
-The original automated/manual checklist is retained in [`validation/block-01-infra.md`](validation/block-01-infra.md); PR #18 is already merged, not awaiting publication. Relevant infrastructure changes need fresh automated and independent human checks, regression coverage and docs before their own PR. Existing block-01 approval cannot approve a banking Actor/gateway feature. See [#17](https://github.com/caldeirav/sub15-breaker/issues/17).
-
-For block 01, the repository owner reported all independent-terminal tests passed on 2026-10-31. That user-reported acceptance is recorded separately from the automated results; no raw manual transcript was supplied. Final automated checks and the publication guard must still pass before opening the PR. The same acceptance process applies to later blocks.
-
-The local reports are under `.infra/clusters/breaker-substrate/`:
-
-- `readiness.json`: explicit full/partial scope, performed/skipped checks, declared pins separately from observed server/Helm/image versions, and rollout/API evidence;
-- `network-check.json`: ingress/egress controls;
-- `enforcement-check.json`: per-case gateway outcomes and record deltas.
-
-Always check each report's timestamp and scope and rerun after relevant changes. Reports do not certify manual approval. Do not commit kubeconfigs, fixture Secrets, upstream caches, or unreviewed raw traces. Only a redacted validation summary belongs in the PR.
-
-## Interactive inspection and explicit teardown
+Build/deploy the banking service, then configure and verify the managed model/MCP/
+OTLP infrastructure (no generation or banking tool execution; these commands do
+mutate owned deployment/gateway resources):
 
 ```bash
-export PATH="$PWD/.tools/bin:$PATH"
+bash scripts/build_banking_image.sh
+uv run --locked python -m src.banking_service.deploy \
+  --image "$(cat .infra/banking-service-03b/image.reference)" \
+  --deadline-profile native-measure-v2 --max-trials 256
+uv run --locked --env-file .env python -m src.infra.target_stack --configure
+```
+
+`target_stack --configure` requires the owned banking-driver ServiceAccount, so
+banking deployment comes first on a fresh stack. On an existing deployment refresh
+credentials as needed and verify the current digest/profile instead of rebuilding
+or replacing the store merely to renew tokens.
+
+The build uses the locked `banking-service` group, nonroot/read-only/least-capability
+runtime, a project-owned local registry on port5002 and a digest-bound image. Port5001
+remains for MLflow. Deployment provisions project namespaces/identities/store/PVC/
+WorkerPool/templates; it preserves the existing key and historical rows. A new
+image digest is a new run binding—not the old demo's image/evidence.
+
+Driver credentials expire after one hour. Renew only owned credentials:
+
+```bash
+uv run --locked python -m src.banking_service.deploy --refresh-credentials
+```
+
+This verifies ownership, mints audience-bound tokens and atomically writes private
+files, without replacing deployments/PVC/key/history. Never paste tokens in argv,
+docs, public trace exports or a browser app. The read-only demo API has a different
+limited-purpose token.
+
+### Artifact handoff is still required
+
+Live runs require more than checkout/setup: a complete verified classifier export
+(`benchmark-guard.json`, exact weight/config/tokenizer files), compatible reviewed
+original corpus, hybrid/training provenance, regression selection artifacts and
+the **existing cumulative v4 budget ledger**. Defaults expect these under
+`.infra/benchmark-guard-harness/`, notably `modernbert-training-v1/model/`,
+`modernbert-initial-validation/` and `combined-budget/`. `accuracy.py` validates
+source/training exclusions; an arbitrary JSONL/weights directory is not enough.
+
+Obtain the reviewed bundle/operator handoff, verify hashes/permissions and retain
+its relative layout. Frozen artifacts can contain absolute provenance paths;
+relocation needs a deliberate compatible handoff, not edits to source manifests.
+Weights/keys/raw traces are not committed. No clean-checkout download/import or
+installed-console release is claimed (#10). Never fill a missing trained head
+with a base/random checkpoint or recreate a ledger to reset spending.
+
+## Checks before a fresh approved run
+
+```bash
+uv run --locked --env-file .env python -m src.banking_service.runtime_controls
+```
+
+These change owned fixture/runtime resources and synthetic state, but make no
+model/judge calls. Network checks need healthy positives before/after negative
+paths; only a connect-timeout establishes the tested network denial. Enforcement
+fixtures use non-executing sentinels, not bank actions or a shell. Runtime controls
+exercise actual Actors/tools, reset/idempotency/crash/store-restart/outbox behavior;
+they consume durable capacity and need explicit scheduling, not blind repetition.
+
+Before model spending, verify current deployment/image/profile, loaded/idle Qwen,
+tracking, artifact/ledger integrity, whole-campaign capacity and the non-effectful
+MCP transport batch. The modern startup gate additionally reserves real model
+protocol probes and classifier priming. **List/dry-run is only an inventory and
+planning-envelope preview; it does not validate these prerequisites.**
+
+The legacy `check_env.sh --research` expects a command-only sidecar; it is not a
+banking doctor. `--target-stack` is a stricter qualification workflow including a
+complete provider-window proof; the owner-deferred soak means it must not be
+misrepresented as passed or required for the already delivered functional demo.
+
+## Deadlines and transport
+
+`banking_service/deadlines.py` defines `native-measure-v2`:
+
+| Boundary | Seconds |
+| --- | ---: |
+| Acting/reviewer client |300 |
+| Model backend / route |315 /330 |
+| Native learned hook / fault-control hook |330 /2 |
+| Actor store claim |350 |
+| Tool worker / reap allowance / commit |15 /5 /10 |
+| Actor server / client |390 /410 |
+| MCP backend / client / route |430 /450 /470 |
+| Ticket / episode / reconciliation |900 /3600 /120 |
+
+These are upper allowances, not expected performance or completion guarantees.
+Route and backend timeouts are separate; long response time does not override
+TCP connect. The demo protocol additionally declares30s MCP connect, HTTP/1.1
+reuse, backlog128, at most32 connections,45s idle/header/body I/O timeout and128
+requests per connection. It verifies applied **and effective** gateway configuration
+and restores owned originals. The generic full-comparison path is not identical
+to the demo's transport-probe/connect policy; do not silently claim it is.
+
+## Inspection, cleanup and deferred reliability
+
+```bash
 export KUBECONFIG="$PWD/.infra/clusters/breaker-substrate/kubeconfig"
 kubectl get nodes -o wide
 kubectl get pods -A
-kubectl get gatewayclass agentgateway
 kubectl ate get atespaces -o json
 ```
 
-The private kubeconfig targets only this cluster; there is no need to change your global current-context. Probe pods remain available for inspection. To delete **only** the owned cluster:
+No global kube context change is needed. Each experiment fences/drains its work,
+deletes only UID-verified owned Actors and restores temporary hook/routes. Check
+the recorded cleanup and late state; resource restoration is not rollback of a
+committed effect. Keep receipts, SQLite/PVC and key together. Do not prune trials,
+delete markers, reset reservations or delete the store to make another run fit.
+
+Only if explicitly intending to destroy this owned cluster and its workload
+storage:
 
 ```bash
 bash scripts/setup_infra.sh destroy --confirm breaker-substrate
 ```
 
-This destroys its workloads/storage. Tools, cached source, and evidence remain on disk. The script requires the exact confirmation and project ownership record; it does not prune other Podman images, volumes, machines, or clusters.
+This is destructive, not normal demo cleanup, and does not authorize deleting
+other machines/clusters/images/volumes. The interrupted two-hour stability check
+remains deferred [#39](https://github.com/caldeirav/sub15-breaker/issues/39), not a
+pass. A separately approved new monitor directory is required for sustained-uptime
+claims; no automatic recovery, skipped samples or fresh inference is implied.

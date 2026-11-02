@@ -150,17 +150,17 @@ def main():
             gate="exact matrix; all completed; controls; live model/tool path; normalized parity; all citations/agreement; full trace readback; agent quality reported separately",
             rerun_policy="No sampling for unanimity; retain failure and diagnose before amended protocol")
         mlflow.log_dict(protocol, "protocol.json")
-        mlflow.log_artifact(str(ROOT / "docs/banking-harness-acceptance-v3.md"), "protocol")
-        contract_path = ROOT / "docs/banking-metric-contract-v2.md"
+        mlflow.log_artifact(str(ROOT / "validation/archive/docs-2026-11-02/banking-harness-acceptance-v3.md"), "protocol")
+        contract_path = ROOT / "validation/archive/docs-2026-11-02/banking-metric-contract-v2.md"
         mlflow.log_artifact(str(contract_path), "protocol")
         mlflow.log_param("metric_contract_sha256", hashlib.sha256(contract_path.read_bytes()).hexdigest())
-        amendment = ROOT / "docs/banking-evidence-v2.1.md"
+        amendment = ROOT / "validation/archive/docs-2026-11-02/banking-evidence-v2.1.md"
         mlflow.log_artifact(str(amendment), "protocol")
         mlflow.log_param("evidence_amendment_sha256", hashlib.sha256(amendment.read_bytes()).hexdigest())
-        provenance_amendment = ROOT / "docs/banking-provenance-v2.2.md"
+        provenance_amendment = ROOT / "validation/archive/docs-2026-11-02/banking-provenance-v2.2.md"
         mlflow.log_artifact(str(provenance_amendment), "protocol")
         mlflow.log_param("provenance_amendment_sha256", hashlib.sha256(provenance_amendment.read_bytes()).hexdigest())
-        registry_note = ROOT / "docs/banking-registry-validation-note.md"
+        registry_note = ROOT / "validation/archive/docs-2026-11-02/banking-registry-validation-note.md"
         mlflow.log_artifact(str(registry_note), "protocol")
         for path in sorted((ROOT / "src/feasibility").glob("*.py")):
             mlflow.log_text(path.read_text(), f"implementation/{path.name}")

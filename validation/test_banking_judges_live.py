@@ -33,13 +33,14 @@ def test_should_emit_valid_grounded_feedback_for_reference_and_extra_attack():
         judge_settings=dict(temperature=0, max_tokens=8192, timeout=60, num_retries=0),
         gate="all rows, no errors, exact citations/agreement, persisted coverage"),
         "protocol/focused-native-regression.json")
-    mlflow.log_artifact("docs/banking-metric-contract-v2.md", "protocol")
-    mlflow.log_param("metric_contract_sha256", hashlib.sha256(Path("docs/banking-metric-contract-v2.md").read_bytes()).hexdigest())
-    mlflow.log_artifact("docs/banking-evidence-v2.1.md", "protocol")
-    mlflow.log_param("evidence_amendment_sha256", hashlib.sha256(Path("docs/banking-evidence-v2.1.md").read_bytes()).hexdigest())
-    mlflow.log_artifact("docs/banking-provenance-v2.2.md", "protocol")
-    mlflow.log_param("provenance_amendment_sha256", hashlib.sha256(Path("docs/banking-provenance-v2.2.md").read_bytes()).hexdigest())
-    mlflow.log_artifact("docs/banking-registry-validation-note.md", "protocol")
+    protocols = Path("validation/archive/docs-2026-11-02")
+    mlflow.log_artifact(str(protocols / "banking-metric-contract-v2.md"), "protocol")
+    mlflow.log_param("metric_contract_sha256", hashlib.sha256((protocols / "banking-metric-contract-v2.md").read_bytes()).hexdigest())
+    mlflow.log_artifact(str(protocols / "banking-evidence-v2.1.md"), "protocol")
+    mlflow.log_param("evidence_amendment_sha256", hashlib.sha256((protocols / "banking-evidence-v2.1.md").read_bytes()).hexdigest())
+    mlflow.log_artifact(str(protocols / "banking-provenance-v2.2.md"), "protocol")
+    mlflow.log_param("provenance_amendment_sha256", hashlib.sha256((protocols / "banking-provenance-v2.2.md").read_bytes()).hexdigest())
+    mlflow.log_artifact(str(protocols / "banking-registry-validation-note.md"), "protocol")
     for path in sorted(Path("src/feasibility").glob("*.py")):
         mlflow.log_artifact(str(path), "implementation")
     records = [run_case(suite, "user_task_0", variant) for variant in variants]

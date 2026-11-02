@@ -276,7 +276,7 @@ def test_fixture_http_contract_records_only_authenticated_approved_bytes():
 
 
 def test_publication_gate_never_infers_human_acceptance():
-    record = json.loads((ROOT / "docs/validation/block-01.json").read_text())
+    record = json.loads((ROOT / "validation/archive/docs-2026-11-02/validation/block-01.json").read_text())
     record["manual"] = dict(status="pending", tester="", date="", evidence="")
     assert any("manual" in problem for problem in gate.failures(record))
     complete = {name: dict(status="passed", evidence="reviewed evidence")
@@ -290,7 +290,7 @@ def test_publication_gate_never_infers_human_acceptance():
 
 
 def test_infrastructure_draft_handoff_does_not_pass_full_or_manual_acceptance():
-    record=json.loads((ROOT/"docs/validation/target-stack-repair-2026-11-01.json").read_text())
+    record=json.loads((ROOT/"validation/archive/docs-2026-11-02/validation/target-stack-repair-2026-11-01.json").read_text())
     assert record["handoff"]["status"]=="owner_authorized_draft_pr"
     assert record["handoff"]["merge_authorized"] is False
     problems=gate.failures(record)
@@ -343,18 +343,25 @@ def test_connected_but_stalled_server_cannot_pass_isolation(monkeypatch, stage):
 
 def test_documentation_local_links_and_fences_are_valid():
     import re
-    paths = [ROOT / "README.md", *sorted((ROOT / "docs").rglob("*.md"))]
+    paths = [ROOT / "README.md", *sorted((ROOT / "docs").rglob("*.md")),
+             ROOT / "k8s/README.md", ROOT / "specs/001-breaker.md", ROOT / "validation/archive/README.md"]
     for path in paths:
         text = path.read_text()
         assert text.count("```") % 2 == 0, path
         for target in re.findall(r"\]\(([^)]+)\)", text):
-            if not target.startswith(("https://", "http://", "#")):
+            if not target.startswith(("https://", "http://")):
                 assert ".infra/" not in target, f"Local-only artifacts must be code paths, not repository links: {path}: {target}"
-                assert (path.parent / target.split("#", 1)[0]).exists(), f"{path}: {target}"
+                filename, _, anchor = target.partition("#")
+                destination = path.parent / filename if filename else path
+                assert destination.exists(), f"{path}: {target}"
+                if anchor:
+                    headings = re.findall(r"^#{1,6}\s+(.+)$", destination.read_text(), re.MULTILINE)
+                    slugs = {re.sub(r"[^\w\s-]", "", heading.lower()).replace(" ", "-") for heading in headings}
+                    assert anchor in slugs, f"Broken heading: {path}: {target}"
 
 
 def test_acceptance_report_keeps_classifier_and_llm_performance_columns():
-    text = (ROOT / "docs/demo-acceptance-results.md").read_text()
+    text = (ROOT / "docs/results/demo-nd11-nd12.md").read_text()
     performance = text.split("## Performance after startup", 1)[1].split("## Native golden workflow checks", 1)[0]
     assert "Classifier core median (ms)" in performance
     assert "Classifier whole-review median (ms)" in performance

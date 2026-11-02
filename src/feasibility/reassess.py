@@ -68,7 +68,7 @@ def reassess(source_run_id):
     lock_matches = hashlib.sha256((ROOT / "uv.lock").read_bytes()).hexdigest() == manifest["uv_lock_sha256"]
     records = [json.loads(artifact(child, "evidence/trial.json").read_text()) for child in summary["child_run_ids"]]
     reviews = json.loads(artifact(source_run_id, "judges/reviews.json").read_text())
-    policy_path = ROOT / "docs/banking-harness-acceptance-v3.md"
+    policy_path = ROOT / "validation/archive/docs-2026-11-02/banking-harness-acceptance-v3.md"
     with mlflow.start_run(run_name="banking-harness-acceptance-v3") as run:
         mlflow.set_tags(dict(evaluation_kind="derived-existing-evidence-no-rerun", acceptance_policy=ACCEPTANCE_POLICY,
             acceptance_scope="local-banking-harness", source_run_id=source_run_id, human_acceptance="pending",

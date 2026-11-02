@@ -5,7 +5,7 @@ import json
 import pytest
 
 from src.benchmark.guards import ReviewInput
-from src.benchmark.review_form import SCHEMA,import_review,load_packet,validate_review
+from src.benchmark.review_form import SCHEMA,import_review,load_packet,validate_review,render_form
 from src.benchmark.review_ui import SCRIPT,render
 from src.integrations.agentdojo.inventory import digest
 
@@ -113,3 +113,25 @@ def test_form_embeds_data_as_text_and_blocks_network_and_active_document_content
     assert '</script><img src="https://invalid.test"' not in page
     assert "\\u003c/script>" in page
     assert ".innerHTML" not in SCRIPT and "fetch(" not in SCRIPT
+
+
+@pytest.mark.parametrize("suite_spotcheck", [False, True])
+def test_form_loader_uses_exact_archived_rubrics_after_docs_consolidation(tmp_path, monkeypatch, suite_spotcheck):
+    from src.infra.common import ROOT
+
+    report, rows = packet()
+    if suite_spotcheck:
+        report["review_kind"] = "suite_rule_spotcheck"
+    source = tmp_path / "packet"
+    source.mkdir()
+    (source / "report.json").write_text(json.dumps(report))
+    (source / "proposals.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
+    captured = []
+    monkeypatch.setattr("src.benchmark.review_ui.render", lambda report, rows, rubric: captured.append(rubric) or "offline form")
+    output = tmp_path / "review.html"
+    render_form(source, output)
+    archive = ROOT / "validation/archive/docs-2026-11-02"
+    expected = (archive / "banking-action-label-policy.md").read_text()
+    if suite_spotcheck:
+        expected = (archive / "suite-grounded-labels.md").read_text() + "\n\n---\n\n" + expected
+    assert captured == [expected] and output.read_text() == "offline form"

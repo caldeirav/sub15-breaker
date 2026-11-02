@@ -1,65 +1,35 @@
-# Documentation index
+# Documentation
 
-The supported research domain is **AgentDojo simulated banking**. The local harness, shared contracts and controlled Actor service have distinct trust/usage scopes; none is automatically a financial-policy guard or latency result. Use [GitHub roadmap #14](https://github.com/caldeirav/sub15-breaker/issues/14) and owning issues for current delivery status. Do not use the retired shell dataset or command-only sidecar as the banking architecture.
+Start with the [project overview and local quick start](../README.md).
+These guides describe implemented behavior, not an old sprint plan.
 
-## Current authority and how to use it
-
-| Document | Purpose |
+| Guide | Details |
 | --- | --- |
-| [Project scope](project-scope.md) | Domain, trust boundaries, implemented versus planned features |
-| [Specification](../specs/001-breaker.md) | Normative banking target and acceptance requirements |
-| [Golden environment](golden-data.md) | Pinned upstream tasks/tools/checkers; metric meanings and limitations |
-| [Evaluation design](evaluation-design-review.md) | Harness correctness versus agent quality, controls and unbiased reporting |
-| [Banking runbook](banking-feasibility.md) | Actual commands, prerequisites and accepted evidence |
-| [Trace contract](mlflow-trace-contract.md) | Model/tool/judge coverage and per-trace score ownership |
-| [Actor service guide](banking-actor-service.md) | Controlled Actor execution, external transactional state, identity, evidence outbox and local operation |
-| [Harness acceptance v3](banking-harness-acceptance-v3.md) | Active acceptance policy: correct evaluation, not universal agent success |
-| [Human checklist](validation/block-02-harness-review.md) / [acceptance record](validation/block-02.json) | @caldeirav's scoped acceptance and reproducible inspection steps |
-| [Implementation plan](implementation-plan.md) / [next iteration](next-iteration.md) | Remaining blocks and accepted record-only 03a scope |
-| [Block 03a contracts](banking-contracts-03a.md) | Owner-confirmed choices, shared types, schema semantics and record-only fixture evidence |
-| [Infrastructure](infra.md) | Separate accepted control plane and non-executing fixtures |
-| [Agent/harness boundaries](agent-harness-architecture.md) | Suite-neutral runtime and harness contracts; AgentDojo task/tool/checker adapter boundary |
-| [Guard benchmark](benchmark-guard-experiment.md) | One flow, common Substrate guard boundary, compact neural classifier versus LLM, labels and fair timing |
-| [Action-label review](banking-action-label-policy.md) | Draft policy, pending annotation packet, input/split feasibility and label-review gates before training |
-| [Human review walkthrough](human-label-review.md) | Offline browser form, saved reviewer/rationale decisions, JSON export/resume and validated training handoff |
-| [Suite-grounded labels](suite-grounded-labels.md) | Default CODE labels from released trajectories and controlled effects, exact prefix materialization and small rule/exception spot checks |
-| [ModernBERT training/integration sequence](modernbert-training-integration-plan.md) | Encoder compatibility, conditional hybrid augmentation, no-fit transfer holdout, training/calibration/test and real native A/B gates |
-| [ModernBERT v2 protocol](modernbert-v2-protocol.md) | Structured prompt pilot, human-vetted goal paraphrases, broader authorization scenarios, fresh challenge and separate read/write quality gates |
-| [Architecture-demo diagnosis](architecture-demo-diagnosis.md) | Frozen-model diagnosis, canary/context and serialization defects, and a minimal native-demo corrective plan |
-| [Five-case live-demo development plan](native-guard-live-demo-plan.md) | Selectable positive/negative cards, input/cancellation corrections, scoped allocation and receipt-backed readiness criteria |
-| [Full comparison plan](full-comparison-plan.md) / [results and analysis](full-comparison-results.md) | Classifier-only15ms boundary, fixed paired accuracy, all three native workflows, retained failures/counter interpretation and reproducible report artifacts |
-| [Focused demo transport/qualification plan](demo-transport-qualification-plan.md) | Follow-up to merged PR #49: bounded transport, original five-card slice, curated paired reviews and separately gated rehearsal; owner acceptance remains separate |
-| [Focused demo results](demo-qualification-results.md) | Curated action correctness/performance, native qualification and rehearsal evidence; historical failures and acceptance boundaries retained |
-| [End-to-end review backend plan](demo-review-backend-plan.md) / [API contract](demo-review-api.md) | Capacity correction, fresh fixed tests, consolidated evidence and read-only saved-replay backend; visualization is planning only (#60) |
-| [Capacity-corrected backend results](demo-review-backend-results.md) | Preservation proofs, fresh qualification/rehearsal evidence, paired measurements and consolidated review/API verification |
-| [Actor readiness investigation](actor-readiness-plan.md) | #62 safe transport diagnostics and frozen non-effectful first/subsequent Actor probes; no model spending or inferred demo acceptance |
-| [Actor readiness results](actor-readiness-results.md) | Eight verified diagnostic observations, preserved history/ledger and explicit unconfirmed-cause/full-rehearsal boundaries |
-| [Demo acceptance with bounded readiness retries](demo-acceptance-plan.md) | Owner-authorized read-only retry policy and fresh nd9/nd10 full qualification/rehearsal; no model/action retries |
-| [Full demo acceptance results](demo-acceptance-results.md) | Paired metrics, all demo variants, readiness attempts, reviews and preserved historical limitations |
-| [Archived nd9/nd10 acceptance](demo-acceptance-results-nd9-nd10.md) | Original arm-local/cold-first acceptance retained unchanged apart from archive labelling |
-| [Services-ready golden retest plan](ready-golden-plan.md) | Explicit startup/priming before demo or full-harness tests, verifier accuracy against five golden actions, and reports without latency-attainment counts |
-| [Services-ready golden results](ready-golden-results.md) | Startup versus measured timing, both verifiers against frozen golden, and native checker outcomes with old evidence preserved |
-| [Legacy compatibility](legacy-compatibility.md) | Old modules/examples that are not the supported banking path |
-| [Documentation alignment audit](documentation-audit.md) | What was reviewed/corrected, immutable evidence and validation boundaries |
+| [System and harness architecture](architecture.md) | Component roles, Substrate versus agentgateway, authority, tickets, transactions, isolation and technical decisions |
+| [Agent flow](agent-flow.md) | Compiled graph, messages, tool sequence, native review, cancellation and failure semantics |
+| [Model and calibration](model.md) | Shared review input, labels, training populations, frozen artifact, risk calculation, LLM protocol and research limits |
+| [Testing and validation](validation.md) | AgentDojo data/checkers, metrics, controls, MLflow ownership, offline tests and full live A/B procedure |
+| [Local infrastructure](infra.md) | Prerequisites, versions, owned-stack setup, artifact handoff, credentials, checks and teardown |
+| [Demo guide](demo.md) | Five cards, safe replay, live qualification/rehearsal lifecycle and read-only API contract |
+| [Latest demo results — nd11/nd12](results/demo-nd11-nd12.md) | Versioned protocol, golden accuracy, measured performance, startup appendix, costs and evidence IDs |
 
-Block 03a's requirements were clarified before coding. Its record-only implementation has independent technical approval and fresh human acceptance by @caldeirav on 2026-10-31, but is not a delivered security boundary. No live-pilot integration or financial authorization is included. Additional business/security scope still needs clarification; hidden golden answers remain evaluator-only.
+## Documentation and evidence policy
 
-## Frozen experiment protocols and historical evidence
+Only the latest demo campaign has a results page here. Superseded development
+plans, duplicate reports and old block-status pages are removed from current
+navigation. Still-relevant design, procedures and limitations are consolidated
+into the topic guides; this is not a claim that old failures were repaired.
 
-These files are versioned evidence copied/hashed into recorded MLflow runs. They are retained byte-for-byte, not silently updated to make earlier runs look passed:
+Historical acceptance JSON, review/checklist records and seven byte-preserved
+protocol/rubric assets moved to [the validation archive](../validation/archive/README.md).
+The [pre-consolidation docs at revision 394b165](https://github.com/caldeirav/sub15-breaker/tree/394b16518cf0b090d873562715190dbf92c1e4d0/docs)
+retain every earlier page. Raw local evidence, MLflow runs, model/data manifests,
+review exports and ledgers remain untouched. Archive statements/paths describe
+their recording revision; they are not present-day setup instructions.
 
-- [Metric v2 protocol](banking-metric-contract-v2.md): active four-criterion definitions; its original 3/3 agent-win **acceptance clause** is superseded by harness v3.
-- [Evidence v2.1 amendment](banking-evidence-v2.1.md): private row equality, service features and failure accounting.
-- [Provenance v2.2 amendment](banking-provenance-v2.2.md): exact native envelope schemas with all three verdicts.
-- [Registry correction](banking-registry-validation-note.md): local SQLite registration race and its bounded fix.
-- [Harness v3 policy](banking-harness-acceptance-v3.md): supersedes only win-rate/PR-blocking clauses, not golden outcomes or historical statuses. Its “pending until owner reports” wording describes the recording-time condition; acceptance is now in `validation/block-02.json`.
-
-The following are **historical review/checklist snapshots**, not today's to-do list or a requirement to reopen #20, repair #25, or reaccept an already accepted block:
-
-- [Block-01 checklist](validation/block-01-infra.md) and [record](validation/block-01.json): accepted foundation, merged PR #18.
-- [Initial block-02 checklist](validation/block-02-banking.md), [initial independent review](validation/block-02-independent-review.md), [v2 review](validation/block-02-v2-review.md), [v2 independent review](validation/block-02-v2-independent-review.md).
-- [Current-scope independent review](validation/block-02-harness-independent-review.md): accepted harness-v3 technical review, separate from human acceptance.
-
-Current block-02 delivery is [merged PR #26](https://github.com/caldeirav/sub15-breaker/pull/26), commit `1e32c54eec0cfe060013487789924baa57470894`. Source run `e56a427a9592460f81f246bc3c0d6e29` stays FAILED under its old policy; derived harness assessment `53b476bed53446ebac25753aaa9a8b80` passes under v3. Both are truthful records of different acceptance scopes. Local MLflow URLs require access to the owner's tracking server.
-
-Historical Bash/alternative-benchmark research is available in [the previous documentation revision](https://github.com/caldeirav/sub15-breaker/tree/1e32c54eec0cfe060013487789924baa57470894). It is not a current dataset recommendation. Current docs intentionally do not instruct users to assemble that corpus or run its destructive examples.
+New results must use a new versioned filename and identify their frozen source,
+protocol and data. Never overwrite measured source artifacts, old failed statuses,
+negative reviews, quarantined labels or human attestations. Infrastructure health,
+CODE tests, Gemini support and independent agent review are **not human sign-off**.
+Final owner/process review is tracked in [#17](https://github.com/caldeirav/sub15-breaker/issues/17);
+the [roadmap](https://github.com/caldeirav/sub15-breaker/issues/14) owns the backlog.
