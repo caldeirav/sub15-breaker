@@ -17,10 +17,10 @@ For delivery status, dependencies and owner acceptance, use the [GitHub roadmap]
 The fixed `nd4` test ran both guards on identical reviewed actions and executed
 all three supported banking workflows under each guard. See the dedicated
 [results, background, methods and analysis](docs/full-comparison-results.md),
-[frozen test plan](docs/full-comparison-plan.md), and
-[generated local HTML report](.infra/benchmark-guard-harness/nd4-full-comparison-report-final/report.html).
-The HTML/JSON artifacts require the retained local run bundle; the Markdown
-analysis is checked into the repository.
+[frozen test plan](docs/full-comparison-plan.md). The generated local HTML report
+is at `.infra/benchmark-guard-harness/nd4-full-comparison-report-final/report.html`.
+HTML/JSON artifacts require the retained local run bundle and are not repository
+links; the Markdown analysis is checked into the repository.
 
 | Measured result | Classifier | LLM |
 | --- | ---: | ---: |

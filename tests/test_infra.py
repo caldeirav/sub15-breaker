@@ -349,4 +349,5 @@ def test_documentation_local_links_and_fences_are_valid():
         assert text.count("```") % 2 == 0, path
         for target in re.findall(r"\]\(([^)]+)\)", text):
             if not target.startswith(("https://", "http://", "#")):
+                assert ".infra/" not in target, f"Local-only artifacts must be code paths, not repository links: {path}: {target}"
                 assert (path.parent / target.split("#", 1)[0]).exists(), f"{path}: {target}"
