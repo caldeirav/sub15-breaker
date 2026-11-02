@@ -17,7 +17,7 @@ from langchain_openai import ChatOpenAI
 from src.agent_runtime.contracts import Limits
 from src.banking_contracts.tools import WRITE_TOOLS
 from src.banking_service.dataset_replay import canonical_calls
-from src.banking_service.deadlines import DEMO
+from src.banking_service.deadlines import DEMO,MEASURE,profile
 from src.banking_service.deploy import Deployment,DIRECTORY,STORE_HOST
 from src.banking_service.http import RuntimeClient
 from src.benchmark.admission import ReviewBuilder,llm_guard
@@ -26,7 +26,7 @@ from src.benchmark.performance import case_comparisons
 from src.benchmark.bridge import Bridge,BridgeServer,MCPClient
 from src.benchmark.compare import claim_case
 from src.benchmark.demo_budget import DemoBudget
-from src.benchmark.deployment import private,temporary_bridge,gateway_forward,native_hook
+from src.benchmark.deployment import private,temporary_bridge,gateway_forward,native_hook,model_timeouts
 from src.benchmark.encoder import manifest
 from src.benchmark.guards import INPUT_VERSION
 from src.benchmark.native import Registry,ControlGuard,LateAllowGuard,server
@@ -55,11 +55,13 @@ def code_hashes():
         "src/benchmark/projection.py","src/benchmark/admission.py","src/benchmark/deployment.py","src/benchmark/review.py","src/benchmark/guards.py",
         "src/benchmark/encoder.py","src/agent_runtime/runner.py","src/banking_service/app.py","src/banking_service/deadlines.py",
         "src/banking_service/deploy.py","src/banking_service/dataset_replay.py","src/banking_service/store.py","src/banking_contracts/tools.py",
-        "src/benchmark/serving.py","src/benchmark/reconciliation.py","src/benchmark/performance.py"]
+        "src/benchmark/serving.py","src/benchmark/reconciliation.py","src/benchmark/performance.py","src/benchmark/measurement.py"]
     return {name:hashlib.sha256((ROOT/name).read_bytes()).hexdigest() for name in names}
 
 
-def make_plan(artifact,*,acting_model,classifier_device="mps"):
+def make_plan(artifact,*,acting_model,classifier_device="mps",namespace="nd1"):
+    if namespace not in {"nd1","nd2"}:raise ValueError("unsupported_demo_phase")
+    deadlines=MEASURE if namespace=="nd2" else DEMO
     value=manifest(artifact,policy_id=POLICY_ID);adapter=BankingAdapter()
     fixtures={}
     for task in TASKS:
@@ -68,7 +70,7 @@ def make_plan(artifact,*,acting_model,classifier_device="mps"):
     initial=adapter.suite.load_and_inject_default_environment({})
     fixtures["injection_task_0"]=canonical_calls(adapter.suite.injection_tasks["injection_task_0"],initial,adapter.catalog)
     config=json.loads((DIRECTORY/"deployment.json").read_text())
-    if config.get("deadline_profile")!=DEMO.name:raise ValueError("native_demo_deployment_profile_required")
+    if config.get("deadline_profile")!=deadlines.name:raise ValueError("native_demo_deployment_profile_required")
     cases=[dict(case_id="nd1-control-"+mode,task_id="user_task_0",kind="control",mode=mode,actor=0,llm_guard=0,producer="fault_control" if mode in {"error","unsupported","timeout","cancel"} else "scripted_control",target_step=0)
         for mode in ("allow","block","error","unsupported","timeout","cancel")]
     cases += [dict(case_id="nd1-canary-"+arm,task_id="user_task_0",kind="canary",arm=arm,actor=0,llm_guard=4 if arm=="llm" else 0,producer="scripted_reference",target_step=1) for arm in ("classifier","llm")]
@@ -79,16 +81,23 @@ def make_plan(artifact,*,acting_model,classifier_device="mps"):
                 actor=0 if scripted else 16,llm_guard=(4 if scripted else 24) if arm=="llm" else 0,gemini_task_judge=0 if scripted else 4,
                 producer=card["producer"],expected=card["expected"],target_step=2 if scripted else "single_proposed_mutation"))
     cases.append(dict(case_id="nd1-review",task_id=None,kind="external_review",gemini_harness_judge=1))
+    if namespace=="nd2":
+        for kind,count,role in (("actor",2,"actor"),("read-review",3,"llm_guard"),("payment-review",3,"llm_guard")):
+            for index in range(count):cases.append(dict(case_id=f"nd1-probe-{kind}-{index}",task_id="user_task_0",kind="diagnostic",probe=kind,index=index,**{role:1}))
+        cases.append(dict(case_id="nd1-encoder-measurement",task_id="user_task_0",kind="encoder_measurement",encoder_forward_cap=12))
+        for case in cases:case["case_id"]=case["case_id"].replace("nd1-",namespace+"-",1)
     hashes=code_hashes()
     return dict(schema_version="native-demo-matrix-v1",policy_sha256=hashlib.sha256(encoded(POLICY)).hexdigest(),
         artifact_manifest_sha256=digest(value),calibration_sha256=digest(value["calibration"]),model_id=value["model_id"],
         fixtures_sha256=digest(fixtures),fixtures=fixtures,code_sha256=digest(hashes),code_hashes=hashes,acting_model=acting_model,
         input_version=INPUT_VERSION,policy_id=POLICY_ID,image=config["image"],base_template=config["template"],
-        deadlines=asdict(DEMO),mcp_backend_timeout=75,control_hook_timeout=2,cases=cases,phase="validation",cards=CARDS,
+        deadlines=asdict(deadlines),mcp_backend_timeout=430 if namespace=="nd2" else 75,control_hook_timeout=2,cases=cases,phase="laptop-measurement-v2" if namespace=="nd2" else "validation",cards=CARDS,
+        **(dict(namespace=namespace,model_route_timeout=330,model_backend_timeout=315,diagnostic_provider_idle_timeout=120,
+            measurement_protocol=dict(encoder_calls_per_input=6,inputs=["read","payment"],warmup_requests=0,diagnostics_continue_on_error=True,automatic_retries=0)) if namespace=="nd2" else {}),
         serving=dict(frontend="managed Responses",backend="Completions via explicit gateway translation",shared_context=8192,
             actor_max_tokens=2048,reviewer_max_tokens=256,temperature=0,max_retries=0,global_settings_changed=False,
             classifier_device=classifier_device,classifier_lifetime="selected classifier arm only; release before LLM/control arm",tokenizer_only_for_llm=True),
-        reconciliation=dict(timeout_seconds=30,quiet_seconds=1,poll_seconds=.5,provider_idle_required=True),
+        reconciliation=dict(timeout_seconds=120 if namespace=="nd2" else 30,quiet_seconds=2 if namespace=="nd2" else 1,poll_seconds=1 if namespace=="nd2" else .5,provider_idle_required=True),
         retries=0,fallback=False,quality_scope="imperfect frozen prototype; architecture mechanics distinct from reviewer correctness",full_admission_latency_claim=False)
 
 
@@ -204,31 +213,31 @@ def write_report(directory,cards):
 def external_reviews(args,plan):
     """One preallocated post-run review, never an acting-agent rerun."""
     budget=DemoBudget(args.budget)
-    if budget.demo()!=plan:raise RuntimeError("frozen_demo_matrix_mismatch")
+    if (budget.phase(plan["namespace"]) if plan.get("namespace") else budget.demo())!=plan:raise RuntimeError("frozen_demo_matrix_mismatch")
     records={}
     for directory in args.review_demo:
         source_plan=json.loads((directory/"plan.json").read_text())
         inherited=digest(source_plan)==plan.get("setup_correction",{}).get("parent_matrix_sha256")
         if source_plan!=plan and not inherited:raise ValueError("review_plan_mismatch")
-        for path in directory.glob("nd1-*.json"):
+        for path in directory.glob(plan.get("namespace","nd1")+"-*.json"):
             record=json.loads(path.read_text())
             if "evidence" not in record:continue
             case_id=record["case_id"]
             if inherited and not case_id.startswith("nd1-control-"):raise ValueError("only_control_evidence_may_be_inherited")
             if case_id in records:raise ValueError("duplicate_review_case")
             record["trace_audit"]=audit_record(record);records[case_id]=record
-    required=[c["case_id"] for c in plan["cases"] if c["kind"]!="external_review"]
-    if set(records)!=set(required):raise ValueError("review_requires_all_declared_cases")
-    claim_case(budget,"nd1-review",plan)
+    required=[c["case_id"] for c in plan["cases"] if c["kind"] in {"control","canary","card"}]
+    if not set(records)<=set(required) or (set(records)!=set(required) and not getattr(args,"allow_incomplete_review",False)):raise ValueError("review_requires_all_declared_cases")
+    claim_case(budget,plan.get("namespace","nd1")+"-review",plan)
     directory=BASE/("native-demo-review-"+uuid4().hex);directory.mkdir(mode=0o700)
     mask=Mask([os.getenv(key) for key in ("GEMINI_API_KEY","GOOGLE_API_KEY","OPENAI_API_KEY")])
     model=POLICY["gemini_model"];results=[]
     def settle(entries,result):
         for entry in entries:
-            budget.settle(entry["sequence"],accounted_cost_usd=result.get("cost_usd"),usage_verified=result.get("cost_usd") is not None)
+            budget.settle(entry["sequence"],accounted_cost_usd=result.get("cost_usd"),usage_verified=False)
     with mlflow.start_run(run_name="bounded-native-demo-external-review"):
         for case in plan["cases"]:
-            if not case.get("gemini_task_judge"):continue
+            if not case.get("gemini_task_judge") or case["case_id"] not in records:continue
             record=records[case["case_id"]]
             for criterion,judge in build_judges(model).items():
                 entries=[]
@@ -241,13 +250,13 @@ def external_reviews(args,plan):
                 settle(entries,result);results.append(result)
                 private(directory/"reviews.json",results)
         with mlflow.start_span(name="persisted_native_demo_suite",span_type="CHAIN") as suite:
-            observations=dict(plan=plan,records=list(records.values()),excluded_claims=["production_safety","model_accuracy","full_admission_latency"])
+            observations=dict(plan=plan,records=list(records.values()),missing_declared_cases=sorted(set(required)-set(records)),excluded_claims=["production_safety","model_accuracy","full_admission_latency"])
             suite.set_inputs(dict(case_ids=required));suite.set_outputs(observations)
         persisted=mlflow.get_trace(suite.trace_id)
         if persisted is None:raise RuntimeError("suite_evidence_not_persisted")
         root=next(span for span in persisted.data.spans if span.parent_id is None);entries=[]
         def reserve(**kw):
-            entries.append(budget.reserve(role="gemini_harness_judge",case_id="nd1-review",trace_id=kw["trace_id"],request=dict(suite_trace_id=suite.trace_id),model=model))
+            entries.append(budget.reserve(role="gemini_harness_judge",case_id=plan.get("namespace","nd1")+"-review",trace_id=kw["trace_id"],request=dict(suite_trace_id=suite.trace_id),model=model))
         result=review_harness(build_harness_judge(model),observations=root.outputs,target_trace_id=suite.trace_id,reserve=reserve,
             scope="bounded-native-demo-validation-only",required_cases=required)
         settle(entries,result);results.append(result);private(directory/"reviews.json",results)
@@ -257,7 +266,8 @@ def external_reviews(args,plan):
 
 def execute(args,plan):
     budget=DemoBudget(args.budget)
-    if budget.demo()!=plan:raise RuntimeError("frozen_demo_matrix_mismatch")
+    if (budget.phase(plan["namespace"]) if plan.get("namespace") else budget.demo())!=plan:raise RuntimeError("frozen_demo_matrix_mismatch")
+    deadlines=profile(plan["deadlines"]["name"])
     deployment=Deployment();config=json.loads((DIRECTORY/"deployment.json").read_text());deployment.verify_deployment(config);deployment.refresh_credentials()
     original,template=benchmark_template(deployment);changed=dict(original,template=template);manifest_path=DIRECTORY/"deployment.json";previous=manifest_path.read_bytes()
     directory=BASE/("native-demo-"+uuid4().hex);directory.mkdir(mode=0o700);private(directory/"plan.json",plan)
@@ -279,19 +289,20 @@ def execute(args,plan):
                 mlflow.log_dict(resources.snapshot(),"protocol/startup.json")
                 service=server(registry,STORE_HOST,"0.0.0.0:8173");stack.callback(lambda:service.stop(3).wait(5))
                 http=BridgeServer(("0.0.0.0",8172),bridge);threading.Thread(target=http.serve_forever,daemon=True).start();stack.callback(http.server_close);stack.callback(http.shutdown)
-                stack.enter_context(temporary_bridge(deployment.cluster,directory,host,8172,request_timeout=DEMO.mcp_route,backend_timeout=plan["mcp_backend_timeout"]))
-                base=stack.enter_context(gateway_forward(deployment.cluster,directory));mcp=MCPClient(base,token,bridge,timeout=DEMO.mcp_client);mcp.discover()
+                stack.enter_context(temporary_bridge(deployment.cluster,directory,host,8172,request_timeout=deadlines.mcp_route,backend_timeout=plan["mcp_backend_timeout"]))
+                if plan.get("model_route_timeout"):stack.enter_context(model_timeouts(deployment.cluster,directory,request_timeout=plan["model_route_timeout"],backend_timeout=plan["model_backend_timeout"]))
+                base=stack.enter_context(gateway_forward(deployment.cluster,directory));mcp=MCPClient(base,token,bridge,timeout=deadlines.mcp_client);mcp.discover()
                 def reserve_guard(request):
                     span=mlflow.get_current_active_span();budget.reserve(role="llm_guard",case_id=active["case_id"],trace_id=span.trace_id,request=request,model=plan["acting_model"])
-                client=stack.enter_context(httpx.Client(transport=ModelTransport(base,on_request=reserve_guard),timeout=DEMO.reviewer,trust_env=False,follow_redirects=False))
+                client=stack.enter_context(httpx.Client(transport=ModelTransport(base,on_request=reserve_guard),timeout=deadlines.reviewer,trust_env=False,follow_redirects=False))
                 reviewer=ChatOpenAI(model=plan["acting_model"],base_url=base+"/v1",api_key=token,http_client=client,use_responses_api=True,
-                    output_version="responses/v1",max_retries=0,timeout=DEMO.reviewer,temperature=0,max_tokens=256)
+                    output_version="responses/v1",max_retries=0,timeout=deadlines.reviewer,temperature=0,max_tokens=256)
                 llm_reviewer=llm_guard(reviewer,guard_id="qwen-native-demo-reviewer-v1",reserve_model=lambda:None)
                 for phase in ("control","learned"):
                     phase_cases=[case for case in cases if (case["kind"]=="control")== (phase=="control")]
                     if not phase_cases:continue
                     phase_dir=directory/phase;phase_dir.mkdir()
-                    with native_hook(deployment.cluster,phase_dir,host,8173,timeout_seconds=plan["control_hook_timeout"] if phase=="control" else DEMO.native_hook):
+                    with native_hook(deployment.cluster,phase_dir,host,8173,timeout_seconds=plan["control_hook_timeout"] if phase=="control" else deadlines.native_hook):
                         for case in phase_cases:
                             require_prior_evidence(budget,plan,case)
                             claim_case(budget,case["case_id"],plan);active["case_id"]=case["case_id"]
@@ -308,8 +319,8 @@ def execute(args,plan):
                                 if case.get("card_id")=="D02":calls=plan["fixtures"]["user_task_0"]+plan["fixtures"]["injection_task_0"]
                             record=run_case(deployment=deployment,store=store,authorization="Bearer "+token,adapter=adapter,bridge=bridge,mcp=mcp,budget=budget,mask=mask,
                                 task_id=case["task_id"],control="allow" if is_control else None,selected_guard=guard,review_builder=rb,scripted_calls=calls,
-                                case_name=case["case_id"],deadline_profile=DEMO.name,request_model_id=plan["acting_model"],cancel_on_review_start=mode=="cancel",
-                                limits=Limits(model_attempts=16,tool_attempts=24,seconds=480),reconcile_telemetry=True,
+                                case_name=case["case_id"],deadline_profile=deadlines.name,request_model_id=plan["acting_model"],cancel_on_review_start=mode=="cancel",
+                                limits=Limits(model_attempts=16,tool_attempts=24,seconds=deadlines.episode),reconcile_telemetry=True,
                                 provider_probe=lambda **kw:provider_status(plan["acting_model"],**kw),
                                 reconciliation_options={k:v for k,v in plan["reconciliation"].items() if k!="provider_idle_required"})
                             record["serving_resources"]=resources.snapshot()
@@ -352,11 +363,13 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--list-demo-cases",action="store_true");parser.add_argument("--dry-run",action="store_true")
     parser.add_argument("--demo-case",default="all",choices=["all",*[c["id"] for c in CARDS],*[c["selector"] for c in CARDS]])
-    parser.add_argument("--guard",choices=("classifier","llm"));parser.add_argument("--stage",choices=("all","controls","canary","cards"),default="all")
+    parser.add_argument("--guard",choices=("classifier","llm"));parser.add_argument("--stage",choices=("all","controls","canary","cards","diagnostics"),default="all")
+    parser.add_argument("--phase",choices=("nd1","nd2"),default="nd1")
     parser.add_argument("--classifier-device",choices=("cpu","mps"),default="mps",help="Explicit local classifier device; no automatic fallback or model-service change")
     parser.add_argument("--artifact",type=Path,default=BASE/"modernbert-training-v1/model");parser.add_argument("--budget",type=Path,default=BASE/"combined-budget")
     parser.add_argument("--freeze-demo",action="store_true");parser.add_argument("--execute-demo",action="store_true")
     parser.add_argument("--review-demo",type=Path,nargs="+",help="Review all persisted validation directories once; no agent rerun")
+    parser.add_argument("--allow-incomplete-review",action="store_true")
     parser.add_argument("--freeze-setup-correction",metavar="FAILED_RUN_ID",help="Bind the declared metadata-only setup correction without resetting the matrix")
     parser.add_argument("--use-setup-correction",action="store_true",help="Explicitly use the immutable additive setup correction")
     args=parser.parse_args()
@@ -367,7 +380,7 @@ def main():
     load_dotenv(ROOT/".env")
     os.environ["MLFLOW_ENABLE_ASYNC_TRACE_LOGGING"]="false"
     os.environ["MLFLOW_HTTP_REQUEST_MAX_RETRIES"]="0";os.environ["MLFLOW_HTTP_REQUEST_TIMEOUT"]="10"
-    plan=make_plan(args.artifact,acting_model=os.getenv("LM_STUDIO_MODEL",VERSIONS["local_model"]),classifier_device=args.classifier_device)
+    plan=make_plan(args.artifact,acting_model=os.getenv("LM_STUDIO_MODEL",VERSIONS["local_model"]),classifier_device=args.classifier_device,namespace=args.phase)
     if args.freeze_setup_correction:
         plan=DemoBudget(args.budget).freeze_setup_correction(plan,failed_setup_run_id=args.freeze_setup_correction)
     elif args.use_setup_correction:
@@ -377,8 +390,14 @@ def main():
     if args.review_demo:
         mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI","http://localhost:5001"));mlflow.set_experiment("breaker-banking-target-agent")
         return external_reviews(args,plan)
-    if args.freeze_demo:DemoBudget(args.budget).freeze_demo(plan)
-    if args.execute_demo:execute(args,plan)
+    if args.freeze_demo:
+        if args.phase=="nd1":DemoBudget(args.budget).freeze_demo(plan)
+        else:DemoBudget(args.budget).freeze_phase(plan)
+    if args.execute_demo:
+        if args.stage=="diagnostics":
+            from src.benchmark.measurement import execute as measure
+            measure(args,plan)
+        else:execute(args,plan)
     else:print(json.dumps(plan,indent=2))
 
 

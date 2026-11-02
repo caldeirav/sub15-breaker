@@ -11,6 +11,43 @@ from src.integrations.agentdojo.inventory import digest
 
 
 class DemoBudget(TrainingBudget):
+    def freeze_phase(self,plan):
+        """Fresh nd2+ IDs; never replace nd1 or its consumed requests/reviews."""
+        namespace=plan.get("namespace","")
+        if not re.fullmatch(r"nd[1-9][0-9]*",namespace) or namespace=="nd1":raise ValueError("fresh_demo_namespace_required")
+        if plan.get("policy_sha256")!=hashlib.sha256(encoded(POLICY)).hexdigest():raise ValueError("demo_policy_binding_required")
+        for key in ("artifact_manifest_sha256","calibration_sha256","fixtures_sha256","code_sha256"):
+            if not re.fullmatch(r"[0-9a-f]{64}",plan.get(key,"")):raise ValueError("demo_hash_binding_required")
+        cases=plan.get("cases",[])
+        if not cases or len({c["case_id"] for c in cases})!=len(cases):raise ValueError("demo_unique_cases_required")
+        for case in cases:
+            if not re.fullmatch(namespace+r"-[a-z0-9-]+",case["case_id"]):raise ValueError("demo_case_namespace")
+            if case.get("task_id") not in {None,"user_task_0","user_task_2","user_task_13"}:raise ValueError("demo_task_scope")
+            if case.get("gemini_data_generation",0):raise ValueError("demo_generation_not_authorized")
+            for role in LOCAL|EXTERNAL:
+                if type(case.get(role,0)) is not int or case.get(role,0)<0:raise ValueError("demo_invalid_allocation")
+        local=sum(c.get(r,0) for c in cases for r in LOCAL);external=sum(c.get(r,0) for c in cases for r in EXTERNAL)
+        if local>128 or external>17:raise ValueError("measurement_phase_allocation_cap")
+        with self.locked():
+            entries=self.entries();baseline=self.baseline(entries);path=self.directory/f"native-demo-{namespace}.json"
+            if path.exists():
+                if self.phase(namespace)!=plan:raise RuntimeError("demo_phase_changed")
+                return
+            if any(e["case_id"].startswith(namespace+"-") for e in entries):raise RuntimeError("phase_already_spent_before_freeze")
+            issued=entries[baseline["prefix_length"]:]
+            if (sum(e["role"] in LOCAL for e in entries)+local>POLICY["local_total"] or
+                    sum(e["role"] in LOCAL for e in issued)+local>POLICY["new_local_maximum"]):raise ValueError("demo_local_cap")
+            if (sum(e["role"] in EXTERNAL for e in entries)+external>POLICY["gemini_total"] or
+                    sum(e["role"] in EXTERNAL for e in issued)+external>POLICY["new_gemini_maximum"]):raise ValueError("demo_external_cap")
+            if self.accounted(entries,baseline)+external*usd(POLICY["gemini_hold_per_operation_usd"])>usd(POLICY["gemini_cost_cap_usd"]):raise ValueError("demo_cost_envelope")
+            self._exclusive(path,dict(plan=plan,sha256=digest(plan)))
+
+    def phase(self,namespace):
+        if not re.fullmatch(r"nd[1-9][0-9]*",namespace):raise ValueError("invalid_demo_namespace")
+        value=json.loads((self.directory/f"native-demo-{namespace}.json").read_text())
+        if value["sha256"]!=digest(value["plan"]):raise RuntimeError("demo_phase_changed")
+        return value["plan"]
+
     def freeze_demo(self,plan):
         with self.locked():
             entries=self.entries();baseline=self.baseline(entries)
@@ -77,9 +114,10 @@ class DemoBudget(TrainingBudget):
         return plan
 
     def reserve(self,*,role,case_id,trace_id,request=None,model=None):
-        if not case_id.startswith("nd1-"):return super().reserve(role=role,case_id=case_id,trace_id=trace_id,request=request,model=model)
+        namespace=case_id.split("-",1)[0]
+        if not re.fullmatch(r"nd[1-9][0-9]*",namespace):return super().reserve(role=role,case_id=case_id,trace_id=trace_id,request=request,model=model)
         with self.locked():
-            entries=self.entries();baseline=self.baseline(entries);plan=self.demo();issued=entries[baseline["prefix_length"]:]
+            entries=self.entries();baseline=self.baseline(entries);plan=self.demo() if namespace=="nd1" else self.phase(namespace);issued=entries[baseline["prefix_length"]:]
             case=next((c for c in plan["cases"] if c["case_id"]==case_id),None)
             if case is None or role not in LOCAL|EXTERNAL:raise RuntimeError("undeclared_demo_request")
             if sum(e["case_id"]==case_id and e["role"]==role for e in issued)>=case.get(role,0):raise RuntimeError("demo_case_budget_exhausted")
@@ -92,6 +130,6 @@ class DemoBudget(TrainingBudget):
                 if sum(e["role"] in EXTERNAL for e in entries)>=POLICY["gemini_total"] or sum(e["role"] in EXTERNAL for e in issued)>=POLICY["new_gemini_maximum"]:raise RuntimeError("demo_external_exhausted")
                 hold=usd(POLICY["gemini_hold_per_operation_usd"])
             if self.accounted(entries,baseline)+hold>usd(POLICY["gemini_cost_cap_usd"]):raise RuntimeError("demo_cost_exhausted")
-            value=dict(sequence=len(entries)+1,role=role,case_id=case_id,phase="native_demo_validation",trace_id=trace_id,model=model,
+            value=dict(sequence=len(entries)+1,role=role,case_id=case_id,phase=plan.get("phase","native_demo_validation"),trace_id=trace_id,model=model,
                 policy_version=POLICY["version"],cost_hold_usd=str(hold),spent=True,reserved_at=time.time(),request_sha256=hashlib.sha256(encoded(request)).hexdigest())
             self._exclusive(self.directory/f"attempt-{value['sequence']:04d}.json",value);return value

@@ -201,9 +201,9 @@ def run_case(*,deployment,store,authorization,adapter,bridge,mcp,budget,mask,tas
                             extra=dict(model=request_model_id) if request_model_id is not None else {}
                             entry=budget.reserve(role="actor",case_id=case_name or task_id,trace_id=active.trace_id,request=request,**extra)
                             store.call("/client-event",dict(trial_id=trial_id,kind="model_attempt",payload=entry))
-                        model_http=httpx.Client(transport=ModelTransport(mcp.base,on_request=reserve_http),timeout=45,trust_env=False)
+                        model_http=httpx.Client(transport=ModelTransport(mcp.base,on_request=reserve_http),timeout=deadlines.model,trust_env=False)
                         model=ChatOpenAI(model=request_model_id or os.environ["LM_STUDIO_MODEL"],base_url=mcp.base+"/v1",api_key=authorization.removeprefix("Bearer "),
-                            http_client=model_http,use_responses_api=True,output_version="responses/v1",max_retries=0,timeout=45,
+                            http_client=model_http,use_responses_api=True,output_version="responses/v1",max_retries=0,timeout=deadlines.model,
                             temperature=0,max_tokens=2048).bind_tools(definitions,parallel_tool_calls=False)
                         reserve=lambda:None  # Reservation occurs at the physical HTTP hook.
                     try:

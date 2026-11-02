@@ -108,9 +108,46 @@ def temporary_bridge(cluster,directory,host_ip,port,*,request_timeout,backend_ti
 
 
 @contextmanager
+def model_timeouts(cluster,directory,*,request_timeout,backend_timeout):
+    """Owned model route only; keep auth, provider, model and retry policy intact."""
+    from src.infra.protocol_resources import LABELS
+    specs=[];applied=[]
+    for kind,name in (("HTTPRoute","banking-model-responses"),("AgentgatewayPolicy","banking-model-responses-identity")):
+        original=cluster.get(kind,name,"-n",NAMESPACE)
+        if any(original["metadata"].get("labels",{}).get(k)!=v for k,v in LABELS.items()):raise RuntimeError("foreign_model_timeout_resource")
+        changed=deepcopy(original)
+        if kind=="HTTPRoute":
+            if len(changed["spec"]["rules"])!=1:raise RuntimeError("unexpected_model_route_rules")
+            changed["spec"]["rules"][0].setdefault("timeouts",{})["request"]=f"{request_timeout}s"
+        else:changed["spec"].setdefault("backend",{}).setdefault("http",{})["requestTimeout"]=f"{backend_timeout}s"
+        patch=private(Path(directory)/(kind+"-model-timeout-patch.json"),resource_patch(original,changed))
+        specs.append((kind,name,original,changed,patch))
+    private(Path(directory)/"model-timeouts-original.json",[s[2] for s in specs])
+    for kind,name,original,changed,patch in specs:cluster.kubectl("patch",kind,name,"-n",NAMESPACE,"--type=json","--patch-file",patch,"--dry-run=server")
+    try:
+        for kind,name,original,changed,patch in specs:
+            cluster.kubectl("patch",kind,name,"-n",NAMESPACE,"--type=json","--patch-file",patch)
+            applied.append((kind,name,original,changed))
+            observed=cluster.get(kind,name,"-n",NAMESPACE)
+            if observed["spec"]!=changed["spec"]:raise RuntimeError("model_timeout_not_applied")
+        private(Path(directory)/"model-timeouts-binding.json",dict(request_seconds=request_timeout,backend_seconds=backend_timeout))
+        yield
+    finally:
+        for index,(kind,name,original,changed) in enumerate(reversed(applied)):
+            current=cluster.get(kind,name,"-n",NAMESPACE)
+            if (current["metadata"]["uid"]!=original["metadata"]["uid"] or current["spec"]!=changed["spec"] or
+                    any(current["metadata"].get(k)!=original["metadata"].get(k) for k in ("labels","annotations"))):raise RuntimeError("model_timeout_restore_concurrent_change")
+            patch=private(Path(directory)/f"model-timeout-restore-{index}.json",resource_patch(current,original))
+            cluster.kubectl("patch",kind,name,"-n",NAMESPACE,"--type=json","--patch-file",patch)
+            restored=cluster.get(kind,name,"-n",NAMESPACE)
+            if restored["spec"]!=original["spec"]:raise RuntimeError("model_timeout_restore_readback_failed")
+        private(Path(directory)/"model-timeouts-restored.json",dict(restored=True))
+
+
+@contextmanager
 def native_hook(cluster,directory,host_ip,port,*,timeout_seconds=25):
     """Restore exactly our owned modification; never overwrite concurrent edits."""
-    if type(timeout_seconds) is not int or not 1<=timeout_seconds<=25:raise ValueError("invalid_native_hook_timeout")
+    if type(timeout_seconds) is not int or not 1<=timeout_seconds<=330:raise ValueError("invalid_native_hook_timeout")
     cm=cluster.get("configmap","atenet-egress","-n","ate-system")
     original=deepcopy(cm["data"])
     private(Path(directory)/"native-original-configmap.json",cm)

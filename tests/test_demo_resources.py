@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.benchmark.deployment import resource_patch,temporary_bridge
+from src.benchmark.deployment import model_timeouts,resource_patch,temporary_bridge
 
 
 class Cluster:
@@ -17,8 +17,9 @@ class Cluster:
         if args[0]=="delete":
             self.deleted.append((args[1],args[2]));del self.resources[(args[1],args[2])]
         elif args[0]=="patch":
+            if "--dry-run=server" in args:return SimpleNamespace(stdout="")
             item=self.resources[(args[1],args[2])]
-            for op in json.loads(args[-1].read_text()):
+            for op in json.loads(args[args.index("--patch-file")+1].read_text()):
                 path=op["path"].strip("/").split("/");target=item
                 for part in path[:-1]:target=target[part]
                 if op["op"]=="test":assert target[path[-1]]==op["value"]
@@ -67,3 +68,17 @@ def test_cas_patch_preserves_annotations_without_serializing_live_metadata():
     assert operations[:2]==[dict(op="test",path="/metadata/uid",value="uid"),dict(op="test",path="/metadata/resourceVersion",value="42")]
     assert not any(op["path"] in {"/status","/metadata"} for op in operations)
     assert operations[-1]["value"]==current["metadata"]["annotations"]
+
+
+def test_model_timeout_profile_preserves_auth_and_restores_owned_resources(tmp_path):
+    from src.infra.protocol_resources import LABELS
+    cluster=Cluster()
+    for kind,name,spec in [("HTTPRoute","banking-model-responses",dict(rules=[dict(timeouts=dict(request="60s"))])),
+            ("AgentgatewayPolicy","banking-model-responses-identity",dict(traffic=dict(retry=dict(attempts=0),authorization=dict(policy="unchanged"))))]:
+        cluster.resources[(kind,name)]=dict(kind=kind,metadata=dict(name=name,uid=name,resourceVersion="1",labels=LABELS,annotations=dict(original="yes")),spec=spec)
+    original=deepcopy(cluster.resources)
+    with model_timeouts(cluster,tmp_path,request_timeout=330,backend_timeout=315):
+        policy=cluster.resources[("AgentgatewayPolicy","banking-model-responses-identity")]["spec"]
+        assert policy["backend"]["http"]["requestTimeout"]=="315s"
+        assert policy["traffic"]["retry"]["attempts"]==0 and policy["traffic"]["authorization"]["policy"]=="unchanged"
+    assert cluster.resources==original
