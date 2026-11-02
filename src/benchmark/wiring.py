@@ -179,7 +179,7 @@ def run_case(*,deployment,store,authorization,adapter,bridge,mcp,budget,mask,tas
                 if snapshot["state"]!=episode.initial_state.model_dump(mode="json"):raise RuntimeError("suite_backend_initial_state_differs")
                 mask.learn(snapshot["state"])
                 with deployment.forward(actor["metadata"]["name"],actor=True) as base:
-                    actor_client=RuntimeClient(base,authorization,timeout=deadlines.actor_client)
+                    actor_client=RuntimeClient(base,authorization,timeout=deadlines.actor_client,boundary="driver_to_actor")
                     probe=actor_client.call("/probe",{})
                     if (probe["uid"],probe["gid"],probe["effective_capabilities"],probe["no_new_privs"],probe["ambient_kubernetes_token"])!=(10001,10001,"0000000000000000","1",False):
                         raise RuntimeError("actor_runtime_probe_differs")
@@ -244,6 +244,7 @@ def run_case(*,deployment,store,authorization,adapter,bridge,mcp,budget,mask,tas
                     exc.partial_record=dict(case_id=case_id,task_id=task_id,trial_id=trial_id,trial_created=trial_created,
                         trace_id=root.trace_id,child_run_id=child.info.run_id,status="setup_failed",error=type(exc).__name__,
                         error_code=getattr(exc,"code",None),cleanup_errors=cleanup)
+                    if getattr(exc,"transport",None):exc.partial_record["error_transport"]=exc.transport
                 raise
             finally:
                 if cancellation_thread and cancellation_thread.is_alive():
