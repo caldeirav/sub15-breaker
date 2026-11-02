@@ -38,11 +38,11 @@ def build_harness_judge(model):
         inference_params={"temperature":0,"max_tokens":8192,"timeout":60,"num_retries":0})
 
 
-def review_harness(judge,*,observations,target_trace_id,reserve):
+def review_harness(judge,*,observations,target_trace_id,reserve,scope="approved-three-task-banking-wiring",required_cases=None):
     """Caller supplies persisted facts, never code verdicts or a success summary."""
     with mlflow.start_span(name="external_harness_review",span_type="LLM") as span:
-        payload=dict(inputs=dict(scope="approved-three-task-banking-wiring"),outputs=observations,
-            expectations=dict(rubric_version=RUBRIC_VERSION,required_cases=["user_task_0","user_task_2","user_task_13"],
+        payload=dict(inputs=dict(scope=scope),outputs=observations,
+            expectations=dict(rubric_version=RUBRIC_VERSION,required_cases=required_cases if required_cases is not None else ["user_task_0","user_task_2","user_task_13"],
                 claims_excluded=["utility_win_rate","trained_guard","A/B_performance","production_acceptance"]))
         span.set_inputs(dict(target_trace_id=target_trace_id,model=judge.model,**payload))
         from src.benchmark.privacy import Mask

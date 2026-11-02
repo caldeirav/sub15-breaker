@@ -103,6 +103,10 @@ def validate_canary(records):
 
 
 def main():
+    import sys
+    if any(flag in sys.argv for flag in ("--list-demo-cases","--demo-case","--dry-run","--freeze-demo","--execute-demo","--review-demo")):
+        from src.benchmark.demo import main as demo_main
+        return demo_main()
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--artifact",type=Path,required=True)
     parser.add_argument("--dataset",type=Path,required=True)

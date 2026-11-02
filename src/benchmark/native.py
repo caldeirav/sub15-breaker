@@ -6,7 +6,7 @@ This module alone does not prove native enforcement: use actual Actor controls.
 """
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass,field
 import re
 import threading
 from time import perf_counter_ns
@@ -28,6 +28,16 @@ class ControlGuard:
         return Verdict(value.digest(),self.decision,self.guard_id)
 
 
+class LateAllowGuard:
+    """Explicit native fault control, never a learned-reviewer performance sample."""
+    guard_id="fault-controlled-late-allow"
+    def __init__(self):self.started=threading.Event();self.cancelled=threading.Event()
+    def review(self,value):
+        self.started.set()
+        if not self.cancelled.wait(40):raise RuntimeError("fault_cancellation_not_observed")
+        return Verdict(value.digest(),"allow",self.guard_id)
+
+
 @dataclass
 class Entry:
     value: object
@@ -36,6 +46,9 @@ class Entry:
     result: dict | None = None
     attempted: bool = False
     input_issues: tuple = ()
+    cancelled: threading.Event = field(default_factory=threading.Event)
+    done: threading.Event = field(default_factory=threading.Event)
+    cancellation_reason: str | None = None
 
 
 class Registry:
@@ -46,7 +59,19 @@ class Registry:
         if not re.fullmatch(r"[0-9a-f]{32}",ticket):raise ValueError("invalid_prepared_ticket")
         with self.lock:
             if ticket in self.entries:raise ValueError("duplicate_guard_ticket")
-            self.entries[ticket]=Entry(deepcopy(value),guard,parent,input_issues=tuple(input_issues))
+            entry=Entry(deepcopy(value),guard,parent,input_issues=tuple(input_issues))
+            if isinstance(guard,LateAllowGuard):entry.cancelled=guard.cancelled
+            self.entries[ticket]=entry
+
+    def cancel(self,ticket,reason="caller_cancelled"):
+        with self.lock:
+            entry=self.entries.get(ticket)
+            if entry and entry.result is None and not entry.done.is_set():
+                entry.cancellation_reason=entry.cancellation_reason or reason;entry.cancelled.set()
+
+    def wait(self,ticket,timeout):
+        with self.lock:entry=self.entries.get(ticket)
+        return entry is not None and (not entry.attempted or entry.done.wait(timeout))
 
     def admit(self,ticket,*,active=lambda:True):
         started=perf_counter_ns()
@@ -55,6 +80,7 @@ class Registry:
             if entry is None or entry.attempted:return dict(decision="error",error="unregistered_or_replayed_ticket")
             entry.attempted=True
         span=mlflow.start_span_no_context(name="substrate_native_admission",span_type="GUARDRAIL",parent_span=entry.parent)
+        def alive():return active() and not entry.cancelled.is_set()
         try:
             span.set_inputs(dict(ticket=ticket,review=entry.value.serialized(),guard_id=entry.guard.guard_id,input_issues=list(entry.input_issues)))
             # Context attachment makes LangChain verifier autolog spans children
@@ -64,23 +90,30 @@ class Registry:
                 if entry.input_issues:
                     result=dict(input_digest=entry.value.digest(),guard_id=entry.guard.guard_id,decision="error",risk=None,
                         review_latency_ns=0,error="unsupported_review_input",input_issues=list(entry.input_issues),model_invocations=0)
-                elif not active():
+                elif not alive():
                     result=dict(input_digest=entry.value.digest(),guard_id=entry.guard.guard_id,decision="error",risk=None,
                         review_latency_ns=0,error="admission_request_cancelled_before_review",model_invocations=0)
                 else:result=timed_review(entry.guard,entry.value)
-                if not active():
-                    result.update(discarded_decision=result["decision"],decision="error",error="review_finished_after_request_cancelled")
+                if not alive():
+                    result.update(discarded_decision=result["decision"],review_error=result.get("error"),decision="error",error="review_finished_after_request_cancelled",
+                        cancellation_reason=entry.cancellation_reason)
             result.update(ticket=ticket,admission_service_ns=perf_counter_ns()-started,
                 trace_id=span.trace_id,span_id=span.span_id)
             span.set_outputs(result)
             with self.lock:entry.result=result
             return result
-        finally:span.end()
+        finally:
+            try:span.end()
+            finally:entry.done.set()
 
     def result(self,ticket):
         with self.lock:
             entry=self.entries.get(ticket)
             return deepcopy(entry.result) if entry else None
+
+    def attempted(self,ticket):
+        with self.lock:
+            entry=self.entries.get(ticket);return bool(entry and entry.attempted)
 
 
 class Processor:
@@ -102,6 +135,7 @@ class Processor:
                 match=re.fullmatch(r"/claim/([0-9a-f]{32})",path)
                 if headers.get(":method")!="POST" or not match:
                     yield deny(403,"canonical_ticket_path_required");return
+                if context is not None:context.add_callback(lambda ticket=match[1]:self.registry.cancel(ticket,"grpc_request_closed"))
                 result=self.registry.admit(match[1],active=context.is_active if context is not None else lambda:True)
                 if result["decision"]!="allow":
                     yield deny(403 if result["decision"]=="block" else 503,"benchmark_guard_"+result["decision"]);return

@@ -52,8 +52,38 @@ def configure_bridge(cluster,directory,host_ip,port,*,request_timeout=60,backend
 
 
 @contextmanager
-def native_hook(cluster,directory,host_ip,port):
+def temporary_bridge(cluster,directory,host_ip,port,*,request_timeout,backend_timeout):
+    names=[("AgentgatewayBackend","benchmark-banking-mcp"),("HTTPRoute","benchmark-banking-mcp"),
+        ("AgentgatewayPolicy","benchmark-banking-mcp"),("NetworkPolicy","benchmark-gateway-host-bridge")]
+    before=[]
+    for kind,name in names:
+        raw=cluster.kubectl("get",kind,name,"-n",NAMESPACE,"--ignore-not-found","-o","json",capture=True).stdout
+        before.append(json.loads(raw) if raw else None)
+    private(Path(directory)/"bridge-original-resources.json",before)
+    configure_bridge(cluster,directory,host_ip,port,request_timeout=request_timeout,backend_timeout=backend_timeout)
+    applied=[cluster.get(kind,name,"-n",NAMESPACE) for kind,name in names]
+    try:yield
+    finally:
+        for index,((kind,name),original,expected) in enumerate(zip(names,before,applied,strict=True)):
+            current=cluster.get(kind,name,"-n",NAMESPACE)
+            if (current["metadata"]["uid"]!=expected["metadata"]["uid"] or current["spec"]!=expected["spec"] or
+                    current["metadata"].get("labels")!=expected["metadata"].get("labels") or
+                    current["metadata"].get("annotations")!=expected["metadata"].get("annotations")):
+                raise RuntimeError("bridge_restore_refuses_concurrent_change")
+            if original is None:cluster.kubectl("delete",kind,name,"-n",NAMESPACE)
+            else:
+                current["spec"]=original["spec"]
+                for field in ("labels","annotations"):
+                    if field in original["metadata"]:current["metadata"][field]=original["metadata"][field]
+                    else:current["metadata"].pop(field,None)
+                cluster.kubectl("replace","-f",private(Path(directory)/f"bridge-restore-{index}.json",current))
+        private(Path(directory)/"bridge-restoration.json",dict(restored=True,resources=len(names)))
+
+
+@contextmanager
+def native_hook(cluster,directory,host_ip,port,*,timeout_seconds=25):
     """Restore exactly our owned modification; never overwrite concurrent edits."""
+    if type(timeout_seconds) is not int or not 1<=timeout_seconds<=25:raise ValueError("invalid_native_hook_timeout")
     cm=cluster.get("configmap","atenet-egress","-n","ate-system")
     original=deepcopy(cm["data"])
     private(Path(directory)/"native-original-configmap.json",cm)
@@ -66,8 +96,8 @@ def native_hook(cluster,directory,host_ip,port):
             endpoint=dict(address=dict(socket_address=dict(address=host_ip,port_value=port))))])])))
     filter=dict(name="envoy.filters.http.ext_proc",typed_config={
         "@type":"type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExternalProcessor",
-        "stat_prefix":"benchmark_native_admission","grpc_service":{"envoy_grpc":{"cluster_name":"benchmark_native_admission"},"timeout":"25s"},
-        "failure_mode_allow":False,"message_timeout":"25s","processing_mode":dict(request_header_mode="SEND",response_header_mode="SKIP",
+        "stat_prefix":"benchmark_native_admission","grpc_service":{"envoy_grpc":{"cluster_name":"benchmark_native_admission"},"timeout":f"{timeout_seconds}s"},
+        "failure_mode_allow":False,"message_timeout":f"{timeout_seconds}s","processing_mode":dict(request_header_mode="SEND",response_header_mode="SKIP",
             request_body_mode="NONE",response_body_mode="NONE",request_trailer_mode="SKIP",response_trailer_mode="SKIP")})
     count=0
     for listener in resources["listeners"]:
@@ -92,7 +122,7 @@ def native_hook(cluster,directory,host_ip,port):
     try:
         replace(changed,original)
         private(Path(directory)/"native-hook-binding.json",dict(configmap_uid=cm["metadata"]["uid"],revision=revision,filters=count,
-            shared_timeout_seconds=25,request_body_mode="NONE",ticket_path=True))
+            shared_timeout_seconds=timeout_seconds,request_body_mode="NONE",ticket_path=True))
         yield
     finally:
         current=cluster.get("configmap","atenet-egress","-n","ate-system")
