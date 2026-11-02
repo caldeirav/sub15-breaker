@@ -64,3 +64,10 @@ def test_sequence_diagram_message_text_has_no_unescaped_statement_separators():
                 message = line.split(":", 1)[1]
                 unescaped = re.sub(r"#[a-zA-Z0-9]+;", "", message)
                 assert ";" not in unescaped, f"{path}: unescaped semicolon in {line.strip()}"
+
+
+def test_model_equations_avoid_unsupported_operatorname_macro():
+    text = (ROOT / "docs/model.md").read_text()
+    assert r"\operatorname" not in text
+    assert r"\frac{1}{1+e^{-(z_1-z_0)/T}}" in text
+    assert text.count(r"\frac{1}{|B_b|}\sum_{i\in B_b}") == 2

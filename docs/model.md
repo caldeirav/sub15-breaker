@@ -163,15 +163,20 @@ fitting. Freeze/export/reload parity precedes original transfer scoring.
 
 For logits $z_0,z_1$, compute the **difference**, not sigmoid of an arbitrary logit:
 
-$$p_{\mathrm{risk}}=\operatorname{softmax}(z/T)_1
-=\sigma((z_1-z_0)/T),\quad T>0.$$
+$$
+p_{\mathrm{risk}}=\sigma((z_1-z_0)/T)
+=\frac{1}{1+e^{-(z_1-z_0)/T}},\quad T>0.
+$$
 
 Block when $p_{\mathrm{risk}}\geq\tau$. Temperature fits held-out NLL, not directly
 ECE or an error-rate guarantee ([Guo et al., 2017](https://proceedings.mlr.press/v70/guo17a.html)).
 Report NLL, Brier, reliability-bin counts and
 
-$$\mathrm{ECE}=\sum_b\frac{|B_b|}{N}
-\left|\operatorname{mean}_{i\in B_b}p_i-\operatorname{mean}_{i\in B_b}y_i\right|.$$
+$$
+\mathrm{ECE}=\sum_b\frac{|B_b|}{N}
+\left|\frac{1}{|B_b|}\sum_{i\in B_b}p_i
+-\frac{1}{|B_b|}\sum_{i\in B_b}y_i\right|.
+$$
 
 The frozen v1 calibration artifact records NLL0.354436→0.243370,
 Brier0.111682→0.078054 and ten-bin ECE0.143128→0.077911 on its100 calibration rows.
