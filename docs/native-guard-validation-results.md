@@ -1,5 +1,10 @@
 # Native guard validation evidence
 
+**Historical nd1 attempt.** The subsequent completion-first measurements and
+completed nd3 native validation are in
+[laptop measurement results](laptop-measurement-results.md). This failed attempt
+and its negative review remain unchanged; they are not the latest run's outcome.
+
 **Stopped at the declared learned-canary gate; not five-card acceptance or production certification.**
 
 Implementation: `7b0b7c6`, scoped-review regression `4c812d3`, metadata setup

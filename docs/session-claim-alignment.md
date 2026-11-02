@@ -20,14 +20,14 @@ observed outcomes and resource/startup conditions must accompany any comparison.
 | Native platform enforcement rather than agent self-policing | Demonstrated by six native controls with receipts, state and trace readback. |
 | Ephemeral Actor execution through the gateway/native hook | Demonstrated for executed controls and the full-prefix classifier canary. Not every advertised card has run. |
 | Non-generative binary review in one forward pass | Implemented by the frozen encoder classifier. AnyJev/Laya are not the implementation demonstrated. |
-| Classifier is much faster than a completed LLM review | Plausible objective, but no completed matched LLM canary baseline exists yet. A20s timeout is an error, not a successful latency sample or a valid speedup denominator. |
-| Sub-15ms verification | **Not demonstrated.** Historical classifier adapter reviews were203.351ms first-use and54.306ms on a subsequent, different input. Their Actor claim roundtrips were295.345ms and84.645ms. These are not a warmed, matched microbenchmark. |
+| Classifier is much faster than a completed LLM review | Now measured: fixed subsequent diagnostic review medians~18.2x (read) /15.5x (payment) faster; actual matched native payment review~8.9x and claim~6.3x. Small descriptive samples, not matched-safety or load-tested guarantees. Old timeouts remain errors, not speed samples. |
+| Sub-15ms verification | Only a narrow model-stage result: read encoder-total median12.454ms (n=5 subsequent calls); payment16.538ms. Whole-review medians21–25ms in the tight-loop diagnostic; actual native classifier reviews53.8–212.6ms and best observed claim88.9ms. **Not sub15ms complete review/native admission.** |
 | Mathematically calibrated safety | Frozen temperature scaling and provenance exist, but this is an imperfect classifier with known transfer/quality limitations. A probability is not a universal safety guarantee. Report held-out reliability, errors and coverage under the actual distribution before making a calibration claim. |
 | Eliminates positional bias | Not established by these tests. Deterministic serialization is not a positional-invariance proof. |
 | Validates terminal/API execution success | The banking example verifies proposed actions **before execution**. Original task utility is checked separately afterward. This does not demonstrate a generic post-execution terminal/API verifier. |
 
 The architecture remains aligned with the session's direction; the current
-demonstration does **not** yet substantiate the title's numeric threshold or the
+demonstration does **not** substantiate an unqualified title-level numeric threshold or the
 abstract's broad calibration/bias/security guarantees. Do not present those as
 measured results. If15ms is an inference-only target, say so explicitly; do not
 use it as a synonym for full native admission.
@@ -100,6 +100,13 @@ before live validation. PR #49 remains draft; #47/#50 own reconciliation/serving
 session/demo acceptance.
 
 ## Implementation validation (no new inference)
+
+This subsection records the earlier implementation-only check. Subsequent
+authorized live measurements, all14 native cases and the scoped `supported`
+external harness review are documented in [the latest results](laptop-measurement-results.md).
+Seven/eight selectable backend variants meet their intended outcome; the D01/LLM
+permitted-read false block remains visible and not ready. No accuracy or safety
+guarantee is inferred from the speed advantage or harness review.
 
 - All552 tests pass on Python3.11–3.13, including lazy-resource lifetime, no
   fallback, tokenizer-only loading, one-forward instrumentation, delayed gateway

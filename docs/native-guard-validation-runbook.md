@@ -1,5 +1,11 @@
 # Bounded native validation
 
+**The nd1 commands below are historical and spent. Do not execute them again.**
+Latest protocol/evidence: [completion-first plan](laptop-measurement-plan.md) and
+[validated results](laptop-measurement-results.md). nd2 measurements and nd3 native
+validation are also spent; use their read-only report/trace artifacts for review.
+Rehearsal/presentation needs a new approved phase, never a reset of these IDs.
+
 This extends the existing `wiring.run_case` / compiled agent graph. It does not
 improve or retune the frozen classifier. **No card is ready until its recorded
 validation evidence says so.** Historical failures and spending remain intact.
