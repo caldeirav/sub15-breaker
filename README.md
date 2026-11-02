@@ -52,7 +52,11 @@ The focused follow-up is [PR #57](https://github.com/caldeirav/sub15-breaker/pul
 It preserves the broader failures above. Curated demo correctness is not held-out
 accuracy, and rehearsal success does not substitute for owner acceptance.
 The [focused results and evidence](docs/demo-qualification-results.md) distinguish
-completed paired review measurements from pending native/rehearsal acceptance.
+completed qualification (both guards4/4 on fixed curated inputs;14/14 native cases
+ready; scoped harness review supported) from the **incomplete rehearsal**: nd6
+stopped at the durable store's100-trial capacity after seven prerequisites (#58).
+No trial history or spent IDs were reset; owner acceptance remains blocked.
+This does not establish general accuracy or15ms native classifier performance.
 
 ## Why this design?
 

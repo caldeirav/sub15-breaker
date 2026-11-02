@@ -112,3 +112,16 @@ uv run --locked python -m src.benchmark.demo --phase nd6 \
 uv run --locked python -m src.benchmark.demo --phase nd6 \
   --protocol demo-rehearsal-v1 --rehearsal-of nd5 --review-demo REHEARSAL_NATIVE_DIRECTORY
 ```
+
+## Actual disposition
+
+nd5 passed paired4/4 under both guards and14/14 native cases; its17 reviews were
+valid,16 task outcomes agreed and the scoped harness verdict is `supported`.
+The separately allocated nd6 rehearsal **did not pass**: after seven prerequisite
+cases, store `/create` reached the existing100-trial cap, before the LLM canary
+issued any model/tool call. The remaining six demo variants were not run, and
+the completion-gated1-review allocation was not consumed. No retries, capacity increase,
+history deletion or spent-ID resets were performed. #58 owns the newly identified
+capacity/readiness blocker; #45/#48 still need successful rehearsal and explicit
+owner acceptance. Full source links, budget, failed cleanup flag and independent
+late-state/Actor/resource readback are in [results](demo-qualification-results.md).

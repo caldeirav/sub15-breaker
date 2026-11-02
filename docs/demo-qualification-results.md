@@ -114,22 +114,79 @@ and complete restoration readback remain in the source bundle. Final fingerprint
 and durable tool-attempt lists match all14 records; no Actors remain.
 
 Actual native-serviced classifier decision cores (n=10) were **47.146–151.517ms**,
-median**63.288ms**, with **0/10 below15ms**. Functional demo success must not be
+median **63.288ms**, with **0/10 below15ms**. Functional demo success must not be
 misrepresented as satisfying the classifier decision-latency target in native
 servicing. The cause of the tight-loop/native core gap is still unestablished (#13).
 
 ## Reviews and separately gated rehearsal
 
-The preallocated qualification reviews are running. No rehearsal success or
-owner acceptance is claimed yet. Rehearsal requires the complete source-bound
-qualification report plus late-state/restoration evidence; it cannot start just
-because one desired workflow passed.
+The **17/17** preallocated qualification reviews completed without API/parser
+errors. All16 task reviews agreed with original criterion outcomes; the overall
+scoped harness review returned **`supported`**. It uses compact evidence v2 with
+explicit logical-callback versus physical actor/guard request counts. This new
+review concerns the newly preallocated nd5 run, not a paid re-review of nd4:
+nd4's negative verdict/source files remain untouched. External support is not
+general model correctness, safety calibration or owner acceptance.
+
+The source-bound JSON/HTML/Markdown qualification report is published. Rehearsal
+was allowed only after that report verified14/14 native cases, exact physical
+reservations, paired correctness, and late-state/restoration evidence. The
+separately preallocated nd6 rehearsal used fresh state and unchanged configuration.
+
+### Rehearsal blocked — #58, not a full pass
+
+nd6 **stopped after7/14 completed prerequisites**. Creating the next case,
+`nd6-canary-llm`, returned **`trial_capacity`** before its model/tool dispatch.
+Six remaining demo variants were unstarted. The durable store has a hard-coded
+100-trial limit; read-only live SQL confirmed **100 trials,189 actions and577
+unexported events**. This is not an MCP connection recurrence or model rejection.
+The rehearsal issued **zero physical actor/LLM-guard requests** and no external
+review. Seven passing prerequisites must not be presented as a complete rehearsal.
+
+All seven completed records' final state/tool-attempt lists match late readback;
+owned resources were restored and no Actors remain. The failed setup's original
+cleanup span contains a fence error for the nonexistent trial and consequently
+reports its aggregate `deleted=false`. Actor deletion still executed without a
+delete error, and independent platform readback confirms no Actors remain. Both
+the original flag/error and independent readback are retained, not silently fixed
+or re-scored into a successful episode.
+
+The failure and all spent IDs remain. **No history was deleted, no capacity limit
+was raised, and no case was retried.** #58 defines the required bounded-capacity
+configuration, read-only whole-campaign capacity preflight, failed-setup cleanup
+evidence and fresh allocation. The same-model/config successful rehearsal and
+owner acceptance are therefore **not achieved**. A capacity/image change needs
+an explicitly scoped fresh qualification/rehearsal pair, not reuse of nd5/nd6.
+The remaining v4 external allowance is10 operations, insufficient for blindly
+repeating the current17+1 review protocol; propose any new allowance/scope rather
+than quietly expanding the envelope or dropping reviews.
+
+The incomplete rehearsal has its own source-bound JSON/HTML/Markdown report;
+post-run reporting code only adds that failure view and creates no readiness
+marker, model/tool/judge request or changed original record.
+The post-run reporting regression passes **593 tests on Python3.11–3.13**;
+runtime/model source stays `7c9d893` for both actual phases.
 
 ## Evidence and ownership
 
 - Measurement run: `70a9125151a24938ae1f3b893613abd2`, MLflow experiment5.
 - Native qualification run: `a5d6bb3364a44af7b69627b2d952eade`, experiment5;
   `.infra/benchmark-guard-harness/native-demo-632cdb5a23344093a8b48b10325e7c21/`.
+- Qualification external review run: `5877be06721842e3b38e01a27f1fc9b1`;
+  `.infra/benchmark-guard-harness/native-demo-review-5d4d87ceed274f95931c803d9d1a16f1/`.
+- Qualification JSON/HTML/Markdown:
+  `.infra/benchmark-guard-harness/nd5-demo-qualification-report/`, also published
+  to the external-review run under `demo-qualification`. Its report binds every
+  source record, matrix, effective transport config, raw samples, review and
+  final-state readback by hash. It writes no model/tool requests.
+- Incomplete rehearsal run: `ceaff2a0df704e53b50acfbfd7984c9c`, experiment5;
+  failed child `f15484900fb04fa18e69fc0483f7310e`, trace
+  `tr-6f1c1711426e168b07ac4753f9a6d9ab`.
+- Rehearsal source bundle:
+  `.infra/benchmark-guard-harness/native-demo-bac5b7bac5aa4921b89c481a80d1bba9/`.
+- Incomplete report:
+  `.infra/benchmark-guard-harness/nd6-incomplete-rehearsal-report/`, published to
+  that run under `incomplete-rehearsal`, including cumulative budget readback.
 - Raw paired/timing bundle:
   `.infra/benchmark-guard-harness/laptop-measurement-f56164ac2c464a16a47532d3c188aadf/`.
 - Non-effectful preflight evidence:
@@ -137,7 +194,42 @@ because one desired workflow passed.
   remain alongside it.
 - The frozen matrix hashes and exact lifecycle commands are in the linked plan.
   Opening saved reports makes no model calls. Do not reuse/reset spent phase IDs.
-- #54 requires actual transport/live evidence. #45/#48 remain explicit owner
+- #54 has actual effective-configuration and passing bounded live qualification
+  evidence; that does not establish HA or the exact old connect failure cause.
+  #58 blocks successful rehearsal. #45/#48 remain explicit owner
   acceptance gates. Separate quality #55, classifier-only performance #13 and
   full held-out comparison #56 remain deferred; no universal safety, production
   acceptance or native-claim15ms guarantee follows from a curated demo pass.
+
+### Requests and cost
+
+nd5 used **40 local requests** (16 paired/timing LLM reviews,14 actor requests,
+10 native LLM-guard requests) and17 external reviews. Direct classifier calls
+were24 timing+4 paired+10 native decisions. nd6 used zero local/external model
+requests, but its started case IDs are still spent. Cumulative: **154 local /
+149 external /$42.0755570 including conservative holds**, within2048/512/$100
+caps. Holds are not an invoice; unused allocation is not retry permission.
+
+Read-only regeneration of the incomplete failure view (new output directory,
+retained source/ledger required; no model/tool/judge calls):
+
+```bash
+uv run --locked python -m src.benchmark.demo_qualification \
+  --failure-report .infra/benchmark-guard-harness/native-demo-bac5b7bac5aa4921b89c481a80d1bba9 \
+  --output NEW_INCOMPLETE_REPORT_DIRECTORY
+```
+
+## Owner review checklist (not an acceptance recorded by the harness)
+
+- Confirm both D01 and D03 variants have original utility=true plus the intended
+  receipt/state change, and both D02 variants have zero extra target execution.
+- Confirm D04/D05 show fail-closed behavior and late-result discard, not merely
+  an exception message in the agent's response.
+- Review completed rehearsal evidence separately from qualification; check no
+  model/prompt/classifier/config change occurred between them.
+- Accept the declared **curated** scope with rent/#55, native classifier latency
+  /#13, nd4's failed/unknown records and later held-out work/#56 still visible.
+- Record explicit acceptance in #45/#48 before closing them. A successful run,
+  positive judge or merge alone does not count as this acceptance.
+- A future live presentation needs its own approved fresh IDs/allocation. Opening
+  these saved reports makes no model calls; spent nd5/nd6 IDs cannot be reused.

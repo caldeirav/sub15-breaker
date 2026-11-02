@@ -257,6 +257,53 @@ def report(budget,plan,native,measurement,output,*,reviews):
     return result
 
 
+def failure_report(budget,native,output):
+    """Read-only derived report for an incomplete capacity-blocked rehearsal.
+
+    Never creates a qualification marker, changes allocations or queries a judge.
+    Keep the original failed run/cleanup flag, even when later readback differs.
+    """
+    native=Path(native);plan=json.loads((native/"plan.json").read_text())
+    if plan!=budget.phase(plan["namespace"]):raise ValueError("failure_report_plan_differs")
+    names=("plan.json","failure.json","cards.json","capacity-readback.json","failed-case-cleanup.json","final-runtime-readback.json","bridge-restoration.json","bridge-effective-backend.json","bridge-transport.json")
+    sources=[native/name for name in names]
+    failure=json.loads((native/"failure.json").read_text());cleanup=json.loads((native/"failed-case-cleanup.json").read_text())
+    cards=json.loads((native/"cards.json").read_text());late=json.loads((native/"final-runtime-readback.json").read_text())
+    required={c["case_id"] for c in plan["cases"] if c["kind"] in {"control","canary","card"}}
+    completed={c["case_id"] for c in cards};failed=cleanup["case_id"]
+    if not completed<=required or failed not in required-completed or completed!=set(failure["completed_cases"]):raise ValueError("failure_report_case_accounting")
+    physical=0
+    for case in completed:
+        path=native/(case+".json");record=json.loads(path.read_text());sources.append(path)
+        marker=json.loads((budget.directory/("native-result-"+case+".json")).read_text())
+        if marker["matrix_sha256"]!=digest(plan) or marker["record_sha256"]!=hashlib.sha256(path.read_bytes()).hexdigest():raise ValueError("failure_report_source_changed")
+        physical+=record["trace_audit"]["managed_responses_dispatches"]+record["trace_audit"]["guard_managed_responses_dispatches"]
+    physical+=sum(t["physical_model_spans"] for t in cleanup["sources"])
+    with budget.locked():entries=budget.entries()
+    reserved=sum(e["case_id"].startswith(plan["namespace"]+"-") and e["role"] in LOCAL for e in entries)
+    result=dict(namespace=plan["namespace"],matrix_sha256=digest(plan),qualified=False,rehearsal_complete=False,
+        declared=len(required),completed=sorted(completed),failed_case=failed,unstarted=sorted(required-completed-{failed}),failure=failure,
+        original_cards=cards,capacity=json.loads((native/"capacity-readback.json").read_text()),failed_setup_cleanup=cleanup,
+        independent_late_readback=late,physical_local_requests=physical,local_reservations=reserved,
+        runtime_source="7c9d893",assessment_scope="Post-run reporting only; original records, spent IDs, cleanup flags and counters unchanged.",
+        report_generator_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+        source_hashes={str(p.resolve()):hashlib.sha256(p.read_bytes()).hexdigest() for p in sources},owner_acceptance="blocked; no complete rehearsal",next_work="issue58: bounded capacity/readiness and explicit fresh allocation; no reset or automatic retry")
+    output=Path(output);output.mkdir(parents=True,exist_ok=False);private(output/"report.json",result)
+    text=(f"# Incomplete demo rehearsal — {plan['namespace']}\n\n"
+        f"**NOT PASSED:** {len(completed)}/{len(required)} cases completed; {failed} failed during setup; {len(result['unstarted'])} unstarted.\n\n"
+        f"Failure: `{failure['message']}`. Durable store is at its100-trial cap; no model/tool call was issued for the failed setup. "
+        "No history was pruned and no spent IDs were reset/repeated.\n\n"
+        f"Physical local requests / reservations for this phase: {physical}/{reserved}. External review not run for the incomplete batch.\n\n"
+        "The original failed cleanup flag remains: fencing a nonexistent trial errored. Independent readback confirms no Actors remain "
+        "and owned resources restored; it does not erase the original error or imply a full rehearsal pass.\n\n"
+        "Qualification nd5 remains a distinct completed run. Rehearsal/owner acceptance remain blocked by #58; "
+        "#55 quality, #13 classifier-only performance, #56 held-out comparison and the nd4 negative verdict remain visible.\n\n"
+        "## Completed cases (not a whole-rehearsal pass)\n"+"\n".join("- "+case for case in sorted(completed))+"\n\n"
+        "## Unstarted cases\n"+"\n".join("- "+case for case in result["unstarted"])+"\n")
+    (output/"report.md").write_text(text);(output/"report.html").write_text('<!doctype html><meta charset="utf-8"><pre>'+html.escape(text)+'</pre>')
+    return result
+
+
 def main():
     from dotenv import load_dotenv
     from src.benchmark.demo import make_plan
@@ -264,10 +311,15 @@ def main():
     from src.benchmark.wiring import BASE,ROOT
     from src.infra.common import VERSIONS
     p=argparse.ArgumentParser(description=__doc__);p.add_argument("--freeze-campaign",action="store_true");p.add_argument("--transport-probes",type=Path)
+    p.add_argument("--failure-report",type=Path);p.add_argument("--output",type=Path)
     p.add_argument("--qualification",default="nd5");p.add_argument("--rehearsal",default="nd6")
     p.add_argument("--transport-evidence",type=Path)
     p.add_argument("--artifact",type=Path,default=BASE/"modernbert-training-v1/model");p.add_argument("--budget",type=Path,default=BASE/"combined-budget")
     args=p.parse_args();load_dotenv(ROOT/".env")
+    if args.failure_report:
+        if args.output is None:p.error("--failure-report requires --output")
+        value=failure_report(DemoBudget(args.budget),args.failure_report,args.output)
+        print(json.dumps(dict(report=str(args.output),rehearsal_complete=value["rehearsal_complete"])));return
     if args.transport_probes:
         probes_only(args.transport_probes);print(args.transport_probes);return
     if not args.freeze_campaign:p.error("select --freeze-campaign")

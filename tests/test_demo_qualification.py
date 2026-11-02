@@ -1,4 +1,5 @@
 from copy import deepcopy
+from contextlib import nullcontext
 import hashlib
 import json
 from types import SimpleNamespace
@@ -6,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from src.benchmark.demo import make_plan
-from src.benchmark.demo_qualification import binding,freeze_campaign,require_campaign,paired_marker,effective_settings,duration_seconds
+from src.benchmark.demo_qualification import binding,freeze_campaign,require_campaign,paired_marker,effective_settings,duration_seconds,failure_report
 from src.integrations.agentdojo.inventory import digest
 
 
@@ -62,3 +63,23 @@ def test_effective_gateway_duration_normalization_is_semantic_not_text_matching(
     assert effective_settings(policies) and duration_seconds("100ms")==.1
     policies[0]["policy"]["backend"]["tcp"]["connectTimeout"]="10s"
     assert not effective_settings(policies)
+
+
+def test_incomplete_rehearsal_report_preserves_failure_and_cannot_create_acceptance(tmp_path):
+    native=tmp_path/"native";native.mkdir();ledger=tmp_path/"ledger";ledger.mkdir()
+    plan=dict(namespace="nd6",cases=[dict(case_id=name,kind="card") for name in ("nd6-ok","nd6-failed","nd6-unstarted")])
+    record=dict(trace_audit=dict(managed_responses_dispatches=0,guard_managed_responses_dispatches=0))
+    data={"plan.json":plan,"failure.json":dict(message="trial_capacity",completed_cases=["nd6-ok"]),"cards.json":[dict(case_id="nd6-ok",demo_ready=True)],
+        "capacity-readback.json":dict(trials=100,trial_capacity=100),"failed-case-cleanup.json":dict(case_id="nd6-failed",sources=[dict(physical_model_spans=0,cleanup=[dict(deleted=False)])]),
+        "final-runtime-readback.json":dict(no_actors_remaining=True,owned_resources_restored=True),"bridge-restoration.json":dict(restored=True),
+        "bridge-effective-backend.json":[],"bridge-transport.json":[],"nd6-ok.json":record}
+    for name,value in data.items():(native/name).write_text(json.dumps(value))
+    (ledger/"native-result-nd6-ok.json").write_text(json.dumps(dict(matrix_sha256=digest(plan),record_sha256=hashlib.sha256((native/"nd6-ok.json").read_bytes()).hexdigest())))
+    budget=SimpleNamespace(directory=ledger,phase=lambda n:plan,locked=nullcontext,entries=lambda:[])
+    result=failure_report(budget,native,tmp_path/"report")
+    assert result["qualified"] is False and result["rehearsal_complete"] is False
+    assert result["unstarted"]==["nd6-unstarted"] and result["failed_case"]=="nd6-failed"
+    assert result["failed_setup_cleanup"]["sources"][0]["cleanup"][0]["deleted"] is False
+    assert not list(ledger.glob("demo-qualified-*")) and result["physical_local_requests"]==0
+    (native/"nd6-ok.json").write_text("changed")
+    with pytest.raises((ValueError,json.JSONDecodeError)):failure_report(budget,native,tmp_path/"new-report")
