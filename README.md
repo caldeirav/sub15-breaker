@@ -51,6 +51,8 @@ The focused follow-up is [PR #57](https://github.com/caldeirav/sub15-breaker/pul
 [transport, original five-card qualification and rehearsal plan](docs/demo-transport-qualification-plan.md).
 It preserves the broader failures above. Curated demo correctness is not held-out
 accuracy, and rehearsal success does not substitute for owner acceptance.
+The [focused results and evidence](docs/demo-qualification-results.md) distinguish
+completed paired review measurements from pending native/rehearsal acceptance.
 
 ## Why this design?
 
