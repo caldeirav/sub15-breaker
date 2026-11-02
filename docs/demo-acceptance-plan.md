@@ -55,3 +55,31 @@ quality #55 and full held-out comparison #56 remain separate. Visualization is
 planning-only #60. On actual complete qualification AND rehearsal success close
 #62 as operational mitigation/acceptance, not retrospective causal diagnosis.
 #45/#48 remain explicit owner acceptance gates unless separately signed off.
+
+## Frozen execution bindings
+
+Source `07d6d43`;639 tests passed on Python3.11–3.13 and CI before native runs.
+The existing diagnostic Actor/store image19f625ed48a7c5be2e54429284a390108ba659df5bb93965b9858a974860174d
+is unchanged; readiness retries are host-side only. The same approved Qwen was
+observed loaded/idle with context8192, without reload/reconfiguration.
+
+- Qualification nd9: `6bfedd29567ebf937e87e8233a4b8c86681732b8e909db662ee06b8982a11abd`.
+- Rehearsal nd10: `a545d5946a6b8385d335e9696d6c06d2a39fe734c7d08eca9ae358eb65bf9c5c`.
+- New capacity campaign: `demo-acceptance-nd9-nd10`; the prior15-used-trial
+  reservation was explicitly released without deleting/resetting its history.
+- Scoped18-review allowance starts at the existing ledger prefix; new external
+  limit153 for nd9/nd10 only. It does not reuse an old review/ID or alter global caps.
+- Fresh transport/capacity checks passed before dispatch; paired4/4 under both
+  guards passed, including all fixed timing decisions.
+
+## Actual disposition
+
+Both phases completed successfully:14/14 qualification +14/14 rehearsal cases,
+17 valid qualification reviews/16 original-criterion agreements and supported
+harness, followed by1 supported rehearsal wiring review. All28 readiness checks
+passed first attempt; zero live retries were needed. The controlled HTTP regression
+validates retry recovery. All receipts/effects/counters/telemetry/late state and
+cleanup/restoration checks passed; old history and reservation usage are preserved.
+#62 is closed as operational mitigation/acceptance, not original-cause proof.
+See [complete results](demo-acceptance-results.md). #45/#48 remain owner sign-off;
+#13/#55/#56 are separate and #60 is still planning-only.
