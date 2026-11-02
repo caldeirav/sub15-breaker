@@ -53,6 +53,12 @@ completion if a provider hangs. A timeout remains an error/censored observation,
 never a successful speed sample. Diagnostics continue to gather independent
 evidence; effectful native cases remain gated on resolved safety/telemetry facts.
 
+The first image rollout exposed the store's old90s maximum ticket lifetime and
+failed before matrix freeze or inference. Logs are retained under
+`.infra/benchmark-guard-harness/nd2-rollout-diagnosis-407b574c3250468eaf37801744865f12/`.
+The store maximum is now a bounded900s, with its30s default unchanged; constructor
+tests cover every declared profile. No database reset or spending reset is used.
+
 ## Sequence
 
 1. Offline regressions and exact diagnostic-input digest checks.

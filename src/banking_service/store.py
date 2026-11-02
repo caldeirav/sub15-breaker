@@ -38,7 +38,7 @@ class StateStore:
         self.path, self.key = Path(path), key
         self.catalog = catalog or ToolCatalog.from_pinned_agentdojo()
         self.max_actions, self.max_events = max_actions, max_events
-        if type(ticket_lifetime) is not int or not 1<=ticket_lifetime<=90:fail("invalid_ticket_lifetime")
+        if type(ticket_lifetime) is not int or not 1<=ticket_lifetime<=900:fail("invalid_ticket_lifetime")
         self.ticket_lifetime=ticket_lifetime
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         with self.transaction() as db:
