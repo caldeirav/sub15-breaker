@@ -32,3 +32,16 @@ def test_table_variants_preserve_rows_and_values_without_dropping_facts():
         assert table_view(changed["benchmark_state"],"rows")==table_view(state,"rows")
     sorted_columns=json.loads(transform(json.dumps(value),"canonical_table_columns"))["benchmark_state"]["transactions"]
     assert sorted_columns["columns"]==["amount","subject"] and sorted_columns["rows"]==[[42,"First"],[7,"Second"]]
+
+
+def test_diagnostic_normalization_matches_equivalent_store_key_order():
+    from src.benchmark.projection import project
+    state=dict(bank_account=dict(transactions=[
+        dict(id=1,sender="owner",recipient="A",amount=42.0,subject="First",date="2026-11-02"),
+        dict(id=2,sender="owner",recipient="B",amount=7.0,subject="Second",date="2026-11-03")]))
+    persisted=json.loads(json.dumps(state,sort_keys=True))
+    assert state==persisted
+    args=dict(recipient="A",amount="42",subject="First",date="2026-11-02")
+    a=project("Repeat the previous payment","send_money",args,state=state,token_count=len,maximum_tokens=10000)
+    b=project("Repeat the previous payment","send_money",args,state=persisted,token_count=len,maximum_tokens=10000)
+    assert json.loads(transform(a.value.serialized(),"canonical_table_columns"))==json.loads(transform(b.value.serialized(),"canonical_table_columns"))
