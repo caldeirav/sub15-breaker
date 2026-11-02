@@ -22,6 +22,17 @@ def private(path,value):
     return path
 
 
+def resource_patch(current,desired):
+    """CAS update without kubectl's last-applied annotation regeneration."""
+    operations=[dict(op="test",path="/metadata/uid",value=current["metadata"]["uid"]),
+        dict(op="test",path="/metadata/resourceVersion",value=current["metadata"]["resourceVersion"]),
+        dict(op="replace",path="/spec",value=desired["spec"])]
+    for field in ("labels","annotations"):
+        if field in desired["metadata"]:operations.append(dict(op="add",path="/metadata/"+field,value=desired["metadata"][field]))
+        elif field in current["metadata"]:operations.append(dict(op="remove",path="/metadata/"+field))
+    return operations
+
+
 def configure_bridge(cluster,directory,host_ip,port,*,request_timeout=60,backend_timeout=None):
     issuer=json.loads(cluster.kubectl("get","--raw","/.well-known/openid-configuration",capture=True).stdout)["issuer"]
     jwks=json.loads(cluster.kubectl("get","--raw","/openid/v1/jwks",capture=True).stdout)
@@ -42,18 +53,101 @@ def configure_bridge(cluster,directory,host_ip,port,*,request_timeout=60,backend
     if backend_timeout is not None:
         # MCP upstream calls have their own deadline, independent of HTTPRoute.
         objects[2]["spec"]["backend"]={"http":{"requestTimeout":f"{backend_timeout}s"}}
-    for item in objects:
+    updates=[]
+    for index,item in enumerate(objects):
         raw=cluster.kubectl("get",item["kind"],item["metadata"]["name"],"-n",NAMESPACE,"--ignore-not-found","-o","json",capture=True).stdout
         if raw and any(json.loads(raw)["metadata"].get("labels",{}).get(k)!=v for k,v in SCOPE.items()):
             raise RuntimeError("refusing_foreign_benchmark_resource")
+        if raw:
+            current=json.loads(raw);desired=deepcopy(current);desired["spec"]=item["spec"]
+            desired["metadata"].setdefault("labels",{}).update(SCOPE)
+            path=private(Path(directory)/f"bridge-update-{index}.json",resource_patch(current,desired))
+            updates.append(("patch",item["kind"],item["metadata"]["name"],"-n",NAMESPACE,"--type=json","--patch-file",path))
+        else:
+            path=private(Path(directory)/f"bridge-create-{index}.json",item)
+            updates.append(("create","--validate=strict","-f",path))
     path=private(Path(directory)/"gateway-bridge.json",dict(apiVersion="v1",kind="List",items=objects))
-    cluster.kubectl("apply","--dry-run=server","--validate=strict","-f",path)
-    cluster.kubectl("apply","-f",path)
+    for update in updates:cluster.kubectl(*update,"--dry-run=server")
+    for update in updates:cluster.kubectl(*update)
 
 
 @contextmanager
-def native_hook(cluster,directory,host_ip,port):
+def temporary_bridge(cluster,directory,host_ip,port,*,request_timeout,backend_timeout):
+    names=[("AgentgatewayBackend","benchmark-banking-mcp"),("HTTPRoute","benchmark-banking-mcp"),
+        ("AgentgatewayPolicy","benchmark-banking-mcp"),("NetworkPolicy","benchmark-gateway-host-bridge")]
+    before=[]
+    for kind,name in names:
+        raw=cluster.kubectl("get",kind,name,"-n",NAMESPACE,"--ignore-not-found","-o","json",capture=True).stdout
+        before.append(json.loads(raw) if raw else None)
+    private(Path(directory)/"bridge-original-resources.json",before)
+    configure_bridge(cluster,directory,host_ip,port,request_timeout=request_timeout,backend_timeout=backend_timeout)
+    applied=[cluster.get(kind,name,"-n",NAMESPACE) for kind,name in names]
+    try:yield
+    finally:
+        for index,((kind,name),original,expected) in enumerate(zip(names,before,applied,strict=True)):
+            current=cluster.get(kind,name,"-n",NAMESPACE)
+            if (current["metadata"]["uid"]!=expected["metadata"]["uid"] or current["spec"]!=expected["spec"] or
+                    current["metadata"].get("labels")!=expected["metadata"].get("labels") or
+                    current["metadata"].get("annotations")!=expected["metadata"].get("annotations")):
+                raise RuntimeError("bridge_restore_refuses_concurrent_change")
+            if original is None:cluster.kubectl("delete",kind,name,"-n",NAMESPACE)
+            else:
+                observed=deepcopy(current)
+                current["spec"]=original["spec"]
+                for field in ("labels","annotations"):
+                    if field in original["metadata"]:current["metadata"][field]=original["metadata"][field]
+                    else:current["metadata"].pop(field,None)
+                patch=resource_patch(observed,current)
+                cluster.kubectl("patch",kind,name,"-n",NAMESPACE,"--type=json","--patch-file",
+                    private(Path(directory)/f"bridge-restore-{index}.json",patch))
+                restored=cluster.get(kind,name,"-n",NAMESPACE)
+                if (restored["metadata"]["uid"]!=original["metadata"]["uid"] or restored["spec"]!=original["spec"] or
+                        any(restored["metadata"].get(field)!=original["metadata"].get(field) for field in ("labels","annotations"))):
+                    raise RuntimeError("bridge_restoration_readback_differs")
+        private(Path(directory)/"bridge-restoration.json",dict(restored=True,resources=len(names)))
+
+
+@contextmanager
+def model_timeouts(cluster,directory,*,request_timeout,backend_timeout):
+    """Owned model route only; keep auth, provider, model and retry policy intact."""
+    from src.infra.protocol_resources import LABELS
+    specs=[];applied=[]
+    for kind,name in (("HTTPRoute","banking-model-responses"),("AgentgatewayPolicy","banking-model-responses-identity")):
+        original=cluster.get(kind,name,"-n",NAMESPACE)
+        if any(original["metadata"].get("labels",{}).get(k)!=v for k,v in LABELS.items()):raise RuntimeError("foreign_model_timeout_resource")
+        changed=deepcopy(original)
+        if kind=="HTTPRoute":
+            if len(changed["spec"]["rules"])!=1:raise RuntimeError("unexpected_model_route_rules")
+            changed["spec"]["rules"][0].setdefault("timeouts",{})["request"]=f"{request_timeout}s"
+        else:changed["spec"].setdefault("backend",{}).setdefault("http",{})["requestTimeout"]=f"{backend_timeout}s"
+        patch=private(Path(directory)/(kind+"-model-timeout-patch.json"),resource_patch(original,changed))
+        specs.append((kind,name,original,changed,patch))
+    private(Path(directory)/"model-timeouts-original.json",[s[2] for s in specs])
+    for kind,name,original,changed,patch in specs:cluster.kubectl("patch",kind,name,"-n",NAMESPACE,"--type=json","--patch-file",patch,"--dry-run=server")
+    try:
+        for kind,name,original,changed,patch in specs:
+            cluster.kubectl("patch",kind,name,"-n",NAMESPACE,"--type=json","--patch-file",patch)
+            applied.append((kind,name,original,changed))
+            observed=cluster.get(kind,name,"-n",NAMESPACE)
+            if observed["spec"]!=changed["spec"]:raise RuntimeError("model_timeout_not_applied")
+        private(Path(directory)/"model-timeouts-binding.json",dict(request_seconds=request_timeout,backend_seconds=backend_timeout))
+        yield
+    finally:
+        for index,(kind,name,original,changed) in enumerate(reversed(applied)):
+            current=cluster.get(kind,name,"-n",NAMESPACE)
+            if (current["metadata"]["uid"]!=original["metadata"]["uid"] or current["spec"]!=changed["spec"] or
+                    any(current["metadata"].get(k)!=original["metadata"].get(k) for k in ("labels","annotations"))):raise RuntimeError("model_timeout_restore_concurrent_change")
+            patch=private(Path(directory)/f"model-timeout-restore-{index}.json",resource_patch(current,original))
+            cluster.kubectl("patch",kind,name,"-n",NAMESPACE,"--type=json","--patch-file",patch)
+            restored=cluster.get(kind,name,"-n",NAMESPACE)
+            if restored["spec"]!=original["spec"]:raise RuntimeError("model_timeout_restore_readback_failed")
+        private(Path(directory)/"model-timeouts-restored.json",dict(restored=True))
+
+
+@contextmanager
+def native_hook(cluster,directory,host_ip,port,*,timeout_seconds=25):
     """Restore exactly our owned modification; never overwrite concurrent edits."""
+    if type(timeout_seconds) is not int or not 1<=timeout_seconds<=330:raise ValueError("invalid_native_hook_timeout")
     cm=cluster.get("configmap","atenet-egress","-n","ate-system")
     original=deepcopy(cm["data"])
     private(Path(directory)/"native-original-configmap.json",cm)
@@ -66,8 +160,8 @@ def native_hook(cluster,directory,host_ip,port):
             endpoint=dict(address=dict(socket_address=dict(address=host_ip,port_value=port))))])])))
     filter=dict(name="envoy.filters.http.ext_proc",typed_config={
         "@type":"type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExternalProcessor",
-        "stat_prefix":"benchmark_native_admission","grpc_service":{"envoy_grpc":{"cluster_name":"benchmark_native_admission"},"timeout":"25s"},
-        "failure_mode_allow":False,"message_timeout":"25s","processing_mode":dict(request_header_mode="SEND",response_header_mode="SKIP",
+        "stat_prefix":"benchmark_native_admission","grpc_service":{"envoy_grpc":{"cluster_name":"benchmark_native_admission"},"timeout":f"{timeout_seconds}s"},
+        "failure_mode_allow":False,"message_timeout":f"{timeout_seconds}s","processing_mode":dict(request_header_mode="SEND",response_header_mode="SKIP",
             request_body_mode="NONE",response_body_mode="NONE",request_trailer_mode="SKIP",response_trailer_mode="SKIP")})
     count=0
     for listener in resources["listeners"]:
@@ -92,7 +186,7 @@ def native_hook(cluster,directory,host_ip,port):
     try:
         replace(changed,original)
         private(Path(directory)/"native-hook-binding.json",dict(configmap_uid=cm["metadata"]["uid"],revision=revision,filters=count,
-            shared_timeout_seconds=25,request_body_mode="NONE",ticket_path=True))
+            shared_timeout_seconds=timeout_seconds,request_body_mode="NONE",ticket_path=True))
         yield
     finally:
         current=cluster.get("configmap","atenet-egress","-n","ate-system")

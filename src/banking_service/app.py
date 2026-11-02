@@ -5,6 +5,8 @@ import json
 import os
 from pathlib import Path
 import re
+from time import perf_counter_ns
+import httpx
 
 from src.banking_contracts.codec import ContractError
 from src.banking_contracts.models import PolicyProfile, TrustedContext
@@ -21,6 +23,9 @@ class StoreApplication:
         self.store, self.identities = store, identities
 
     def __call__(self, path, body, authorization):
+        if path=="/actor-readiness":
+            identity=self.identities.actor(authorization);fields(body,())
+            return dict(actor_id=identity.name,actor_uid=identity.uid,ticket_lifetime_seconds=self.store.ticket_lifetime)
         match=re.fullmatch(r"/claim/([0-9a-f]{32})",path)
         if match:
             # Header-only native ext_proc reviews this immutable ticket. There
@@ -82,12 +87,14 @@ class StoreApplication:
 
 
 class ActorApplication:
-    def __init__(self, store, identities, runtime_mounts=(),fault_stage=None,benchmark_claim_path=False):
+    def __init__(self, store, identities, runtime_mounts=(),fault_stage=None,benchmark_claim_path=False,commit_store=None,readiness_store=None):
         self.store, self.identities = store, identities
         self.runtime_mounts=runtime_mounts
         if fault_stage not in {None,"after_claim","after_commit"}:raise ValueError("unsupported_validation_fault")
         self.fault_stage=fault_stage
         self.benchmark_claim_path=benchmark_claim_path
+        self.commit_store=commit_store or store
+        self.readiness_store=readiness_store or store
 
     def __call__(self, path, body, authorization):
         self.identities.driver(authorization)
@@ -97,21 +104,34 @@ class ActorApplication:
             return dict(**identity(),
                 ambient_kubernetes_token=Path("/var/run/secrets/kubernetes.io/serviceaccount/token").exists(),
                 environment_keys=sorted(os.environ),mounts=list(self.runtime_mounts))
+        if path=="/admission-readiness":
+            fields(body,());return self.readiness_store.call("/actor-readiness",{})
         if path != "/execute": raise ContractError("unknown_runtime_route", "transport")
         fields(body, ("ticket",))
-        if self.benchmark_claim_path:
-            if not isinstance(body["ticket"],str) or not re.fullmatch(r"[0-9a-f]{32}",body["ticket"]):
-                raise ContractError("invalid_benchmark_ticket","transport")
-            work=self.store.call("/claim/"+body["ticket"],{})
-        else:
-            work = self.store.call("/claim", body)
+        timings={};started=perf_counter_ns()
+        try:
+            if self.benchmark_claim_path:
+                if not isinstance(body["ticket"],str) or not re.fullmatch(r"[0-9a-f]{32}",body["ticket"]):
+                    raise ContractError("invalid_benchmark_ticket","transport")
+                work=self.store.call("/claim/"+body["ticket"],{})
+            else:work = self.store.call("/claim", body)
+        except (ContractError,httpx.TransportError) as exc:
+            if not self.benchmark_claim_path:raise
+            safe_codes={"unauthenticated","actor_identity_required","actor_identity_mismatch","action_expired","unknown_action_ticket",
+                "execution_outcome_unknown","response_too_large","invalid_runtime_json","runtime_transport_error","runtime_unavailable"}
+            code=exc.code if isinstance(exc,ContractError) and exc.code in safe_codes else "unclassified_claim_error"
+            return dict(status="admission_failed",claim_error=type(exc).__name__,claim_error_code=code,
+                actor_timings=dict(claim_roundtrip_ns=perf_counter_ns()-started))
+        timings["claim_roundtrip_ns"]=perf_counter_ns()-started
         if work["status"] == "completed": return work
         # Immutable validation-template setting, never a request/model argument.
         if self.fault_stage=="after_claim":os._exit(70)
-        result = bounded_evaluate(work["proposal"], work["state"])
-        committed=self.store.call("/commit", dict(ticket=body["ticket"], **result))
+        started=perf_counter_ns();result = bounded_evaluate(work["proposal"], work["state"])
+        timings["tool_evaluation_ns"]=perf_counter_ns()-started
+        started=perf_counter_ns();committed=self.commit_store.call("/commit", dict(ticket=body["ticket"], **result))
+        timings["commit_roundtrip_ns"]=perf_counter_ns()-started
         if self.fault_stage=="after_commit":os._exit(71)
-        return committed
+        return dict(committed,actor_timings=timings) if self.benchmark_claim_path else committed
 
 
 def main(runtime_mounts=()):
@@ -127,7 +147,9 @@ def main(runtime_mounts=()):
         application = StoreApplication(store, identities)
     else:
         application = ActorApplication(RuntimeClient(os.environ["BANKING_STORE_URL"], "Bearer inject-actor-jwt",timeout=deadlines.actor_store), identities,
-            runtime_mounts,os.getenv("BANKING_VALIDATION_FAULT_STAGE"),os.getenv("BANKING_BENCHMARK_CLAIM_PATH")=="1")
+            runtime_mounts,os.getenv("BANKING_VALIDATION_FAULT_STAGE"),os.getenv("BANKING_BENCHMARK_CLAIM_PATH")=="1",
+            commit_store=RuntimeClient(os.environ["BANKING_STORE_URL"],"Bearer inject-actor-jwt",timeout=deadlines.commit or deadlines.actor_store),
+            readiness_store=RuntimeClient(os.environ["BANKING_STORE_URL"],"Bearer inject-actor-jwt",timeout=5))
     with BoundedServer(("0.0.0.0", args.port), application,request_deadline=deadlines.actor_server if args.role=="actor" else 45) as server:
         server.serve_forever()
 

@@ -27,6 +27,7 @@ from src.banking_service.deploy import Deployment,DIRECTORY,SPACE,STORE_HOST
 from src.banking_service.http import RuntimeClient
 from src.banking_service.deadlines import profile
 from src.banking_service.validation import runtime_proof
+from src.banking_service.dataset_replay import canonical_calls
 from src.benchmark.bridge import Bridge,BridgeServer,MCPClient
 from src.benchmark.budget import Budget,PILOT,EXTENDED_PILOT
 from src.benchmark.deployment import configure_bridge,gateway_forward,native_hook,private
@@ -44,16 +45,22 @@ SOURCE=mlflow.entities.AssessmentSource(source_type="CODE",source_id="benchmark-
 
 class ModelTransport(httpx.BaseTransport):
     """Trace exactly the gateway HTTP dispatch; no SDK retries or direct route."""
-    def __init__(self,base,*,before_dispatch=lambda:None):
-        self.base=base;self.transport=httpx.HTTPTransport(retries=0);self.before_dispatch=before_dispatch
+    def __init__(self,base,*,before_dispatch=lambda:None,on_request=None):
+        self.base=base;self.transport=httpx.HTTPTransport(retries=0);self.before_dispatch=before_dispatch;self.on_request=on_request
     def handle_request(self,request):
         if str(request.url)!=self.base+"/v1/responses":raise RuntimeError("unexpected_model_route")
         with mlflow.start_span(name="managed_responses_http",span_type="CLIENT") as span:
             span.set_inputs(dict(url=str(request.url),method=request.method,request=json.loads(request.content)))
             from mlflow.tracing.distributed import get_tracing_context_headers_for_http_request
             request.headers.update(get_tracing_context_headers_for_http_request())
-            self.before_dispatch()
-            response=self.transport.handle_request(request)
+            dispatched=0
+            try:
+                if self.on_request:self.on_request(json.loads(request.content))
+                else:self.before_dispatch()
+                dispatched=1
+                response=self.transport.handle_request(request)
+            except Exception as exc:
+                span.set_outputs(dict(status=None,physical_attempts=dispatched,error=type(exc).__name__));raise
             span.set_outputs(dict(status=response.status_code,physical_attempts=1))
             return response
     def close(self):self.transport.close()
@@ -83,35 +90,56 @@ def evidence(episode,result,final,actions,mask):
         final_answer=result.answer,status=result.status,execution_errors=[] if result.status=="completed" else [result.error or result.status]))
 
 
-def audit_record(record):
+def fixture_messages(calls):
+    """Released fixture proposals, not repairs of actual acting-model output."""
+    if not calls:raise ValueError("scripted_calls_required")
+    return [AIMessage(content="",tool_calls=[dict(id=f"fixture-call-{index}",name=call["tool_name"],args=call["arguments"])])
+        for index,call in enumerate(calls)]+[AIMessage(content="Scripted control finished.")]
+
+
+def audit_record(record,*,trace=None):
     """Read one persisted tree; report facts, not a manufactured overall pass."""
-    trace=mlflow.get_trace(record["trace_id"])
+    trace=trace if trace is not None else mlflow.get_trace(record["trace_id"])
     if trace is None:raise RuntimeError("wiring_trace_missing")
     spans=trace.data.spans;ids={span.span_id for span in spans}
     if len([span for span in spans if span.parent_id is None])!=1:raise RuntimeError("wiring_trace_root_count")
     if any(span.parent_id not in ids for span in spans if span.parent_id is not None):raise RuntimeError("wiring_trace_orphan")
     gate=[span for span in spans if span.name=="substrate_native_admission"]
     tools=[span for span in spans if span.name=="banking_actor_dispatch"]
-    if len(gate)!=len(record["evidence"]["actions"]) or len(tools)!=len(gate):raise RuntimeError("wiring_span_dispatch_counts_differ")
+    actions=record["evidence"]["actions"]
+    expected_gate=sum(action.get("native_admission_attempted",True) for action in actions)
+    if len(gate)!=expected_gate or len(tools)!=len(actions):raise RuntimeError("wiring_span_dispatch_counts_differ")
     for action in record["evidence"]["actions"]:
         if not any(span.span_id==action["span_id"] for span in tools):raise RuntimeError("action_span_ownership_missing")
+        review=action.get("guard")
+        if action.get("native_admission_attempted"):
+            owned=[span for span in gate if review and span.span_id==review.get("span_id") and span.parent_id==action["span_id"]]
+            if len(owned)!=1 or (getattr(owned[0],"outputs",None) or {})!=review:raise RuntimeError("native_guard_span_evidence_differs")
     model_nodes={span.span_id for span in spans if span.name=="model" and span.span_type=="CHAIN"}
     models=[span for span in spans if span.span_type=="CHAT_MODEL" and span.parent_id in model_nodes]
     if len(models)!=record["model_attempts"]:raise RuntimeError("model_attempt_span_count_differs")
-    all_physical=[span for span in spans if span.name=="managed_responses_http"]
+    all_http=[span for span in spans if span.name=="managed_responses_http"]
+    all_physical=[span for span in all_http if (getattr(span,"outputs",None) or {}).get("physical_attempts",1)==1]
     model_ids={span.span_id for span in models}
     physical=[span for span in all_physical if span.parent_id in model_ids]
     physical_ids={span.span_id for span in all_physical}
     gateway_models=[span for span in spans if span.span_type=="CHAT_MODEL" and span.parent_id in physical_ids]
-    if record.get("guard_control") is None and len(physical)!=record["model_attempts"]:
+    unissued=sum((getattr(span,"outputs",None) or {}).get("physical_attempts")==0 and span.parent_id in model_ids for span in all_http)
+    if record.get("guard_control") is None and record.get("producer")!="scripted" and len(physical)+unissued!=record["model_attempts"]:
         raise RuntimeError("physical_model_dispatch_count_differs")
     for name,value in record.get("expected_scores",{}).items():
         found=[a for a in trace.info.assessments if a.name==name and a.span_id is None]
         if (len(found)!=1 or type(found[0].value) is not type(value) or found[0].value!=value or
                 found[0].source is None or found[0].source.source_type!="CODE" or found[0].source.source_id!="benchmark-wiring-v1"):
             raise RuntimeError("wiring_score_value_or_ownership_differs")
+    for expected in record.get("expected_span_scores",[]):
+        found=[a for a in trace.info.assessments if a.name==expected["name"] and a.span_id==expected["span_id"]]
+        if (len(found)!=1 or found[0].value!=expected["value"] or found[0].source is None or
+                found[0].source.source_type!="CODE" or found[0].source.source_id!="benchmark-wiring-v1"):
+            raise RuntimeError("span_score_value_or_ownership_differs")
     return dict(trace_id=trace.info.trace_id,span_count=len(spans),chat_model_spans=len(models),
         managed_responses_dispatches=len(physical),gateway_chat_model_spans=len(gateway_models),
+        reserved_or_logical_http_not_dispatched=unissued,
         guard_managed_responses_dispatches=len(all_physical)-len(physical),
         native_admission_spans=len(gate),actor_dispatch_spans=len(tools),root_count=1,orphan_count=0,
         span_types=sorted({span.span_type or "UNKNOWN" for span in spans}),
@@ -124,14 +152,16 @@ def audit_record(record):
 
 
 def run_case(*,deployment,store,authorization,adapter,bridge,mcp,budget,mask,task_id,control=None,limits=None,
-        selected_guard=None,review_builder=None,case_name=None,deadline_profile="legacy"):
+        selected_guard=None,review_builder=None,case_name=None,deadline_profile="legacy",scripted_calls=None,request_model_id=None,
+        cancel_on_review_start=False,reconcile_telemetry=False,provider_probe=None,reconciliation_options=None,verify_admission_readiness=False):
     deadlines=profile(deadline_profile)
     case_id=case_name or ("control-"+control if control else "live-"+task_id)
     trial_id="benchmark-"+uuid4().hex
-    actor=None;record=None;cleanup=[]
+    actor=None;record=None;cleanup=[];cancellation_thread=None;cancellation_errors=[]
     with mlflow.start_run(run_name=case_id,nested=True) as child:
         with mlflow.start_span(name="benchmark_episode",span_type="AGENT") as root:
-            root.set_inputs(dict(case_id=case_id,task_id=task_id,live=control is None,
+            scripted=control is not None or scripted_calls is not None
+            root.set_inputs(dict(case_id=case_id,task_id=task_id,live=not scripted,
                 guard=selected_guard.guard_id if selected_guard else "deterministic-native-"+(control or "allow")))
             try:
                 with mlflow.start_span(name="allocate_substrate_actor",span_type="CHAIN") as allocation:
@@ -147,32 +177,50 @@ def run_case(*,deployment,store,authorization,adapter,bridge,mcp,budget,mask,tas
                     probe=actor_client.call("/probe",{})
                     if (probe["uid"],probe["gid"],probe["effective_capabilities"],probe["no_new_privs"],probe["ambient_kubernetes_token"])!=(10001,10001,"0000000000000000","1",False):
                         raise RuntimeError("actor_runtime_probe_differs")
+                    if verify_admission_readiness:
+                        with mlflow.start_span(name="verify_actor_store_identity_readiness",span_type="CHAIN") as readiness_span:
+                            ready=actor_client.call("/admission-readiness",{});readiness_span.set_outputs(ready)
+                            if ((ready.get("actor_id"),ready.get("actor_uid"),ready.get("ticket_lifetime_seconds"))!=
+                                    (actor["metadata"]["name"],actor["metadata"]["uid"],deadlines.ticket)):raise RuntimeError("actor_store_identity_or_profile_not_ready")
                     bridge.configure(store,actor_client,trial_id,selected_guard or ControlGuard(control or "allow"),review_builder=review_builder)
-                    if control:
-                        reference=list(episode.task.ground_truth(episode.initial_state))[-1]
-                        arguments=dict(reference.args)
-                        # Canonical transport forbids upstream binary float amounts.
-                        if isinstance(arguments.get("amount"),float):arguments["amount"]=str(arguments["amount"])
-                        arguments=adapter.catalog.validate_arguments(reference.function,arguments)
-                        model=FakeMessagesListChatModel(responses=[AIMessage(content="",tool_calls=[dict(id="control-call",name=reference.function,args=arguments)]),AIMessage(content="Control finished.")])
+                    if cancel_on_review_start:
+                        def cancel_started():
+                            try:
+                                if not selected_guard.started.wait(30):raise RuntimeError("fault_review_never_started")
+                                cancellation=mlflow.start_span_no_context(name="controlled_caller_cancellation",span_type="CHAIN",parent_span=root)
+                                try:
+                                    cancellation.set_inputs(dict(trial_id=trial_id,reason="controlled_caller_cancel"))
+                                    bridge.cancel_and_fence("controlled_caller_cancel");cancellation.set_outputs(dict(fenced=True))
+                                finally:cancellation.end()
+                            except Exception as exc:cancellation_errors.append(type(exc).__name__)
+                        cancellation_thread=threading.Thread(target=cancel_started);cancellation_thread.start()
+                    if scripted:
+                        calls=scripted_calls if scripted_calls is not None else canonical_calls(episode.task,episode.initial_state,adapter.catalog)[-1:]
+                        model=FakeMessagesListChatModel(responses=fixture_messages(calls))
                         reserve=lambda:None
                     else:
                         definitions=[dict(type="function",function=dict(name=name,description=f"Pinned synthetic banking tool: {name}.",
                             parameters=schema["arguments"])) for name,schema in adapter.catalog.schemas().items()]
-                        def reserve_http():
+                        def reserve_http(request=None):
                             active=mlflow.get_current_active_span()
-                            entry=budget.reserve(role="actor",case_id=case_name or task_id,trace_id=active.trace_id)
+                            extra=dict(model=request_model_id) if request_model_id is not None else {}
+                            entry=budget.reserve(role="actor",case_id=case_name or task_id,trace_id=active.trace_id,request=request,**extra)
                             store.call("/client-event",dict(trial_id=trial_id,kind="model_attempt",payload=entry))
-                        model_http=httpx.Client(transport=ModelTransport(mcp.base,before_dispatch=reserve_http),timeout=45,trust_env=False)
-                        model=ChatOpenAI(model=os.environ["LM_STUDIO_MODEL"],base_url=mcp.base+"/v1",api_key=authorization.removeprefix("Bearer "),
-                            http_client=model_http,use_responses_api=True,output_version="responses/v1",max_retries=0,timeout=45,
+                        model_http=httpx.Client(transport=ModelTransport(mcp.base,on_request=reserve_http),timeout=deadlines.model,trust_env=False)
+                        model=ChatOpenAI(model=request_model_id or os.environ["LM_STUDIO_MODEL"],base_url=mcp.base+"/v1",api_key=authorization.removeprefix("Bearer "),
+                            http_client=model_http,use_responses_api=True,output_version="responses/v1",max_retries=0,timeout=deadlines.model,
                             temperature=0,max_tokens=2048).bind_tools(definitions,parallel_tool_calls=False)
                         reserve=lambda:None  # Reservation occurs at the physical HTTP hook.
                     try:
                         result=run(episode.public,model=model,execute=mcp.execute,reserve_model=reserve,
                             limits=limits or Limits(model_attempts=6,tool_attempts=12,seconds=180))
                     finally:
-                        if not control:model_http.close()
+                        if not scripted:model_http.close()
+                    if not bridge.wait_idle(30):raise RuntimeError("episode_bridge_drain_deadline")
+                    if cancellation_thread:
+                        cancellation_thread.join(5)
+                        if cancellation_thread.is_alive() or cancellation_errors:raise RuntimeError("controlled_cancellation_failed")
+                    if bridge.fence_errors:raise RuntimeError("episode_fence_failed")
                     final=store.call("/snapshot",dict(trial_id=trial_id))
                     measured=adapter.evaluate(episode,result,final["state"])
                     observed=evidence(episode,result,final["state"],bridge.actions,mask)
@@ -182,18 +230,29 @@ def run_case(*,deployment,store,authorization,adapter,bridge,mcp,budget,mask,tas
                         experiment_id=child.info.experiment_id,inputs=dict(task_id=task_id),expectations=dict(reference_id=f"{measured['source_commit']}/{task_id}/upstream-checkers"),
                         evidence=observed,measured=dict(measured,**normalized),status=result.status,model_attempts=result.model_attempts,
                         tool_attempts=result.tool_attempts,runtime_proof=proof,sandbox_probe=probe,store_events=events,
-                        initial_fingerprint=snapshot["fingerprint"],final_fingerprint=final["fingerprint"],guard_control=control))
-                    root.set_outputs(record)
+                        initial_fingerprint=snapshot["fingerprint"],final_fingerprint=final["fingerprint"],guard_control=control,
+                        producer="scripted" if scripted else "acting_model"))
             finally:
+                if cancellation_thread and cancellation_thread.is_alive():
+                    try:bridge.cancel_and_fence("episode_cleanup")
+                    except Exception as exc:cleanup.append(dict(stage="cancel_fence",error=type(exc).__name__))
+                    cancellation_thread.join(5)
+                    if cancellation_thread.is_alive():cleanup.append(dict(stage="cancel_thread",error="drain_deadline"))
                 actor=actor or deployment.last_actor
                 if actor:
                     with mlflow.start_span(name="cleanup_substrate_actor",span_type="CHAIN") as span:
                         span.set_inputs(dict(trial_id=trial_id,actor=actor["metadata"]["name"]))
                         try:store.call("/fence",dict(trial_id=trial_id))
                         except Exception as exc:cleanup.append(dict(stage="fence",error=type(exc).__name__))
+                        if not bridge.wait_idle(30):cleanup.append(dict(stage="bridge_drain",error="drain_deadline"))
                         try:deployment.delete_actor(actor["metadata"]["name"])
                         except Exception as exc:cleanup.append(dict(stage="delete",error=type(exc).__name__))
                         span.set_outputs(dict(errors=cleanup,deleted=not cleanup))
+                if record is not None:
+                    record["cleanup_errors"]=cleanup
+                    try:record["store_events"]=store.call("/trial-events",dict(trial_id=trial_id))["events"]
+                    except Exception as exc:cleanup.append(dict(stage="final_event_readback",error=type(exc).__name__))
+                    root.set_outputs(record)
         if record is not None:
             record["cleanup_errors"]=cleanup
             scores=dict(completed=record["status"]=="completed",status=record["status"],
@@ -204,19 +263,46 @@ def run_case(*,deployment,store,authorization,adapter,bridge,mcp,budget,mask,tas
             for name,value in scores.items():
                 if value is None:continue
                 mlflow.log_feedback(trace_id=record["trace_id"],name="wiring/"+name,value=value,source=SOURCE)
+            record["expected_span_scores"]=[]
+            def span_feedback(span_id,name,value):
+                mlflow.log_feedback(trace_id=record["trace_id"],span_id=span_id,name=name,value=value,source=SOURCE)
+                record["expected_span_scores"].append(dict(span_id=span_id,name=name,value=value))
             for action in record["evidence"]["actions"]:
                 gate=action.get("guard")
                 if gate:
-                    for name,value in {"guard/decision":gate["decision"],"guard/input_digest":gate["input_digest"]}.items():
-                        mlflow.log_feedback(trace_id=record["trace_id"],span_id=gate["span_id"],name=name,value=value,source=SOURCE)
+                    fields={"guard/decision":gate["decision"],"guard/input_digest":gate["input_digest"],
+                        "guard/review_ms":gate["review_latency_ns"]/1e6,"guard/admission_service_ms":gate["admission_service_ns"]/1e6}
+                    if gate.get("risk") is not None:fields["guard/risk"]=gate["risk"]
+                    fields.update({"encoder/"+key.removesuffix("_ns")+"_ms":value/1e6 for key,value in gate.get("encoder_stage_timings_ns",{}).items()})
+                    if gate.get("classifier_decision_core_ns") is not None:fields["encoder/decision_core_ms"]=gate["classifier_decision_core_ns"]/1e6
+                    for name,value in fields.items():
+                        span_feedback(gate["span_id"],name,value)
+                for name,value in {**{key:action[key] for key in ("snapshot_prepare_ns","review_materialization_ns","actor_roundtrip_ns") if key in action},
+                        **action.get("actor_timings",{})}.items():
+                    span_feedback(action["span_id"],"timing/"+name.removesuffix("_ns")+"_ms",value/1e6)
                 if action.get("execution_receipt"):
-                    mlflow.log_feedback(trace_id=record["trace_id"],span_id=action["span_id"],name="tool/executed",value=action["execution_receipt"]["executed"],source=SOURCE)
+                    span_feedback(action["span_id"],"tool/executed",action["execution_receipt"]["executed"])
+            if reconcile_telemetry:
+                from src.benchmark.reconciliation import post_run_state,reconcile_record
+                reconciled=reconcile_record(record,audit=audit_record,provider_probe=provider_probe,**(reconciliation_options or {}))
+                record["telemetry_reconciliation"]={key:value for key,value in reconciled.items() if key!="audit"}
+                record["trace_audit"]=reconciled["audit"] or dict(error="telemetry_reconciliation_incomplete")
+                if reconciled["status"]=="complete":
+                    try:
+                        post=post_run_state(record,store)
+                        record["post_reconciliation_state"]=post
+                        if not all(post.values()):raise RuntimeError("late_state_or_dispatch_count_changed")
+                    except Exception as exc:
+                        record["telemetry_reconciliation"].update(status="incomplete",pending=[dict(kind="post_reconciliation_state",error=type(exc).__name__)])
+                mlflow.log_dict(record["telemetry_reconciliation"],"wiring/telemetry-reconciliation.json")
+            else:
+                try:record["trace_audit"]=audit_record(record)
+                except Exception as exc:
+                    record["trace_audit"]={"error":str(exc)}
+                    exc.partial_record=record
+                    mlflow.log_dict(record,"wiring/episode.json")
+                    raise
             mlflow.log_dict(record,"wiring/episode.json")
-            try:record["trace_audit"]=audit_record(record)
-            except Exception as exc:
-                record["trace_audit"]={"error":str(exc)}
-                exc.partial_record=record
-                raise
             mlflow.log_dict(record["trace_audit"],"wiring/trace-audit.json")
         if cleanup:raise RuntimeError("benchmark_cleanup_incomplete")
         return record

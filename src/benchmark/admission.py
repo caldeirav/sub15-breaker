@@ -27,10 +27,15 @@ def classifier_guard(artifact,calibration,*,device="mps"):
     def forward(value):
         with mlflow.start_span(name="encoder_classifier_forward",span_type="CHAIN") as span:
             span.set_inputs(dict(model_id=encoder.model_id,review_input=value))
-            result=encoder(value);span.set_outputs(dict(unsafe_logit_difference=result));return result
+            result=encoder(value);guard.stage_timings_ns=dict(encoder.last_timings_ns)
+            guard.input_tokens=encoder.last_input_tokens
+            span.set_outputs(dict(unsafe_logit_difference=result,encoder_stage_timings_ns=guard.stage_timings_ns,device=device));return result
     fields={name:calibration[name] for name in ("model_id","policy_id","calibration_set_id","temperature","threshold","input_version")}
-    return ClassifierGuard(forward,Calibration(**fields),model_id=encoder.model_id),encoder.tokenizer
+    guard=ClassifierGuard(forward,Calibration(**fields),model_id=encoder.model_id)
+    guard.close=encoder.close
+    guard.stage_timings_ns={}
+    return guard,encoder.tokenizer
 
 
-def llm_guard(model,*,guard_id,reserve_model):
-    return LLMGuard(model,guard_id=guard_id,reserve_model=reserve_model)
+def llm_guard(model,*,guard_id,reserve_model,prompt_version="v1"):
+    return LLMGuard(model,guard_id=guard_id,reserve_model=reserve_model,prompt_version=prompt_version)

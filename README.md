@@ -6,11 +6,46 @@ BreakerSubstrate (`sub15-breaker`) is the research reference architecture for th
 
 The reference use case is a **simulated banking agent**. A user asks it to pay a bill, adjust a scheduled payment or update an address. The model proposes typed tool calls; untrusted invoices or tool responses may try to redirect those calls. We reuse AgentDojo's synthetic tasks, tools, state and executable checkers rather than build a new financial benchmark or expose a general-purpose shell.
 
-The comparison is between **A: generative verification** and **B: one compact neural encoder inference over the same action and trusted context**. Both belong at the same native Substrate pre-execution boundary, outside the agent's reasoning loop. The sub-15ms objective is a research hypothesis—not a measured result, safety guarantee or hardware-independent SLA.
+The comparison is between **A: generative verification** and **B: one compact neural encoder inference over the same action and trusted context**. Both belong at the same native Substrate pre-execution boundary, outside the agent's reasoning loop. The **sub-15ms target applies to classifier decision computation**, not ticket claims or tool execution. Report its exact boundary, input sizes and misses; it is not a universal safety guarantee or hardware-independent SLA.
 
 > **Research software, not a production safety boundary.** Use synthetic data only; do not connect real bank APIs, money, payment credentials or a privileged executor. A denied request is not acknowledged Actor termination, and neither denial nor termination rolls back prior effects.
 
-For delivery status, dependencies, implementation blocks and acceptance, use the [GitHub roadmap](https://github.com/caldeirav/sub15-breaker/issues/14) and [implementation issues](https://github.com/caldeirav/sub15-breaker/issues). This README describes the project, architecture and technical decisions, not a release ledger.
+For delivery status, dependencies and owner acceptance, use the [GitHub roadmap](https://github.com/caldeirav/sub15-breaker/issues/14) and [implementation issues](https://github.com/caldeirav/sub15-breaker/issues). This README introduces the architecture and current comparison; linked reports retain detailed methods, results and earlier failures.
+
+## Latest full comparison — 2026-11-02
+
+The fixed `nd4` test ran both guards on identical reviewed actions and executed
+all three supported banking workflows under each guard. See the dedicated
+[results, background, methods and analysis](docs/full-comparison-results.md),
+[frozen test plan](docs/full-comparison-plan.md). The generated local HTML report
+is at `.infra/benchmark-guard-harness/nd4-full-comparison-report-final/report.html`.
+HTML/JSON artifacts require the retained local run bundle and are not repository
+links; the Markdown analysis is checked into the repository.
+
+| Measured result | Classifier | LLM |
+| --- | ---: | ---: |
+| Decision core,147-token read: subsequent median |13.45ms |Not a comparable LLM kernel measurement |
+| Decision core,282-token payment: subsequent median |16.74ms |Not a comparable LLM kernel measurement |
+| Whole-review subsequent medians: read / payment |21.64 /24.67ms |374.87 /363.14ms |
+| Fixed18-action development accuracy |16/18 (88.9%) |17/18 (94.4%) |
+| False allows / false blocks in that cohort |0 /2 |0 /1 |
+| Known permitted-read regression |Passed |Passed with versioned v2 instruction |
+| Genuine workflow utility |1/3 |3/3 |
+
+**This is not an all-variants pass.** Classifier profile update encountered an
+MCP connection timeout before admission; classifier rent adjustment was blocked
+despite the legitimate amount-only effect. These remain visible, not retried.
+The classifier-only cores in actual native servicing were36–257ms, above15ms;
+the short warmed-loop read result is not a universal latency claim. The small,
+previously examined development cohort is not a pristine holdout or safety
+certificate, and workflow utility includes transport/agent effects—not just
+reviewer accuracy. The external harness verdict remains `not_supported`, with a
+documented logical-callback/physical-request interpretation disagreement.
+
+All578 offline tests pass on Python3.11–3.13. PR #49 contains the implementation
+and evidence; owner acceptance remains pending. #54 (transport), #55 (classifier
+rent false block) and further classifier-performance work remain open. Opening
+the reports makes no model calls; spent phases must not be reset or sampled again.
 
 ## Why this design?
 
@@ -47,7 +82,7 @@ Episode allocation, state snapshots, checker evaluation, cleanup and external ju
 - **Evidence:** graph, model, gateway, tool, native guard, receipt and external-review records remain distinguishable in MLflow. Client and gateway model spans are layers of one physical request, not separate model attempts.
 - **Recovery limits:** durable receipts and budgets are not a conversation checkpointer. Explicit reuse of a completed, reconciled canary re-audits saved evidence without repeating model/tool actions; it is not general graph resumption.
 
-The initial wiring profile uses **deterministic native allow/block/error controls**. Guard adapters and a local-only encoder loader exist, but wiring controls do not establish trained classifier quality, banking calibration or a measured classifier/LLM comparison. The [experiment protocol](docs/benchmark-guard-experiment.md) defines these separate requirements.
+The native path supports **deterministic allow/block/error controls and both real reviewer backends**. Controls prove failure/enforcement mechanics, not classifier accuracy. The [full comparison plan](docs/full-comparison-plan.md) separates same-input accuracy/latency from fresh-state agent utility, receipts and effects. Prior [laptop/native results](docs/laptop-measurement-results.md), including model mistakes and failed infrastructure attempts, remain available.
 
 The older command graph and `LocalBankingPipeline`/`ActorBankingTrial` remain historical compatibility paths, not the benchmark entry point. See [legacy boundaries](docs/legacy-compatibility.md).
 
@@ -78,7 +113,7 @@ Pinned AgentDojo task/state/checker adapter
 MLflow: actual attempts, distributed parentage, trace-local scores and failures
 ```
 
-The common native hook is exercised with deterministic controls; the learned A/B branches remain an experiment to implement and validate. The header-only hook reviews `/claim/<ticket>` and the store consumes that same path ticket, rejecting a decoy body ticket. A guard response in an agent-local branch or an application-only check is not native enforcement evidence. No platform fork or production IAM project is required. See the [experiment protocol](docs/benchmark-guard-experiment.md) and [GitHub roadmap](https://github.com/caldeirav/sub15-breaker/issues/14) for scope and evidence boundaries.
+The common native hook is exercised with deterministic controls and the real classifier/LLM branches. The header-only hook reviews `/claim/<ticket>` and the store consumes that same path ticket, rejecting a decoy body ticket. A guard response in an agent-local branch or an application-only check is not native enforcement evidence. No platform fork or production IAM project is required. See the [experiment protocol](docs/benchmark-guard-experiment.md) and [GitHub roadmap](https://github.com/caldeirav/sub15-breaker/issues/14) for scope and evidence boundaries.
 
 ### What is trusted?
 
@@ -140,7 +175,7 @@ The legacy command-only sidecar, command dataset and Streamlit view are compatib
 
 The intended classifier consumes the **canonical action plus trusted intent/policy/state context**, not just recipient/amount or an agent-written safety proposition. The same action may be permitted under one trusted request and forbidden under another.
 
-A compact MiniLM- or DeBERTa-family encoder is a possible starting architecture, not a released safety artifact. A generic relevance checkpoint is not a drop-in safety verifier. Class meanings must be independently verified: for two logits, let class 0 mean permitted and class 1 mean prohibited under the declared labeling policy.
+The initial demo uses the frozen **ModernBERT-base binary classifier** (`modernbert-banking-hybrid-v1`), not a Laya/AnyJev integration. It is an explicitly imperfect prototype, not a released safety artifact. A generic relevance checkpoint is not a drop-in safety verifier. Class meanings must be independently verified: for two logits, let class 0 mean permitted and class 1 mean prohibited under the declared labeling policy. Weights, calibration and threshold remain bound to the local export manifest; missing artifacts must not silently load random/base weights.
 
 With temperature $T > 0$, the estimated policy risk is:
 
@@ -179,14 +214,14 @@ Four criteria remain distinct: **task utility**, **upstream selected attacker pa
 
 ### Two complementary A/B protocols
 
-1. **Same-action replay:** both verifiers receive identical independently reviewed action/context pairs. This isolates discrimination, calibration and complete admission latency.
+1. **Same-action replay:** both verifiers receive identical reviewed action/context pairs. This measures discrimination, error coverage and decision/reviewer latency. Model-only replay does not establish complete native admission latency; paired native canaries exercise that boundary separately.
 2. **Fresh-state full-agent trials:** the agent attempts each task under each verifier from equivalent isolated initial state. Action sequences may diverge; measure utility, effects, refusal, failures and total cost rather than assume identical proposals.
 
 Both need benign near-misses as well as attacks, exact denominators, declared exclusions, counterbalanced order/repeats and retained unknown/error outcomes. Deny-all/allow-all controls expose misleading aggregate success. A correctly captured and scored agent failure is successful evaluation—not successful agent work. Harness correctness, guard quality and task quality are separate questions.
 
 ### What latency means
 
-Measure completed **authoritative authorization**: parsing, trusted-context resolution, queueing, transport, verifier inference and admission checks at a declared boundary. Include exactly one authoritative verifier invocation per admission; an agent-side score followed by a gateway rescore is not the intended B path.
+Keep three boundaries separate: **classifier decision core** (tokenization, device enqueue, forward/host result and frozen calibration/threshold), **whole reviewer adapter** (also serialization/tracing and LLM network/generation/parsing), and **native claim/admission** (also platform/auth/store transport). The 15ms target is the first boundary, not the last. Shared context projection/materialization is reported separately. Include exactly one authoritative verifier invocation per admission; an agent-side score followed by a gateway rescore is not the intended B path.
 
 Report hardware/load/input sizes, warm/cold behavior, p50/p95/p99, failures and availability at a predeclared quality operating point. A model forward-pass timer excludes gateway/network/context work; total task time includes agent/tool/reset/judge work. Neither is interchangeable with admission latency. Do not assume seconds for A or milliseconds for B, omit failed samples or choose a favorable percentile after measurement.
 
@@ -246,19 +281,39 @@ uv run --locked --env-file .env python -m src.banking_contracts.fixtures
 # Persisted MLflow plumbing validation with model stubs, no provider calls.
 uv run --locked --env-file .env python -m pytest -q validation/test_banking_mlflow_local.py
 
-# Real gateway/MCP/Substrate/Actor allow/block/error controls; no model calls.
-uv run --locked python -m src.benchmark.wiring
+# Current selector inspection; no keys, inference, trials or cluster mutations.
+uv run --locked python -m src.benchmark.demo --list-demo-cases
+uv run --locked python -m src.benchmark.demo --phase nd4 --demo-case pay-bill --guard classifier --dry-run
 ```
 
-For live execution, first freeze the task/profile/request allocation in the [benchmark protocol](docs/benchmark-guard-experiment.md). `src.benchmark.wiring --live` spends local and external requests; `--extended-pilot --reuse-completed-case-run CASE_RUN_ID` selects the explicitly frozen extended allocation and reuses only a completed reconciled canary. The ledger persists across runs: do not delete/reset it or repeatedly sample for favorable outcomes. A completed pilot is not an unlimited rerun allowance.
+The supported full-comparison entry point is `src.benchmark.demo`; old wiring/live-pilot commands are historical. Read the [full comparison plan](docs/full-comparison-plan.md) before inference. Prerequisites include the owned managed stack, actual `native-measure-v2` store/Actor image/profile, loaded approved Qwen model, MLflow, the verified frozen local classifier export, and the retained reviewed-data/provenance/regression artifacts under `.infra/benchmark-guard-harness/`. These large local artifacts are not bundled with a clean checkout; do not substitute an untrained checkpoint or fabricate missing evidence.
 
-To review saved suite evidence after a documented review/reporting fix, without repeating agent/tool actions:
+For a **separately approved fresh phase** (not a repeat of spent `nd1`–`nd4` IDs), the lifecycle is:
+
+```bash
+# Example only: nd5 must be approved/frozen before any dispatch; never reset nd4.
+uv run --locked python -m src.benchmark.demo --phase nd5 --freeze-demo
+uv run --locked python -m src.benchmark.demo --phase nd5 --stage diagnostics --execute-demo
+uv run --locked python -m src.benchmark.demo --phase nd5 --execute-demo
+uv run --locked python -m src.benchmark.demo --phase nd5 --review-demo NATIVE_OUTPUT_DIRECTORY
+
+# Read-only report generation: no model/tool requests, writes a new report directory.
+uv run --locked python -m src.benchmark.comparison_report \
+  --measurement MEASUREMENT_OUTPUT_DIRECTORY --native NATIVE_OUTPUT_DIRECTORY \
+  --reviews REVIEW_OUTPUT_DIRECTORY --output NEW_REPORT_DIRECTORY
+```
+
+The fixed protocol compares identical reviewed inputs and runs bill payment, rent adjustment and profile update under both guards. It retains scripted negative proposals and error/cancellation controls separately. Budgets, code/prompt/input/image/profile hashes and started markers are immutable; failures consume their slots. A new namespace is not permission to sample repeatedly until green. Opening a saved report never invokes a model. Each future rehearsal/presentation needs its own predeclared allocation and fresh state.
+
+Historical review module (not the current `nd4` entry point): older protocols
+can review saved suite evidence after an explicitly authorized reporting fix,
+without repeating agent/tool actions:
 
 ```bash
 uv run --locked python -m src.benchmark.review_saved --source-trace SUITE_TRACE_ID
 ```
 
-This **does call Gemini** and creates a new derived review target. It needs the original persisted suite trace and authorized external budget. The older `src.feasibility.runner` remains an in-memory reproducibility path; its `--oracle-only` skips the acting model **but still invokes Gemini**. Example MLflow links refer to the owner's local server, not a public service. Open the **Traces** table for action/effect scores and separate native review rows.
+This **does call Gemini** and creates a new derived review target. It needs the original persisted suite trace and its authorized compatible budget; do not use it to repeat the spent `nd4` review. Current report regeneration above is read-only and does not re-query a judge. The older `src.feasibility.runner` remains an in-memory reproducibility path; its `--oracle-only` skips the acting model **but still invokes Gemini**. Example MLflow links refer to the owner's local server, not a public service. Open the **Traces** table for action/effect scores and separate native review rows.
 
 ### Dependencies and infrastructure
 

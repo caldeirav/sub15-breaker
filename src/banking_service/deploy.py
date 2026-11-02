@@ -292,7 +292,7 @@ def main():
     mode=parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--image",help="Digest-bound image preloaded into Kind and available through its local registry")
     mode.add_argument("--refresh-credentials",action="store_true",help="Renew owned driver tokens only; preserve deployments, keys and state")
-    parser.add_argument("--deadline-profile",choices=("legacy","learned-guard-v1"),default="legacy")
+    parser.add_argument("--deadline-profile",choices=("legacy","learned-guard-v1","native-demo-v1","native-measure-v2"),default="legacy")
     args=parser.parse_args()
     if args.refresh_credentials:
         Deployment().refresh_credentials()

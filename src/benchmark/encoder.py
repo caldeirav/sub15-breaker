@@ -7,6 +7,8 @@ and rejects a partially/randomly initialized sequence-classification head.
 import hashlib
 import json
 import math
+import gc
+from time import perf_counter_ns
 from pathlib import Path
 
 from src.benchmark.guards import INPUT_VERSION
@@ -34,6 +36,13 @@ def manifest(directory,*,policy_id):
     return value
 
 
+def tokenizer(directory,*,policy_id):
+    """Verified projection tokenizer only: no classification weights/device."""
+    manifest(directory,policy_id=policy_id)
+    from transformers import AutoTokenizer
+    return AutoTokenizer.from_pretrained(directory,local_files_only=True,trust_remote_code=False)
+
+
 class EncoderLogit:
     def __init__(self,directory,*,policy_id,device="cpu"):
         self.manifest=manifest(directory,policy_id=policy_id)
@@ -48,11 +57,26 @@ class EncoderLogit:
             raise ValueError("encoder_head_not_fully_loaded")
         self.model=self.model.to(device).eval()
 
+    def close(self):
+        if self.model is None:return
+        device=self.model.device.type
+        self.model=None
+        gc.collect()
+        if device=="mps":self.torch.mps.empty_cache()
+
     def __call__(self,text):
+        if self.model is None:raise RuntimeError("encoder_resource_closed")
+        self.last_timings_ns={};started=perf_counter_ns()
         inputs=self.tokenizer(text,return_tensors="pt",truncation=False)
+        self.last_input_tokens=inputs["input_ids"].shape[1]
+        tokenized=perf_counter_ns()
         maximum=min(self.tokenizer.model_max_length,self.model.config.max_position_embeddings)
         if inputs["input_ids"].shape[1]>maximum:raise ValueError("encoder_input_requires_truncation")
         inputs={key:value.to(self.model.device) for key,value in inputs.items()}
+        enqueued=perf_counter_ns()
         with self.torch.inference_mode():logits=self.model(**inputs).logits[0].float().cpu().tolist()
+        completed=perf_counter_ns()
         if len(logits)!=2 or not all(math.isfinite(value) for value in logits):raise ValueError("invalid_encoder_logits")
+        self.last_timings_ns=dict(tokenization_ns=tokenized-started,device_enqueue_ns=enqueued-tokenized,
+            forward_and_host_result_ns=completed-enqueued,encoder_total_ns=completed-started)
         return logits[1]-logits[0]

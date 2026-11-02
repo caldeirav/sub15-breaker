@@ -18,6 +18,29 @@ def test_harness_rubric_is_not_an_agent_utility_or_safety_certificate():
     assert "insufficient_evidence" in RUBRIC
 
 
+def test_scoped_demo_review_does_not_claim_old_three_task_completion(monkeypatch):
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+    import mlflow
+    from src.benchmark.review import review_harness
+    calls=[]
+    class Judge:
+        model="gemini:/unit-fixture"
+        def __call__(self,**kw):
+            calls.append(kw)
+            return mlflow.entities.Feedback(name="unit",value="insufficient_evidence",rationale="No live acceptance.")
+    span=SimpleNamespace(trace_id="review",set_inputs=lambda value:None,set_outputs=lambda value:None)
+    monkeypatch.setattr(mlflow,"start_span",lambda **kw:nullcontext(span))
+    monkeypatch.setattr(mlflow,"log_assessment",lambda **kw:None)
+    monkeypatch.setattr(mlflow,"log_feedback",lambda **kw:None)
+    required=["nd1-control-allow","nd1-pay-bill-classifier"]
+    result=review_harness(Judge(),observations={},target_trace_id="target",reserve=lambda **kw:None,
+        scope="bounded-native-demo-validation-only",required_cases=required)
+    assert result["value"]=="insufficient_evidence" and len(calls)==1
+    assert calls[0]["expectations"]["required_cases"]==required
+    assert calls[0]["inputs"]["scope"]=="bounded-native-demo-validation-only"
+
+
 def test_failed_feedback_attachment_retains_native_verdict_without_retry(monkeypatch):
     import mlflow
     from src.benchmark.review import review_harness

@@ -26,6 +26,8 @@ The supported research domain is **AgentDojo simulated banking**. The local harn
 | [ModernBERT training/integration sequence](modernbert-training-integration-plan.md) | Encoder compatibility, conditional hybrid augmentation, no-fit transfer holdout, training/calibration/test and real native A/B gates |
 | [ModernBERT v2 protocol](modernbert-v2-protocol.md) | Structured prompt pilot, human-vetted goal paraphrases, broader authorization scenarios, fresh challenge and separate read/write quality gates |
 | [Architecture-demo diagnosis](architecture-demo-diagnosis.md) | Frozen-model diagnosis, canary/context and serialization defects, and a minimal native-demo corrective plan |
+| [Five-case live-demo development plan](native-guard-live-demo-plan.md) | Selectable positive/negative cards, input/cancellation corrections, scoped allocation and receipt-backed readiness criteria |
+| [Full comparison plan](full-comparison-plan.md) / [results and analysis](full-comparison-results.md) | Classifier-only15ms boundary, fixed paired accuracy, all three native workflows, retained failures/counter interpretation and reproducible report artifacts |
 | [Legacy compatibility](legacy-compatibility.md) | Old modules/examples that are not the supported banking path |
 | [Documentation alignment audit](documentation-audit.md) | What was reviewed/corrected, immutable evidence and validation boundaries |
 
