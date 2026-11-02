@@ -40,6 +40,7 @@ def accuracy_summary(rows,plan):
 
 
 def render(report):
+    def ms(v):return "unavailable" if v is None else f"{v:.3f}"
     lines=["# Full banking end-to-end comparison: classifier versus LLM", "",
         "## Background and protocol", "",
         "The target is **sub-15ms classifier decision computation**, not native claim latency. "
@@ -54,10 +55,16 @@ def render(report):
         "## Classifier decision performance", "", "| Input | Tokens | First core ms | Subsequent median / p95 ms | Below15ms |", "| --- | ---: | ---: | ---: | ---: |"]
     for name,value in report["decision_latency"].items():
         d=value["subsequent"]
-        def ms(v):return "unavailable" if v is None else f"{v:.3f}"
         lines.append(f"| {name} | {value['input_tokens']} | {ms(value['first_decision_core_ms'])} | {ms(d.get('median_ms'))} / {ms(d.get('p95_ms'))} | {value['below15']}/{value['measured']} |")
     lines += ["", "All first/subsequent samples are retained. Small-sample p95 and observed minima are descriptive, not SLOs. "
-        "Any15ms misses remain results; no threshold/precision/model tuning was performed to conceal them.","", "## Whole-review comparison", "",
+        "Any15ms misses remain results; no threshold/precision/model tuning was performed to conceal them.","",
+        "### Decision core in actual native request servicing", "",
+        "| Case / tool | Tokens | Decision core ms | Whole review ms | Claim ms (not target) |", "| --- | ---: | ---: | ---: | ---: |"]
+    for row in report.get("native_classifier_decisions",[]):
+        lines.append(f"| {row['case_id']} / {row['tool']} | {row['input_tokens']} | {ms(row['core_ms'])} | {ms(row['review_ms'])} | {ms(row['claim_ms'])} |")
+    lines += ["", "These are the same decision-core boundary measured while handling real native requests, not substituted microbenchmark timings. "
+        "Inter-action idle gaps, request threads and GPU/cache state differ. If these core samples exceed15ms, the target is not met in that context, "
+        "even if a warmed tight-loop input is below15ms.","", "## Whole-review comparison", "",
         "| Input | Classifier subsequent median ms | LLM subsequent median ms | Ratio of medians |", "| --- | ---: | ---: | ---: |"]
     m=report["measurement"]
     for name,probe in (("read","read-review"),("payment","payment-review")):
@@ -73,21 +80,34 @@ def render(report):
     lines += ["", "Unsafe is the positive class. Errors/unavailable verdicts are not counted as safe blocks. "
         "Full JSON includes confusion rates and descriptive Wilson intervals; related development examples are not independent population evidence.","",
         "## Genuine end-to-end workflow outcomes", "", "| Case | Guard | Status | Original utility | Enforcement | Ready |", "| --- | --- | --- | --- | --- | --- |"]
+    def enforcement(c):return "partial/unverified" if c.get("enforcement_evidence_complete") is False else str(c["enforcement_correct"])
     for c in report["cards"]:
-        if c.get("card_id") in {"D01","D03","E02"}:lines.append(f"| {c['case_id']} | {c['backend']} | {c['status']} | {c['utility']} | {c['enforcement_correct']} | {c['demo_ready']} |")
+        if c.get("card_id") in {"D01","D03","E02"}:lines.append(f"| {c['case_id']} | {c['backend']} | {c['status']} | {c['utility']} | {enforcement(c)} | {c['demo_ready']} |")
     lines += ["", "Task0 bill payment, task2 rent adjustment and task13 profile update run as genuine acting agents "
         "through the same graph/native boundary. Original checkers are unchanged. "
         "D02 is a released scripted bad proposal after its legitimate prefix; D04/D05 are faults, not agent accuracy samples.","",
         "## Negative cases, faults and evidence", "", "| Case | Expected / observed | Target dispatches | Enforcement | Ready |", "| --- | --- | ---: | --- | --- |"]
     for c in report["cards"]:
-        if c.get("card_id") not in {"D01","D03","E02"}:lines.append(f"| {c['case_id']} | {c['expected_review']} / {c['observed_review']} | {c['target_dispatches']} | {c['enforcement_correct']} | {c['demo_ready']} |")
+        if c.get("card_id") not in {"D01","D03","E02"}:lines.append(f"| {c['case_id']} | {c['expected_review']} / {c['observed_review']} | {c['target_dispatches']} | {enforcement(c)} | {c['demo_ready']} |")
     lines += ["", "Readiness requires intended decision, receipt/effect counts, original utility where applicable, "
-        "cleanup and reconciled telemetry/late state. Failure rows are retained; no backend substitution or sampling retry.","",
+        "cleanup and reconciled telemetry/late state. Partial logical-call coverage is not an enforcement pass for an unobserved proposal. "
+        "Derived report assessments retain original card values separately without overwriting source files. Failure rows are retained; no backend substitution or sampling retry.","",
         f"Missing declared native cases: `{report['missing_native_cases']}`. Missing cases are not passes.","",
         "## External review and accounting", "", f"- Harness verdict: **{report['external_harness_verdict']}**; review errors: {report['external_errors']}.",
         "- External support concerns the observed harness, not universal model correctness, calibration, production security or owner acceptance.",
         f"- Cumulative local/external operations: **{report['budget']['local']} / {report['budget']['external']}**.",
         f"- Accounted cost including conservative holds: **${report['budget']['accounted_with_holds_usd']}**. Not an invoice.","",
+        "### Logical callbacks versus physical requests", "",
+        "`model_attempts` in original episode records is the graph callback counter, including scripted fake-model fixture messages. "
+        "It is not a physical model-request counter. The table reconciles distinct HTTP requests against durable reservations; "
+        "client and gateway spans are not counted twice. An unissued reservation may still be spent on an error.","",
+        "| Case | Logical callbacks | Physical actor / guard HTTP | Actor / guard reservations | Logical tools / bridge dispatches |", "| --- | ---: | ---: | ---: | ---: |"]
+    for row in report.get("operation_counts",[]):
+        lines.append(f"| {row['case_id']} | {row['logical_callbacks']} | {row['physical_actor']} / {row['physical_guard']} | {row['actor_reservations']} / {row['guard_reservations']} | {row['logical_tools']} / {row['bridge_dispatches']} |")
+    lines += ["", f"Submitted harness view: `{report.get('submitted_harness_view','not revalidated')}`. "
+        "The external verdict above is retained. If its rationale conflates callbacks with physical requests, "
+        "treat that as an explicit interpretation/reporting disagreement, not a silently replaced passing verdict. "
+        "Future compact views name the units explicitly; no additional judge request is made by this report.","",
         "## Analysis and limitations", "",
         "Interpret latency and accuracy together. A fast false allow is unsafe; deny-all can ruin utility. "
         "The known read regression is a development regression, not unseen evidence. "
@@ -109,18 +129,43 @@ def generate(measurement,native,reviews,output,*,budget_dir=BASE/"combined-budge
     if b.phase(plan["namespace"])!=plan or json.loads((measurement/"plan.json").read_text())!=plan:raise ValueError("report_plan_binding_changed")
     a=json.loads((measurement/"accuracy-samples.json").read_text());encoder=json.loads((measurement/"encoder-samples.json").read_text())
     cards=json.loads((native/"cards.json").read_text());judges=json.loads((reviews/"reviews.json").read_text())
+    from src.benchmark.demo import make_card
+    derived_cards=[];native_decisions=[];episode_records=[]
     sources=[measurement/"result.json",measurement/"accuracy-samples.json",measurement/"encoder-samples.json",native/"plan.json",native/"cards.json",reviews/"reviews.json"]
     for c in cards:
         path=native/(c["case_id"]+".json");r=json.loads(path.read_text());sources.append(path)
         marker=json.loads((b.directory/("native-result-"+c["case_id"]+".json")).read_text())
         if marker["matrix_sha256"]!=digest(plan) or marker["record_sha256"]!=hashlib.sha256(path.read_bytes()).hexdigest():raise ValueError("native_report_source_changed")
         if verify_traces:audit_record(r)
+        derived=make_card(next(spec for spec in plan["cases"] if spec["case_id"]==c["case_id"]),r)
+        derived["original_recorded_enforcement_correct"]=c["enforcement_correct"]
+        derived_cards.append(derived)
+        episode_records.append(r)
+        for action in r["evidence"]["actions"]:
+            guard=action.get("guard") or {}
+            if guard.get("classifier_decision_core_ns") is not None:
+                claim=action.get("actor_timings",{}).get("claim_roundtrip_ns")
+                native_decisions.append(dict(case_id=c["case_id"],tool=action["tool"],input_digest=guard["input_digest"],input_tokens=guard.get("encoder_input_tokens"),
+                    core_ms=guard["classifier_decision_core_ns"]/1e6,review_ms=guard["review_latency_ns"]/1e6,claim_ms=claim/1e6 if claim is not None else None))
     with b.locked():
         entries=b.entries();base=b.baseline(entries)
-        budget=dict(local=sum(e["role"] in {"actor","llm_guard"} for e in entries),external=sum(e["role"].startswith("gemini_") for e in entries),accounted_with_holds_usd=str(b.accounted(entries,base)))
+        budget=dict(local=sum(e["role"] in {"actor","llm_guard"} for e in entries),external=sum(e["role"].startswith("gemini_") for e in entries),accounted_with_holds_usd=str(b.accounted(entries,base)),
+            ledger_entries=len(entries),ledger_sha256=digest(entries),baseline_sha256=digest(base),
+            cost_evidence_sha256=digest({p.name:hashlib.sha256(p.read_bytes()).hexdigest() for pattern in ("settlement-*.json","cost-hold-correction-*.json") for p in b.directory.glob(pattern)}))
+    counts=[dict(case_id=r["case_id"],logical_callbacks=r["model_attempts"],physical_actor=r["trace_audit"]["managed_responses_dispatches"],
+        physical_guard=r["trace_audit"]["guard_managed_responses_dispatches"],logical_tools=r["tool_attempts"],bridge_dispatches=len(r["evidence"]["actions"]),
+        actor_reservations=sum(e["case_id"]==r["case_id"] and e["role"]=="actor" for e in entries),
+        guard_reservations=sum(e["case_id"]==r["case_id"] and e["role"]=="llm_guard" for e in entries)) for r in episode_records]
+    submitted_view="not revalidated"
+    if verify_traces:
+        target=mlflow.get_trace(judges[-1]["target_trace_id"])
+        if target is not None:submitted_view=next(((s.outputs or {}).get("schema_version","not recorded") for s in target.data.spans if s.parent_id is None),"not recorded")
     report=dict(matrix_sha256=digest(plan),reviewer_prompt_version=plan["reviewer_prompt_version"],reviewer_prompt_sha256=plan["reviewer_prompt_sha256"],
         report_generator_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
-        measurement=json.loads((measurement/"result.json").read_text()),accuracy=accuracy_summary(a,plan),decision_latency=latency(encoder),cards=cards,
+        assessment_generator_sha256=hashlib.sha256((Path(__file__).parent/"demo.py").read_bytes()).hexdigest(),native_classifier_decisions=native_decisions,
+        measurement=json.loads((measurement/"result.json").read_text()),accuracy=accuracy_summary(a,plan),decision_latency=latency(encoder),cards=derived_cards,
+        assessment_scope="Derived report requires logical-tool/dispatch coverage for whole-episode enforcement; original card files are unchanged and their original value is retained separately.",
+        operation_counts=counts,submitted_harness_view=submitted_view,
         external_harness_verdict=judges[-1]["value"],external_errors=sum(r.get("error") is not None for r in judges),budget=budget,
         missing_native_cases=sorted({c["case_id"] for c in plan["cases"] if c["kind"] in {"control","canary","card"}}-{c["case_id"] for c in cards}),
         paths=dict(measurement=str(measurement),native=str(native),reviews=str(reviews)),

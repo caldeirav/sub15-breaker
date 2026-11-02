@@ -65,7 +65,9 @@ def compact_observations(plan,records):
             spans.append(value)
         runtime=record.get("runtime_proof",{});actor=runtime.get("actor",{});worker=runtime.get("worker",{})
         result.append(dict(case_id=record["case_id"],task_id=record["task_id"],producer=record["producer"],status=record["status"],trace_id=record["trace_id"],run_id=record["child_run_id"],
-            model_attempts=record["model_attempts"],tool_attempts=record["tool_attempts"],
+            operation_counts=dict(logical_graph_model_callbacks=record["model_attempts"],logical_tool_attempts=record["tool_attempts"],
+                physical_actor_http_requests=record["trace_audit"].get("managed_responses_dispatches"),
+                physical_llm_guard_http_requests=record["trace_audit"].get("guard_managed_responses_dispatches"),actual_bridge_dispatches=len(actions)),
             initial_fingerprint=record["initial_fingerprint"],final_fingerprint=record["final_fingerprint"],original_checker_outcomes=record["measured"],actions=actions,store_events=events,
             actor=dict(metadata=actor.get("metadata"),status=actor.get("status")),worker=dict(metadata=worker.get("metadata"),images=[c["image"] for c in worker.get("spec",{}).get("containers",[])]),
             sandbox_probe=record.get("sandbox_probe"),span_tree=spans,score_provenance=record["trace_audit"]["score_provenance"],expected_scores=record.get("expected_scores"),expected_span_scores=record.get("expected_span_scores"),
@@ -73,7 +75,8 @@ def compact_observations(plan,records):
             source_record_path=record.get("source_record_path"),source_record_sha256=record.get("source_record_sha256"),
             derived_view_sha256=sha(record),full_record_artifact=f"runs:/{record['child_run_id']}/wiring/episode.json"))
     required=[c["case_id"] for c in plan["cases"] if c["kind"] in {"control","canary","card"}]
-    return dict(schema_version="compact-native-wiring-evidence-v1",required_cases=required,records=result,
+    return dict(schema_version="compact-native-wiring-evidence-v2",required_cases=required,records=result,
+        counter_semantics="Logical graph model callbacks include FakeMessagesListChatModel fixture steps and final messages. They are NOT physical model requests. Scripted actors have zero physical actor requests; real LLM guards on those fixtures still have physical guard requests. Count each request once, not once per client/gateway span.",
         frozen_protocol={key:plan.get(key) for key in ("namespace","model_id","acting_model","policy_id","input_version","image","code_sha256","artifact_manifest_sha256","calibration_sha256","policy_sha256","deadlines","reviewer_prompt_version","reviewer_prompt_sha256")},
         declared_native_cases=[c for c in plan["cases"] if c["kind"] in {"control","canary","card"}],
         missing_declared_cases=sorted(set(required)-{r["case_id"] for r in records}),

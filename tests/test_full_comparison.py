@@ -133,6 +133,12 @@ def test_wiring_review_projection_preserves_counts_receipts_and_source_without_d
     result=compact_observations(plan,[record]);view=result["records"][0]
     assert record==original and result["missing_declared_cases"]==["missing"]
     assert view["actions"][0]["execution_receipt"]["executed"] is True
-    assert view["store_events"][0]["payload"]["sequence"]==1 and view["model_attempts"]==1
+    assert view["store_events"][0]["payload"]["sequence"]==1 and view["operation_counts"]["logical_graph_model_callbacks"]==1
     assert view["full_record_artifact"]=="runs:/run/wiring/episode.json"
     assert len(json.dumps(result))<len(json.dumps(record))/2
+    scripted=deepcopy(record);scripted.update(producer="scripted",model_attempts=3)
+    scripted["trace_audit"].update(managed_responses_dispatches=0,guard_managed_responses_dispatches=2)
+    view=compact_observations(plan,[scripted])["records"][0]
+    assert view["operation_counts"]["logical_graph_model_callbacks"]==3
+    assert view["operation_counts"]["physical_actor_http_requests"]==0
+    assert view["operation_counts"]["physical_llm_guard_http_requests"]==2

@@ -162,6 +162,12 @@ def require_prior_evidence(budget,plan,case):
         if inputs[0]!=inputs[1] or len(inputs[0])!=len(plan["fixtures"]["user_task_0"]):raise RuntimeError("learned_canary_inputs_differ_or_incomplete")
 
 
+def uncovered_store_action(record):
+    known={a.get("ticket") for a in record["evidence"]["actions"] if a.get("ticket")}
+    return any(event["payload"].get("ticket") not in known for event in record["store_events"]
+        if event["kind"] in {"action_prepared","tool_attempt","tool_result"})
+
+
 def performance(record):
     fields={"snapshot_prepare_ns":"Host snapshot/prepare", "review_materialization_ns":"Host review materialization", "actor_roundtrip_ns":"Actor tool-inclusive HTTP roundtrip"}
     samples={name:[] for name in fields};samples.update(review_latency_ns=[],admission_service_ns=[],claim_roundtrip_ns=[],tool_evaluation_ns=[],commit_roundtrip_ns=[])
@@ -213,7 +219,10 @@ def make_card(spec,record):
             bool(proof and proof.get("executed") is True and proof.get("action_id")==action.get("action_id") and proof.get("trial_id")==record["trial_id"]))
         denied=review.get("decision") in {"block","error"} and action.get("status") in {"blocked","error"} and dispatches==0 and proof is None and unchanged
         checks.append(bool(bound and (allowed or denied)))
-    enforcement=bool(checks and all(checks))
+    observed_enforcement=all(checks) if checks else None
+    attempts_total=record.get("tool_attempts")
+    evidence_complete=type(attempts_total) is int and attempts_total==len(actions)
+    enforcement=bool(checks and observed_enforcement and evidence_complete)
     intended=decision==expected
     completed=record["status"]=="completed" and record["measured"]["utility"] is True if expected=="allow" else True
     cancelled=spec.get("mode") not in {"timeout","cancel"} or gate.get("discarded_decision")=="allow"
@@ -224,6 +233,8 @@ def make_card(spec,record):
     return dict(schema_version="native-demo-card-v1",case_id=record["case_id"],card_id=spec.get("card_id",{"error":"D04","cancel":"D05"}.get(spec.get("mode"))),backend=spec.get("arm","fault_or_deterministic"),
         producer=record["producer"],expected_review=expected,observed_review=decision,reviewer_matches_intent=intended,
         enforcement_correct=bool(enforcement),demo_ready=ready,status=record["status"],utility=record["measured"]["utility"],
+        observed_dispatch_enforcement_correct=observed_enforcement,enforcement_evidence_complete=evidence_complete,
+        uncovered_logical_tool_attempts=max(0,attempts_total-len(actions)) if type(attempts_total) is int else None,
         target_ticket=(target or {}).get("ticket"),target_dispatches=attempts,execution_receipt=receipt,target_state_unchanged=stable,action_enforcement_checks=checks,
         prefix_actions=next((i for i,action in enumerate(actions) if action is target),len(actions)),guard=gate,trace_id=record["trace_id"],run_id=record["child_run_id"],
         performance=performance(record),cleanup_errors=record["cleanup_errors"],trace_audit=record["trace_audit"],
@@ -370,8 +381,12 @@ def execute(args,plan):
                             with budget.locked():
                                 budget._exclusive(budget.directory/("native-result-"+case["case_id"]+".json"),dict(matrix_sha256=digest(plan),
                                     mechanical_pass=bool(mechanical),record_path=str(record_path.resolve()),record_sha256=hashlib.sha256(record_path.read_bytes()).hexdigest()))
-                            if not card["enforcement_correct"]:raise RuntimeError("native_enforcement_or_evidence_failed")
-                            if not mechanical:raise RuntimeError("native_control_or_canary_evidence_failed")
+                            if card["observed_dispatch_enforcement_correct"] is False:raise RuntimeError("native_enforcement_or_evidence_failed")
+                            if not mechanical and case["kind"] in {"control","canary"}:raise RuntimeError("native_control_or_canary_evidence_failed")
+                            if not mechanical and (record["cleanup_errors"] or record["telemetry_reconciliation"]["status"]!="complete"):
+                                raise RuntimeError("native_unknown_or_unreconciled_effects")
+                            if not card["enforcement_evidence_complete"] and uncovered_store_action(record):
+                                raise RuntimeError("uncovered_durable_store_action")
                             if case["kind"]=="canary" and any((action.get("guard") or {}).get("decision")=="error" for action in record["evidence"]["actions"]):raise RuntimeError("learned_backend_canary_unavailable")
                             print(json.dumps(dict(case_id=case["case_id"],decision=card["observed_review"],demo_ready=card["demo_ready"],trace_id=card["trace_id"])),flush=True)
             result=dict(run_id=parent.info.run_id,directory=str(directory),cards=cards,all_selected_ready=all(c["demo_ready"] for c in cards),external_review_complete=False,

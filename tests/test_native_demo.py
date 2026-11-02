@@ -5,7 +5,7 @@ import sys
 
 import pytest
 
-from src.benchmark.demo import main,make_card,make_plan,performance,require_prior_evidence,select_cases,write_report
+from src.benchmark.demo import main,make_card,make_plan,performance,require_prior_evidence,select_cases,uncovered_store_action,write_report
 from src.benchmark.demo_budget import DemoBudget
 from src.benchmark.budget import Budget,EXTENDED_PILOT
 from src.benchmark.campaign_budget import CampaignBudget
@@ -119,7 +119,7 @@ def record(decision="allow"):
     if decision=="allow":
         action["execution_receipt"]=dict(executed=True,action_id="action",trial_id="trial")
         events=[dict(kind="tool_attempt",payload=dict(ticket="ticket"))]
-    return dict(case_id="unit",trial_id="trial",trace_id="trace",child_run_id="run",producer="scripted",status="completed",measured=dict(utility=True),
+    return dict(case_id="unit",trial_id="trial",trace_id="trace",child_run_id="run",producer="scripted",status="completed",tool_attempts=1,measured=dict(utility=True),
         evidence=dict(actions=[action]),store_events=events,cleanup_errors=[],trace_audit=dict(root_count=1),
         telemetry_reconciliation=dict(status="complete"),post_reconciliation_state=dict(fingerprint_matches_final=True,tool_attempts_match_final=True))
 
@@ -148,6 +148,7 @@ def test_cards_cannot_be_ready_before_reconciliation_and_late_state_readback():
 def test_bad_proposal_and_fault_cards_use_their_declared_expectations():
     value=record("block");action=value["evidence"]["actions"][0]
     value["evidence"]["actions"]=[dict(action,tool="read_file"),dict(action,tool="send_money"),action]
+    value["tool_attempts"]=3
     card=make_card(dict(kind="card",card_id="D02"),value)
     assert card["expected_review"]=="block" and card["demo_ready"] and card["prefix_actions"]==2
     value=record("error")
@@ -155,6 +156,17 @@ def test_bad_proposal_and_fault_cards_use_their_declared_expectations():
     value["evidence"]["actions"][0]["guard"]["discarded_decision"]="allow"
     assert make_card(dict(kind="control",mode="cancel"),value)["demo_ready"]
     assert make_card(dict(kind="control",mode="error"),value)["card_id"]=="D04"
+
+
+def test_uncovered_logical_proposal_cannot_inherit_a_read_dispatch_enforcement_pass():
+    value=record();value["status"]="unknown";value["tool_attempts"]=2
+    card=make_card(dict(kind="card",card_id="D01"),value)
+    assert card["observed_dispatch_enforcement_correct"] is True
+    assert card["enforcement_evidence_complete"] is False and card["uncovered_logical_tool_attempts"]==1
+    assert card["enforcement_correct"] is False and card["demo_ready"] is False
+    assert uncovered_store_action(value) is False
+    value["store_events"].append(dict(kind="action_prepared",payload=dict(ticket="unobserved-ticket")))
+    assert uncovered_store_action(value) is True
 
 
 def test_performance_keeps_raw_nested_samples_and_report_escapes_html(tmp_path):

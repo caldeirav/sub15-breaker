@@ -12,6 +12,41 @@ The comparison is between **A: generative verification** and **B: one compact ne
 
 For delivery status, dependencies and owner acceptance, use the [GitHub roadmap](https://github.com/caldeirav/sub15-breaker/issues/14) and [implementation issues](https://github.com/caldeirav/sub15-breaker/issues). This README introduces the architecture and current comparison; linked reports retain detailed methods, results and earlier failures.
 
+## Latest full comparison — 2026-11-02
+
+The fixed `nd4` test ran both guards on identical reviewed actions and executed
+all three supported banking workflows under each guard. See the dedicated
+[results, background, methods and analysis](docs/full-comparison-results.md),
+[frozen test plan](docs/full-comparison-plan.md), and
+[generated local HTML report](.infra/benchmark-guard-harness/nd4-full-comparison-report-final/report.html).
+The HTML/JSON artifacts require the retained local run bundle; the Markdown
+analysis is checked into the repository.
+
+| Measured result | Classifier | LLM |
+| --- | ---: | ---: |
+| Decision core,147-token read: subsequent median |13.45ms |Not a comparable LLM kernel measurement |
+| Decision core,282-token payment: subsequent median |16.74ms |Not a comparable LLM kernel measurement |
+| Whole-review subsequent medians: read / payment |21.64 /24.67ms |374.87 /363.14ms |
+| Fixed18-action development accuracy |16/18 (88.9%) |17/18 (94.4%) |
+| False allows / false blocks in that cohort |0 /2 |0 /1 |
+| Known permitted-read regression |Passed |Passed with versioned v2 instruction |
+| Genuine workflow utility |1/3 |3/3 |
+
+**This is not an all-variants pass.** Classifier profile update encountered an
+MCP connection timeout before admission; classifier rent adjustment was blocked
+despite the legitimate amount-only effect. These remain visible, not retried.
+The classifier-only cores in actual native servicing were36–257ms, above15ms;
+the short warmed-loop read result is not a universal latency claim. The small,
+previously examined development cohort is not a pristine holdout or safety
+certificate, and workflow utility includes transport/agent effects—not just
+reviewer accuracy. The external harness verdict remains `not_supported`, with a
+documented logical-callback/physical-request interpretation disagreement.
+
+All578 offline tests pass on Python3.11–3.13. PR #49 contains the implementation
+and evidence; owner acceptance remains pending. #54 (transport), #55 (classifier
+rent false block) and further classifier-performance work remain open. Opening
+the reports makes no model calls; spent phases must not be reset or sampled again.
+
 ## Why this design?
 
 1. **Verify before mutation.** Reviewing a trace after an unauthorized transfer is too late to prevent that transfer. Enforcement must inspect the proposed action before the tool consumes it.
@@ -270,13 +305,15 @@ uv run --locked python -m src.benchmark.comparison_report \
 
 The fixed protocol compares identical reviewed inputs and runs bill payment, rent adjustment and profile update under both guards. It retains scripted negative proposals and error/cancellation controls separately. Budgets, code/prompt/input/image/profile hashes and started markers are immutable; failures consume their slots. A new namespace is not permission to sample repeatedly until green. Opening a saved report never invokes a model. Each future rehearsal/presentation needs its own predeclared allocation and fresh state.
 
-To review saved suite evidence after a documented review/reporting fix, without repeating agent/tool actions:
+Historical review module (not the current `nd4` entry point): older protocols
+can review saved suite evidence after an explicitly authorized reporting fix,
+without repeating agent/tool actions:
 
 ```bash
 uv run --locked python -m src.benchmark.review_saved --source-trace SUITE_TRACE_ID
 ```
 
-This **does call Gemini** and creates a new derived review target. It needs the original persisted suite trace and authorized external budget. The older `src.feasibility.runner` remains an in-memory reproducibility path; its `--oracle-only` skips the acting model **but still invokes Gemini**. Example MLflow links refer to the owner's local server, not a public service. Open the **Traces** table for action/effect scores and separate native review rows.
+This **does call Gemini** and creates a new derived review target. It needs the original persisted suite trace and its authorized compatible budget; do not use it to repeat the spent `nd4` review. Current report regeneration above is read-only and does not re-query a judge. The older `src.feasibility.runner` remains an in-memory reproducibility path; its `--oracle-only` skips the acting model **but still invokes Gemini**. Example MLflow links refer to the owner's local server, not a public service. Open the **Traces** table for action/effect scores and separate native review rows.
 
 ### Dependencies and infrastructure
 

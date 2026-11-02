@@ -96,3 +96,14 @@ cause remains unknown; passing this preflight is not a retrospective causal fix.
    full original task evidence; no failure/unknown case is dropped.
 6. Update README.md, PR #49 and issues according to actual evidence. No automatic
    merge, owner sign-off, production certification or reset of spent IDs.
+
+## Execution disposition
+
+The fixed run is complete; see [results and analysis](full-comparison-results.md).
+It is not an all-variants pass. No model, prompt, weight, label, precision or
+threshold was changed after freeze, and no model/judge call was resampled.
+Post-run changes correct reporting/evidence scope only: incomplete logical-tool
+coverage cannot inherit a prior read's enforcement pass, and logical callbacks
+are explicitly named separately from physical requests. Original case files and
+the paid `not_supported` verdict are retained; the report records its own code
+and source hashes. No additional judge was queried for a favorable answer.
