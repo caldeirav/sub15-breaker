@@ -115,7 +115,7 @@ def paired_bootstrap(rows,baseline_logits,baseline_cal,new_logits,new_cal,*,repl
             for i,name in enumerate(("accuracy","false_block_rate","false_allow_rate","permitted_mutation_false_block_rate"))})
 
 
-def train(model,tok,groups):
+def train(model,tok,groups,*,checkpoint_dir=None):
     import torch
     optimizer=torch.optim.AdamW(model.parameters(),lr=PROTOCOL["learning_rate"],weight_decay=PROTOCOL["weight_decay"])
     history=[];best=None;best_nll=float("inf");best_epoch=None
@@ -145,6 +145,12 @@ def train(model,tok,groups):
         mlflow.log_metrics(dict(training_nll=float(np.mean(losses)),checkpoint_validation_nll=score["nll"]),step=epoch+1)
         if score["nll"]<best_nll:
             best_nll=score["nll"];best_epoch=epoch+1;best={key:value.detach().cpu().clone() for key,value in model.state_dict().items()}
+            if checkpoint_dir is not None:
+                # Recovery evidence only: no banking manifest/calibration exists
+                # here, so the serving loader cannot treat it as a ready guard.
+                model.save_pretrained(checkpoint_dir,safe_serialization=True)
+        if checkpoint_dir is not None:
+            (checkpoint_dir/"selection.json").write_text(json.dumps(dict(selected_epoch=best_epoch,checkpoint_validation_nll=best_nll,history=history),indent=2)+"\n")
         print(json.dumps(history[-1]),flush=True)
     model.load_state_dict(best);model.eval()
     del optimizer,best;gc.collect();torch.mps.empty_cache()
@@ -181,7 +187,7 @@ def main():
     model,loading=load_bootstrap(base_snapshot(),device="mps")
     with mlflow.start_run(run_name="modernbert-v2-one-fixed-fit-and-frozen-fresh-challenge") as run:
         mlflow.log_dict(protocol,"protocol/training.json");mlflow.log_dict(loading,"protocol/bootstrap-loading.json")
-        history,best_epoch=train(model,tok,groups)
+        history,best_epoch=train(model,tok,groups,checkpoint_dir=args.output/"checkpoint")
         cal_logits=predict(model,tok,groups["calibration"],device="mps")
         temperature=fit_temperature([dict(logits=logits,label=row["unsafe_label"]) for row,logits in zip(groups["calibration"],cal_logits,strict=True)])
         threshold_logits=predict(model,tok,groups["threshold_validation"],device="mps")

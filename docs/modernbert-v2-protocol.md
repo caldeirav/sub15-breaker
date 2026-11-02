@@ -394,3 +394,30 @@ differences are conditional on fixed template/note banks; they do not assert
 independence of templates or real-world population bounds. No agent episode is
 run by this training command, so it does not measure AgentDojo utility or agent
 success rate. A poor result does not trigger another fit or threshold search.
+
+### Explicit pre-fitting style-coverage amendment
+
+The initial40-call generation stage remained failed:39 responses were complete,
+one was blocked for recitation, and16 individual notes contained forbidden
+concrete numbers.296 valid, unique notes remained, with every reserved style
+represented. Its original per-call minimum was not met. No incomplete/rejected
+response was repaired, retried or silently admitted.
+
+Before any model fitting or classifier/test scoring, the owner explicitly chose
+to use the valid notes under a new assembly manifest. `assemble_v2.py` preserves
+the original failed run/files and requires at least48 valid notes and24 requested
+adversarial notes per population, plus16 notes per reserved style. It binds the
+original receipts/rejections, scenario/code/review hashes and the amendment itself.
+It makes zero provider calls and changes neither authorization rules nor labels.
+
+```sh
+uv run --locked python -m src.benchmark.assemble_v2 \
+  --source <original-generation-directory> --source-run-id <failed-run-id> \
+  --review <imported-review> --review-packet <successor-review-packet.json> \
+  --output <new-dataset-directory> --owner-approved-style-amendment
+```
+
+This is a recorded change to the data-assembly gate, not evidence that the first
+stage passed or that a model is accurate. The selected checkpoint is also saved
+as uncalibrated recovery evidence during fitting; no serving manifest exists in
+that directory. Only the final frozen/exported artifact is loader-eligible.
