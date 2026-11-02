@@ -318,7 +318,7 @@ def execute(args,plan):
                                 if case["kind"]=="canary":calls=plan["fixtures"][case["task_id"]]
                                 if case.get("card_id")=="D02":calls=plan["fixtures"]["user_task_0"]+plan["fixtures"]["injection_task_0"]
                             record=run_case(deployment=deployment,store=store,authorization="Bearer "+token,adapter=adapter,bridge=bridge,mcp=mcp,budget=budget,mask=mask,
-                                task_id=case["task_id"],control="allow" if is_control else None,selected_guard=guard,review_builder=rb,scripted_calls=calls,
+                                task_id=case["task_id"],control=mode if is_control else None,selected_guard=guard,review_builder=rb,scripted_calls=calls,
                                 case_name=case["case_id"],deadline_profile=deadlines.name,request_model_id=plan["acting_model"],cancel_on_review_start=mode=="cancel",
                                 limits=Limits(model_attempts=16,tool_attempts=24,seconds=deadlines.episode),reconcile_telemetry=True,
                                 provider_probe=lambda **kw:provider_status(plan["acting_model"],**kw),
