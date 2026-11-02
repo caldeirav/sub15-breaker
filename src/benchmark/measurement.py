@@ -34,6 +34,8 @@ from src.integrations.agentdojo.banking import BankingAdapter
 
 def inputs(plan,resources):
     adapter=BankingAdapter();episode=adapter.episode("user_task_0","diagnostic-fixture")
+    if plan.get("protocol")=="demo-qualification-v1":
+        return {r["candidate_id"]:review_input(r["model_input"]) for r in plan["accuracy"]["rows"]},episode,adapter
     state=episode.initial_state.model_dump(mode="json");calls=plan["fixtures"]["user_task_0"];builder=ReviewBuilder(resources.projection_tokenizer())
     snapshot=dict(context=dict(user_request=episode.public.prompt),state=state)
     read=builder(snapshot,calls[0]["tool_name"],calls[0]["arguments"],[])
@@ -104,6 +106,9 @@ def transport_audit(record,*,trace):
 def execute(args,plan):
     budget=DemoBudget(args.budget)
     if budget.phase(plan["namespace"])!=plan:raise RuntimeError("measurement_phase_binding_changed")
+    if plan.get("protocol"):
+        from src.benchmark.demo_qualification import require_campaign
+        require_campaign(budget,plan)
     d=Deployment();d.verify_deployment(json.loads((DIRECTORY/"deployment.json").read_text()));d.refresh_credentials()
     directory=BASE/("laptop-measurement-"+uuid4().hex);directory.mkdir(mode=0o700);private(directory/"plan.json",plan)
     mask=Mask([os.getenv(k) for k in ("GEMINI_API_KEY","GOOGLE_API_KEY","OPENAI_API_KEY")]);token=(DIRECTORY/"runtime.token").read_text().strip();mask.secrets.add(token)
@@ -145,7 +150,7 @@ def execute(args,plan):
                                     response.response_metadata.get("finish_reason") not in {None,"stop","tool_calls"} or not (response.tool_calls or response.text.strip())):
                                 row["status"]="protocol_error"
                         else:
-                            value=values["read" if case["probe"]=="read-review" else "payment"]
+                            value=values[case.get("input","read" if case["probe"]=="read-review" else "payment")]
                             review=timed_review(reviewer,value);row.update(review=review,input_digest=value.digest(),status="completed" if review["decision"] in {"allow","block"} else "error")
                     except Exception as exc:row.update(status="error",error=type(exc).__name__)
                     row.update(elapsed_ms=(monotonic()-start)*1000,physical_attempts=active["physical_attempts"]);span.set_outputs(row)
@@ -190,4 +195,7 @@ def execute(args,plan):
             optimized=False,first_use_note="first observed/first input shape, not proof of cold weights; shared model was already loaded; no hidden warmup",native_admission_latency_claim=False)
         private(directory/"result.json",result);mlflow.log_dict(result,"measurement/result.json");mlflow.log_dict(rows,"measurement/diagnostic-samples.json");mlflow.log_dict(encoder_rows,"measurement/encoder-samples.json")
         if accuracy_rows:mlflow.log_dict(accuracy_rows,"measurement/accuracy-samples.json")
+        if plan.get("protocol")=="demo-qualification-v1":
+            from src.benchmark.demo_qualification import paired_marker
+            paired_marker(budget,plan,directory,accuracy_rows)
         print(json.dumps(dict(result_path=str(directory/"result.json"),run_id=run.info.run_id,generative_requests=result["generative_requests"])),flush=True)
