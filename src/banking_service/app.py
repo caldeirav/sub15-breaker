@@ -113,7 +113,9 @@ class ActorApplication:
                 ambient_kubernetes_token=Path("/var/run/secrets/kubernetes.io/serviceaccount/token").exists(),
                 environment_keys=sorted(os.environ),mounts=list(self.runtime_mounts))
         if path=="/admission-readiness":
-            fields(body,());return self.readiness_store.call("/actor-readiness",{})
+            fields(body,());value=self.readiness_store.call("/actor-readiness",{})
+            diagnostics=getattr(self.readiness_store,"last_diagnostics",None)
+            return dict(value,readiness_transport=diagnostics) if diagnostics else value
         if path != "/execute": raise ContractError("unknown_runtime_route", "transport")
         fields(body, ("ticket",))
         timings={};started=perf_counter_ns()
@@ -155,10 +157,10 @@ def main(runtime_mounts=()):
             max_trials=int(os.getenv("BANKING_MAX_TRIALS","100")))
         application = StoreApplication(store, identities)
     else:
-        application = ActorApplication(RuntimeClient(os.environ["BANKING_STORE_URL"], "Bearer inject-actor-jwt",timeout=deadlines.actor_store), identities,
+        application = ActorApplication(RuntimeClient(os.environ["BANKING_STORE_URL"], "Bearer inject-actor-jwt",timeout=deadlines.actor_store,boundary="actor_to_store"), identities,
             runtime_mounts,os.getenv("BANKING_VALIDATION_FAULT_STAGE"),os.getenv("BANKING_BENCHMARK_CLAIM_PATH")=="1",
-            commit_store=RuntimeClient(os.environ["BANKING_STORE_URL"],"Bearer inject-actor-jwt",timeout=deadlines.commit or deadlines.actor_store),
-            readiness_store=RuntimeClient(os.environ["BANKING_STORE_URL"],"Bearer inject-actor-jwt",timeout=5))
+            commit_store=RuntimeClient(os.environ["BANKING_STORE_URL"],"Bearer inject-actor-jwt",timeout=deadlines.commit or deadlines.actor_store,boundary="actor_to_store_commit"),
+            readiness_store=RuntimeClient(os.environ["BANKING_STORE_URL"],"Bearer inject-actor-jwt",timeout=5,boundary="actor_to_store_readiness"))
     with BoundedServer(("0.0.0.0", args.port), application,request_deadline=deadlines.actor_server if args.role=="actor" else 45) as server:
         server.serve_forever()
 

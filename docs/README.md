@@ -32,6 +32,7 @@ The supported research domain is **AgentDojo simulated banking**. The local harn
 | [Focused demo results](demo-qualification-results.md) | Curated action correctness/performance, native qualification and rehearsal evidence; historical failures and acceptance boundaries retained |
 | [End-to-end review backend plan](demo-review-backend-plan.md) / [API contract](demo-review-api.md) | Capacity correction, fresh fixed tests, consolidated evidence and read-only saved-replay backend; visualization is planning only (#60) |
 | [Capacity-corrected backend results](demo-review-backend-results.md) | Preservation proofs, fresh qualification/rehearsal evidence, paired measurements and consolidated review/API verification |
+| [Actor readiness investigation](actor-readiness-plan.md) | #62 safe transport diagnostics and frozen non-effectful first/subsequent Actor probes; no model spending or inferred demo acceptance |
 | [Legacy compatibility](legacy-compatibility.md) | Old modules/examples that are not the supported banking path |
 | [Documentation alignment audit](documentation-audit.md) | What was reviewed/corrected, immutable evidence and validation boundaries |
 
