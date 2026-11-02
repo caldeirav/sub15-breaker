@@ -37,6 +37,7 @@ Responses are JSON with `Cache-Control: no-store` and no model side effects.
 | GET endpoint | Response |
 | --- | --- |
 | `/api/v1/readiness` | Bundle verified; mode=`saved_replay`; current store=`not_probed`; live dispatch=false |
+| `/api/v1/accounting` | Durable-ledger snapshot totals/cost including holds and prefix hash; not an invoice or new allocation |
 | `/api/v1/cases` | Original D01–D05 definitions, expected decision and producer kind |
 | `/api/v1/runs` | Run summaries: saved phase, completeness/readiness, verdict and limitations |
 | `/api/v1/runs/{id}` | Run metadata and normalized results |

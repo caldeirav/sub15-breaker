@@ -58,6 +58,14 @@ stopped at the durable store's100-trial capacity after seven prerequisites (#58)
 No trial history or spent IDs were reset; owner acceptance remains blocked.
 This does not establish general accuracy or15ms native classifier performance.
 
+The capacity-corrected follow-up is [PR #61](https://github.com/caldeirav/sub15-breaker/pull/61):
+[end-to-end plan](docs/demo-review-backend-plan.md),
+[testing/review results](docs/demo-review-backend-results.md), and
+[read-only review API contract](docs/demo-review-api.md).
+It preserves the database/history and prepares a saved-evidence backend for a
+future visual demo. Visualization is planning-only (#60); no frontend or live-run
+controls are added.
+
 ## Why this design?
 
 1. **Verify before mutation.** Reviewing a trace after an unauthorized transfer is too late to prevent that transfer. Enforcement must inspect the proposed action before the tool consumes it.

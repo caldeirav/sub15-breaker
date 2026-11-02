@@ -1,5 +1,6 @@
 from copy import deepcopy
 import hashlib
+from http.client import HTTPConnection
 import json
 import threading
 
@@ -34,6 +35,7 @@ def test_replay_contract_orders_events_redacts_payloads_and_preserves_missing_ca
     assert [e["sequence"] for e in first["events"]+second["events"]]==[1,2,3,4]
     assert all(e["timestamp"] is None and e["time_basis"]=="logical_order_not_wall_clock" for e in first["events"])
     assert store.get("/api/v1/cases")["schema_version"]==VERSION
+    assert store.get("/api/v1/accounting")["accounting"]=={}
     with pytest.raises((KeyError,ValueError)):store.get("/api/v1/runs/../../etc/passwd")
     with pytest.raises(ValueError):store.get("/api/v1/runs/nd7/events?limit=201")
 
@@ -50,6 +52,23 @@ def test_bundle_and_sources_are_hash_checked(tmp_path):
     with pytest.raises(ValueError,match="source_changed"):ReviewStore(output)
 
 
+def test_first_case_setup_failure_without_cards_is_retained_not_hidden(tmp_path):
+    entry=fixture(tmp_path);native=tmp_path/"native";(native/"cards.json").unlink();(native/"nd7-ok.json").unlink()
+    (native/"failure.json").write_text(json.dumps(dict(error="ContractError",message="invalid_runtime_json",completed_cases=[])))
+    (native/"nd7-ok.partial.json").write_text(json.dumps(dict(case_id="nd7-ok",status="setup_failed",error_code="invalid_runtime_json",trial_created=True,actor_deleted=True,cleanup_errors=[])))
+    run=build_bundle([entry],tmp_path/"bundle")["runs"][0]
+    assert not run["complete"] and not run["all_ready"]
+    assert run["cases"][0]["status"]=="setup_failed" and run["cases"][0]["actor_deleted"] is True
+    assert run["cases"][1]["status"]=="not_run"
+
+
+def test_report_transitive_sources_are_rechecked_by_replay_server(tmp_path):
+    entry=fixture(tmp_path);proof=tmp_path/"proof.json";proof.write_text("proof")
+    report=tmp_path/"native/report.json";value=json.loads(report.read_text());value["source_hashes"]={str(proof):hashlib.sha256(proof.read_bytes()).hexdigest()};report.write_text(json.dumps(value))
+    output=tmp_path/"bundle";build_bundle([entry],output);proof.write_text("changed")
+    with pytest.raises(ValueError,match="source_changed"):ReviewStore(output)
+
+
 def test_read_only_http_auth_host_and_method_gates_without_inference(tmp_path):
     entry=fixture(tmp_path);output=tmp_path/"bundle";build_bundle([entry],output)
     store=ReviewStore(output);server=ReviewServer(("127.0.0.1",0),store,"x"*40)
@@ -63,5 +82,8 @@ def test_read_only_http_auth_host_and_method_gates_without_inference(tmp_path):
             assert response.headers["cache-control"]=="no-store"
             assert client.post("/api/v1/runs",headers=headers,json={}).status_code==405
             assert client.get("/api/v1/runs",headers=dict(headers,Host="evil.invalid")).status_code==401
+        malformed=HTTPConnection("127.0.0.1",server.server_port,timeout=2)
+        malformed.request("GET","/api/v1/runs",headers={"Authorization":"Bearer \xff"})
+        response=malformed.getresponse();assert response.status==401;response.read();malformed.close()
     finally:server.shutdown();server.server_close();thread.join(2)
     with pytest.raises(ValueError):ReviewServer(("0.0.0.0",0),store,"x"*40)

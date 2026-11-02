@@ -30,6 +30,8 @@ The supported research domain is **AgentDojo simulated banking**. The local harn
 | [Full comparison plan](full-comparison-plan.md) / [results and analysis](full-comparison-results.md) | Classifier-only15ms boundary, fixed paired accuracy, all three native workflows, retained failures/counter interpretation and reproducible report artifacts |
 | [Focused demo transport/qualification plan](demo-transport-qualification-plan.md) | Follow-up to merged PR #49: bounded transport, original five-card slice, curated paired reviews and separately gated rehearsal; owner acceptance remains separate |
 | [Focused demo results](demo-qualification-results.md) | Curated action correctness/performance, native qualification and rehearsal evidence; historical failures and acceptance boundaries retained |
+| [End-to-end review backend plan](demo-review-backend-plan.md) / [API contract](demo-review-api.md) | Capacity correction, fresh fixed tests, consolidated evidence and read-only saved-replay backend; visualization is planning only (#60) |
+| [Capacity-corrected backend results](demo-review-backend-results.md) | Preservation proofs, fresh qualification/rehearsal evidence, paired measurements and consolidated review/API verification |
 | [Legacy compatibility](legacy-compatibility.md) | Old modules/examples that are not the supported banking path |
 | [Documentation alignment audit](documentation-audit.md) | What was reviewed/corrected, immutable evidence and validation boundaries |
 
