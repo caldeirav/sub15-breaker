@@ -44,10 +44,10 @@ def fixture_cohort(artifact,fixtures):
 
 
 def binding(plan):
-    return {k:plan[k] for k in ("code_sha256","artifact_manifest_sha256","calibration_sha256","fixtures_sha256","acting_model","image","deadlines","serving","reviewer_prompt_sha256","mcp_connect_timeout","native_limits")}
+    return {k:plan.get(k) for k in ("code_sha256","artifact_manifest_sha256","calibration_sha256","fixtures_sha256","acting_model","image","deadlines","serving","reviewer_prompt_sha256","mcp_connect_timeout","native_limits","capacity")}
 
 
-def freeze_campaign(budget,qualification,rehearsal,*,transport_evidence=None):
+def freeze_campaign(budget,qualification,rehearsal,*,transport_evidence=None,capacity_evidence=None):
     if qualification.get("protocol")!="demo-qualification-v1" or rehearsal.get("protocol")!="demo-rehearsal-v1":raise ValueError("explicit_demo_protocols_required")
     if rehearsal["rehearsal_of"]!=qualification["namespace"] or binding(qualification)!=binding(rehearsal):raise ValueError("demo_campaign_binding_differs")
     if transport_evidence is None:raise ValueError("transport_preflight_required")
@@ -57,6 +57,15 @@ def freeze_campaign(budget,qualification,rehearsal,*,transport_evidence=None):
     if proof!=dict(discovery_probes=4,model_requests=0,tools_called=0,restored=True) or not effective_settings(effective):raise ValueError("transport_preflight_failed")
     hashes={str((evidence/name).resolve()):hashlib.sha256((evidence/name).read_bytes()).hexdigest() for name in ("result.json","bridge-effective-backend.json","transport-probes.json","bridge-restoration.json","bridge-transport-probes.json")}
     value=dict(qualification=qualification["namespace"],rehearsal=rehearsal["namespace"],qualification_sha256=digest(qualification),rehearsal_sha256=digest(rehearsal),transport_preflight_hashes=hashes)
+    if qualification["namespace"] in {"nd7","nd8"}:
+        extension=budget.directory/"demo-review-extension-v1.json"
+        value["review_extension_sha256"]=hashlib.sha256(extension.read_bytes()).hexdigest()
+    if qualification.get("capacity"):
+        if capacity_evidence is None:raise ValueError("capacity_preflight_required")
+        evidence_path=Path(capacity_evidence);capacity=json.loads(evidence_path.read_text())
+        from src.benchmark.capacity import validate_capacity
+        validate_capacity(capacity,qualification,binding=digest(dict(qualification=digest(qualification),rehearsal=digest(rehearsal))),minimum_trials=42)
+        value["capacity_preflight"]=dict(path=str(evidence_path.resolve()),sha256=hashlib.sha256(evidence_path.read_bytes()).hexdigest())
     path=budget.directory/("demo-campaign-"+qualification["namespace"]+".json")
     with budget.locked():
         if path.exists():
@@ -67,7 +76,8 @@ def freeze_campaign(budget,qualification,rehearsal,*,transport_evidence=None):
         cases=qualification["cases"]+rehearsal["cases"]
         local=sum(c.get(r,0) for c in cases for r in LOCAL);external=sum(c.get(r,0) for c in cases for r in EXTERNAL)
         if sum(e["role"] in LOCAL for e in entries)+local>POLICY["local_total"] or sum(e["role"] in LOCAL for e in issued)+local>POLICY["new_local_maximum"]:raise ValueError("demo_campaign_local_cap")
-        if sum(e["role"] in EXTERNAL for e in entries)+external>POLICY["gemini_total"] or sum(e["role"] in EXTERNAL for e in issued)+external>POLICY["new_gemini_maximum"]:raise ValueError("demo_campaign_external_cap")
+        limit=budget.external_limit(qualification["namespace"],entries=entries)
+        if sum(e["role"] in EXTERNAL for e in entries)+external>POLICY["gemini_total"] or sum(e["role"] in EXTERNAL for e in issued)+external>limit:raise ValueError("demo_campaign_external_cap")
         if budget.accounted(entries,baseline)+external*usd(POLICY["gemini_hold_per_operation_usd"])>usd(POLICY["gemini_cost_cap_usd"]):raise ValueError("demo_campaign_cost_cap")
     # No execution is permitted until BOTH immutable phase files and this final binding exist.
     budget.freeze_phase(qualification);budget.freeze_phase(rehearsal)
@@ -77,6 +87,12 @@ def freeze_campaign(budget,qualification,rehearsal,*,transport_evidence=None):
 def require_campaign(budget,plan,*,paired_required=False):
     namespace=plan.get("rehearsal_of") or plan["namespace"]
     value=json.loads((budget.directory/("demo-campaign-"+namespace+".json")).read_text())
+    if "review_extension_sha256" in value:
+        if hashlib.sha256((budget.directory/"demo-review-extension-v1.json").read_bytes()).hexdigest()!=value["review_extension_sha256"]:
+            raise RuntimeError("review_extension_changed")
+    if plan.get("capacity"):
+        proof=value.get("capacity_preflight") or {};path=Path(proof.get("path","missing-capacity"))
+        if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest()!=proof.get("sha256"):raise RuntimeError("capacity_preflight_changed")
     if not value.get("transport_preflight_hashes"):raise RuntimeError("transport_preflight_required")
     for file,sha in value["transport_preflight_hashes"].items():
         if hashlib.sha256(Path(file).read_bytes()).hexdigest()!=sha:raise RuntimeError("transport_preflight_changed")
@@ -314,6 +330,7 @@ def main():
     p.add_argument("--failure-report",type=Path);p.add_argument("--output",type=Path)
     p.add_argument("--qualification",default="nd5");p.add_argument("--rehearsal",default="nd6")
     p.add_argument("--transport-evidence",type=Path)
+    p.add_argument("--capacity-campaign");p.add_argument("--capacity-evidence",type=Path)
     p.add_argument("--artifact",type=Path,default=BASE/"modernbert-training-v1/model");p.add_argument("--budget",type=Path,default=BASE/"combined-budget")
     args=p.parse_args();load_dotenv(ROOT/".env")
     if args.failure_report:
@@ -324,9 +341,9 @@ def main():
         probes_only(args.transport_probes);print(args.transport_probes);return
     if not args.freeze_campaign:p.error("select --freeze-campaign")
     common=dict(acting_model=os.getenv("LM_STUDIO_MODEL",VERSIONS["local_model"]))
-    q=make_plan(args.artifact,namespace=args.qualification,protocol="demo-qualification-v1",**common)
-    r=make_plan(args.artifact,namespace=args.rehearsal,protocol="demo-rehearsal-v1",rehearsal_of=args.qualification,**common)
-    freeze_campaign(DemoBudget(args.budget),q,r,transport_evidence=args.transport_evidence)
+    q=make_plan(args.artifact,namespace=args.qualification,protocol="demo-qualification-v1",capacity_campaign=args.capacity_campaign,**common)
+    r=make_plan(args.artifact,namespace=args.rehearsal,protocol="demo-rehearsal-v1",rehearsal_of=args.qualification,capacity_campaign=args.capacity_campaign,**common)
+    freeze_campaign(DemoBudget(args.budget),q,r,transport_evidence=args.transport_evidence,capacity_evidence=args.capacity_evidence)
     print(json.dumps(dict(qualification=digest(q),rehearsal=digest(r))))
 
 

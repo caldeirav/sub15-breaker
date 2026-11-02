@@ -43,6 +43,16 @@ def test_measurement_phase_is_bounded_and_tamper_evident(tmp_path):
     with pytest.raises(RuntimeError,match="phase_changed"):b.phase("nd2")
 
 
+def test_review_allowance_is_additive_scoped_and_preserves_v4_history(tmp_path):
+    b=budget(tmp_path);before={p.name:p.read_bytes() for p in tmp_path.iterdir() if p.is_file()}
+    assert b.approve_review_extension(namespaces=["nd7","nd8"],reason="explicit owner approval for new pair")==136
+    assert b.external_limit("nd7")==136 and b.external_limit("nd8")==136
+    assert b.external_limit("nd6")==128 and b.external_limit("nd9")==128
+    assert all((tmp_path/name).read_bytes()==value for name,value in before.items())
+    path=tmp_path/"demo-review-extension-v1.json";value=json.loads(path.read_text());value["additional_external"]=9;path.write_text(json.dumps(value))
+    with pytest.raises(RuntimeError,match="extension_changed"):b.external_limit("nd7")
+
+
 def test_new_matrix_declares_fixed_eight_diagnostics_and_twelve_encoder_calls(monkeypatch,tmp_path):
     monkeypatch.setattr("src.benchmark.demo.DIRECTORY",tmp_path)
     (tmp_path/"deployment.json").write_text(json.dumps(dict(deadline_profile="native-measure-v2",image="image@sha256:"+"a"*64,template="owned")))

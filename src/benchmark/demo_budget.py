@@ -11,6 +11,26 @@ from src.integrations.agentdojo.inventory import digest
 
 
 class DemoBudget(TrainingBudget):
+    def approve_review_extension(self,*,namespaces,reason):
+        """Owner-approved additive eight-review allowance, restricted to fresh demo IDs."""
+        if namespaces!=["nd7","nd8"] or not isinstance(reason,str) or not reason.strip():raise ValueError("review_extension_scope")
+        with self.locked():
+            entries=self.entries();self.baseline(entries);path=self.directory/"demo-review-extension-v1.json"
+            if path.exists():return self.external_limit("nd7",entries=entries)
+            if any(e["case_id"].split("-",1)[0] in namespaces for e in entries):raise RuntimeError("review_extension_already_spent")
+            value=dict(schema_version="demo-review-extension-v1",parent_policy_sha256=digest(POLICY),namespaces=namespaces,
+                additional_external=8,reason=reason,prefix_length=len(entries),prefix_sha256=digest(entries),global_caps_unchanged=True)
+            self._exclusive(path,value)
+            return POLICY["new_gemini_maximum"]+8
+
+    def external_limit(self,namespace,*,entries=None):
+        path=self.directory/"demo-review-extension-v1.json"
+        if not path.exists():return POLICY["new_gemini_maximum"]
+        value=json.loads(path.read_text());entries=self.entries() if entries is None else entries
+        if (value.get("parent_policy_sha256")!=digest(POLICY) or value.get("namespaces")!=["nd7","nd8"] or value.get("additional_external")!=8 or
+                value.get("global_caps_unchanged") is not True or digest(entries[:value["prefix_length"]])!=value["prefix_sha256"]):raise RuntimeError("review_extension_changed")
+        return POLICY["new_gemini_maximum"]+(8 if namespace in value["namespaces"] else 0)
+
     def freeze_phase(self,plan):
         """Fresh nd2+ IDs; never replace nd1 or its consumed requests/reviews."""
         namespace=plan.get("namespace","")
@@ -38,7 +58,7 @@ class DemoBudget(TrainingBudget):
             if (sum(e["role"] in LOCAL for e in entries)+local>POLICY["local_total"] or
                     sum(e["role"] in LOCAL for e in issued)+local>POLICY["new_local_maximum"]):raise ValueError("demo_local_cap")
             if (sum(e["role"] in EXTERNAL for e in entries)+external>POLICY["gemini_total"] or
-                    sum(e["role"] in EXTERNAL for e in issued)+external>POLICY["new_gemini_maximum"]):raise ValueError("demo_external_cap")
+                    sum(e["role"] in EXTERNAL for e in issued)+external>self.external_limit(namespace,entries=entries)):raise ValueError("demo_external_cap")
             if self.accounted(entries,baseline)+external*usd(POLICY["gemini_hold_per_operation_usd"])>usd(POLICY["gemini_cost_cap_usd"]):raise ValueError("demo_cost_envelope")
             self._exclusive(path,dict(plan=plan,sha256=digest(plan)))
 
@@ -127,7 +147,7 @@ class DemoBudget(TrainingBudget):
                 hold=usd(0)
             else:
                 if model!=POLICY["gemini_model"]:raise RuntimeError("demo_external_model_binding")
-                if sum(e["role"] in EXTERNAL for e in entries)>=POLICY["gemini_total"] or sum(e["role"] in EXTERNAL for e in issued)>=POLICY["new_gemini_maximum"]:raise RuntimeError("demo_external_exhausted")
+                if sum(e["role"] in EXTERNAL for e in entries)>=POLICY["gemini_total"] or sum(e["role"] in EXTERNAL for e in issued)>=self.external_limit(namespace,entries=entries):raise RuntimeError("demo_external_exhausted")
                 hold=usd(POLICY["gemini_hold_per_operation_usd"])
             if self.accounted(entries,baseline)+hold>usd(POLICY["gemini_cost_cap_usd"]):raise RuntimeError("demo_cost_exhausted")
             value=dict(sequence=len(entries)+1,role=role,case_id=case_id,phase=plan.get("phase","native_demo_validation"),trace_id=trace_id,model=model,
