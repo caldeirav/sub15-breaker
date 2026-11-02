@@ -82,3 +82,20 @@ review below15ms, but the numbers do not demonstrate it or certify full native
 admission latency. GPU/software utilization, network placement and queueing still
 require measurement on the actual server. Qwen/MLX would additionally need a
 separately qualified CUDA-serving equivalent; its speedup is not estimated here.
+
+## Native validation is a separate gate
+
+After the successful measurements, nd2's first native allow control returned an
+application-level claim failure before tool dispatch. The reviewer allowed, but
+the Actor could not claim the ticket; the case ended `unknown`, not prevented or
+successful. State/fingerprint, zero tool attempts, cleanup and automatic
+reconciliation were retained. Source:
+`.infra/benchmark-guard-harness/native-demo-ff8d80dd75574c9b912b376f8b47018c/`.
+
+The Actor had retained only the exception type. A safe allowlisted claim-error
+code is now exposed and copied into action evidence. `nd3` is a native-only fresh
+continuation with new source/image binding, no repeated diagnostic samples and
+the same remaining120-local/17-review allowance. The nd2 control stays failed;
+the model-only performance results do not establish that native demo acceptance
+has passed. Native admission/claim measurements and five-card readiness will be
+reported only from actual validated executions.
