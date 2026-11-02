@@ -61,7 +61,7 @@ def code_hashes():
         "src/benchmark/serving.py","src/benchmark/reconciliation.py","src/benchmark/performance.py","src/benchmark/measurement.py",
         "src/benchmark/accuracy.py","src/benchmark/comparison_report.py","src/benchmark/demo_qualification.py",
         "src/benchmark/capacity.py","src/benchmark/review_backend.py","src/benchmark/readiness.py",
-        "src/banking_service/http.py","src/banking_service/diagnostics.py","src/banking_service/auth.py"]
+        "src/banking_service/http.py","src/banking_service/diagnostics.py","src/banking_service/auth.py","src/benchmark/startup.py","src/benchmark/golden_report.py"]
     return {name:hashlib.sha256((ROOT/name).read_bytes()).hexdigest() for name in names}
 
 
@@ -71,6 +71,7 @@ def make_plan(artifact,*,acting_model,classifier_device="mps",namespace="nd1",pr
     if protocol and int(namespace[2:])<5:raise ValueError("fresh_demo_protocol_namespace_required")
     if (protocol=="demo-rehearsal-v1")!=(rehearsal_of is not None):raise ValueError("rehearsal_parent_required")
     full_comparison=int(namespace[2:])>=4 and protocol is None
+    prepared=int(namespace[2:])>=11
     bounded=full_comparison or protocol is not None
     measurement=namespace!="nd1"
     deadlines=MEASURE if measurement else DEMO
@@ -102,11 +103,11 @@ def make_plan(artifact,*,acting_model,classifier_device="mps",namespace="nd1",pr
             if protocol=="demo-rehearsal-v1":case.pop("gemini_task_judge",None)
         if protocol=="demo-qualification-v1":
             from src.benchmark.demo_qualification import fixture_cohort
-            accuracy=fixture_cohort(artifact,fixtures)
+            accuracy=fixture_cohort(artifact,fixtures,all_reads=True) if prepared else fixture_cohort(artifact,fixtures)
             for index,row in enumerate(accuracy["rows"]):
                 cases.append(dict(case_id=f"nd1-accuracy-{index:02d}",kind="accuracy",task_id=row["task_id"],llm_guard=1,candidate_id=row["candidate_id"],input_digest=row["input_digest"]))
                 for repeat in range(3):cases.append(dict(case_id=f"nd1-probe-{row['candidate_id']}-{repeat}",task_id=row["task_id"],kind="diagnostic",probe=row["candidate_id"],input=row["candidate_id"],index=repeat,llm_guard=1))
-            cases.append(dict(case_id="nd1-encoder-measurement",task_id="user_task_0",kind="encoder_measurement",encoder_forward_cap=24))
+            cases.append(dict(case_id="nd1-encoder-measurement",task_id="user_task_0",kind="encoder_measurement",encoder_forward_cap=len(accuracy["rows"])*6))
     if full_comparison:
         for case in cases:
             if case["kind"]=="card" and case.get("producer")=="acting_model":
@@ -124,6 +125,18 @@ def make_plan(artifact,*,acting_model,classifier_device="mps",namespace="nd1",pr
         for kind,count,role in (("actor",2,"actor"),("read-review",3,"llm_guard"),("payment-review",3,"llm_guard")):
             for index in range(count):cases.append(dict(case_id=f"nd1-probe-{kind}-{index}",task_id="user_task_0",kind="diagnostic",probe=kind,index=index,**{role:1}))
         cases.append(dict(case_id="nd1-encoder-measurement",task_id="user_task_0",kind="encoder_measurement",encoder_forward_cap=12))
+    startup_inputs=[]
+    if prepared:
+        from src.benchmark.startup import PROFILE
+        from src.benchmark.demo_qualification import fixture_cohort
+        golden=fixture_cohort(artifact,fixtures,all_reads=True)
+        seen=set()
+        for row in (accuracy or golden)["rows"]+golden["rows"]:
+            if row["input_digest"] not in seen:
+                startup_inputs.append({key:row[key] for key in ("candidate_id","model_input","input_digest")});seen.add(row["input_digest"])
+        stages=(["diagnostics"] if any(c["kind"]=="encoder_measurement" for c in cases) else [])+["native"]
+        for stage in stages:
+            for role in ("actor","llm_guard"):cases.append(dict(case_id=f"nd1-startup-{stage}-{role.replace('_','-')}",kind="startup",stage=stage,task_id="user_task_0",**{role:1}))
     if measurement:
         for case in cases:case["case_id"]=case["case_id"].replace("nd1-",namespace+"-",1)
     hashes=code_hashes()
@@ -131,13 +144,15 @@ def make_plan(artifact,*,acting_model,classifier_device="mps",namespace="nd1",pr
         artifact_manifest_sha256=digest(value),calibration_sha256=digest(value["calibration"]),model_id=value["model_id"],
         fixtures_sha256=digest(fixtures),fixtures=fixtures,code_sha256=digest(hashes),code_hashes=hashes,acting_model=acting_model,
         input_version=INPUT_VERSION,policy_id=POLICY_ID,image=config["image"],base_template=config["template"],
-        deadlines=asdict(deadlines),mcp_backend_timeout=430 if measurement else 75,control_hook_timeout=2,cases=cases,phase="laptop-measurement-v2" if measurement else "validation",cards=CARDS,
+        deadlines=asdict(deadlines),mcp_backend_timeout=430 if measurement else 75,control_hook_timeout=2,cases=cases,phase="ready-golden-v1" if prepared else "laptop-measurement-v2" if measurement else "validation",cards=CARDS,
         **(dict(namespace=namespace,model_route_timeout=330,model_backend_timeout=315,diagnostic_provider_idle_timeout=120,
-            measurement_protocol=dict(encoder_calls_per_input=6,inputs=["read","payment"],warmup_requests=0,diagnostics_continue_on_error=True,automatic_retries=0),
+            measurement_protocol=dict(encoder_calls_per_input=6,inputs=[r["candidate_id"] for r in accuracy["rows"]] if prepared and protocol=="demo-qualification-v1" else ["read","payment"],
+                warmup_requests=2*len(startup_inputs) if prepared else 0,diagnostics_continue_on_error=True,automatic_retries=0),
             **(dict(retained_measurement_phase="nd2",reason="native claim error-code observability; no repeat of successful diagnostics",maximum_local_remaining=120) if namespace=="nd3" else {})) if measurement else {}),
         serving=dict(frontend="managed Responses",backend="Completions via explicit gateway translation",shared_context=8192,
             actor_max_tokens=2048,reviewer_max_tokens=256,temperature=0,max_retries=0,global_settings_changed=False,
-            classifier_device=classifier_device,classifier_lifetime="selected classifier arm only; release before LLM/control arm",tokenizer_only_for_llm=True),
+            classifier_device=classifier_device,classifier_lifetime="resident-primed-for-run" if prepared else "selected classifier arm only; release before LLM/control arm",tokenizer_only_for_llm=not prepared),
+        **(dict(startup_profile=PROFILE,startup_inputs=startup_inputs,report_focus="golden_accuracy_and_outcomes_no_latency_threshold_counts") if prepared else {}),
         reconciliation=dict(timeout_seconds=120 if measurement else 30,quiet_seconds=2 if measurement else 1,poll_seconds=1 if measurement else .5,provider_idle_required=True),
         reviewer_prompt_version="v2" if bounded else "v1",
         reviewer_prompt_sha256=hashlib.sha256(LLM_PROMPTS["v2" if bounded else "v1"].encode()).hexdigest(),
@@ -145,7 +160,7 @@ def make_plan(artifact,*,acting_model,classifier_device="mps",namespace="nd1",pr
         **(dict(protocol=protocol,rehearsal_of=rehearsal_of,mcp_connect_timeout=30,verify_admission_readiness=True,
             transport_probes=4,stop_on_card_failure=True) if protocol else {}),
         **(dict(capacity=dict(campaign_id=capacity_campaign,requirements=dict(trials=42,actions=192,events=1200),store_limits=config["store_limits"])) if capacity_campaign else {}),
-        **(dict(readiness=READINESS_POLICY) if protocol and int(namespace[2:])>=9 else {}),
+        **(dict(readiness=READINESS_POLICY) if prepared or protocol and int(namespace[2:])>=9 else {}),
         **(dict(accuracy=accuracy,decision_latency_target_ms=15,decision_latency_scope="tokenization+device enqueue+forward/host result+calibration/threshold; excludes tracing, projection, transport") if accuracy else {}),
         retries=0,fallback=False,quality_scope="imperfect frozen prototype; architecture mechanics distinct from reviewer correctness",full_admission_latency_claim=False)
 
@@ -356,7 +371,7 @@ def execute(args,plan):
                 if plan.get("capacity"):
                     from src.benchmark.capacity import require_capacity
                     require_capacity(store,budget,plan,directory,minimum_trials=42 if plan["protocol"]=="demo-qualification-v1" else 28)
-                resources=ServingResources(args.artifact,json.loads((args.artifact/"benchmark-guard.json").read_text())["calibration"],classifier_device=plan["serving"]["classifier_device"])
+                resources=ServingResources(args.artifact,json.loads((args.artifact/"benchmark-guard.json").read_text())["calibration"],classifier_device=plan["serving"]["classifier_device"],resident=bool(plan.get("startup_profile")))
                 stack.callback(resources.release_classifier)
                 mlflow.log_dict(resources.snapshot(),"protocol/startup.json")
                 service=server(registry,STORE_HOST,"0.0.0.0:8173");stack.callback(lambda:service.stop(3).wait(5))
@@ -371,20 +386,43 @@ def execute(args,plan):
                     discovery_probes(mcp,http,plan["transport_probes"],directory)
                 else:mcp.discover()
                 def reserve_guard(request):
-                    span=mlflow.get_current_active_span();budget.reserve(role="llm_guard",case_id=active["case_id"],trace_id=span.trace_id,request=request,model=plan["acting_model"])
+                    span=mlflow.get_current_active_span();budget.reserve(role=active.get("role","llm_guard"),case_id=active["case_id"],trace_id=span.trace_id,request=request,model=plan["acting_model"])
+                    active["physical_attempts"]=active.get("physical_attempts",0)+1
                 client=stack.enter_context(httpx.Client(transport=ModelTransport(base,on_request=reserve_guard),timeout=deadlines.reviewer,trust_env=False,follow_redirects=False))
                 reviewer=ChatOpenAI(model=plan["acting_model"],base_url=base+"/v1",api_key=token,http_client=client,use_responses_api=True,
                     output_version="responses/v1",max_retries=0,timeout=deadlines.reviewer,temperature=0,max_tokens=256)
                 version=plan["reviewer_prompt_version"]
                 llm_reviewer=llm_guard(reviewer,guard_id="qwen-native-demo-reviewer-"+version,reserve_model=lambda:None,prompt_version=version)
+                startup_report=None
                 for phase in ("control","learned"):
                     phase_cases=[case for case in cases if (case["kind"]=="control")== (phase=="control")]
                     if not phase_cases:continue
                     phase_dir=directory/phase;phase_dir.mkdir()
                     with native_hook(deployment.cluster,phase_dir,host,8173,timeout_seconds=plan["control_hook_timeout"] if phase=="control" else deadlines.native_hook):
+                        if plan.get("startup_profile") and startup_report is None:
+                            from src.benchmark.startup import prepare
+                            from src.benchmark.readiness import check
+                            from src.banking_service.validation import runtime_proof
+                            def platform_check():
+                                actor=None
+                                try:
+                                    actor=deployment.create_actor();runtime_proof(deployment,actor)
+                                    with deployment.forward(actor["metadata"]["name"],actor=True) as actor_base:
+                                        probe=RuntimeClient(actor_base,"Bearer "+token,boundary="driver_to_actor").call("/probe",{})
+                                        if (probe["uid"],probe["gid"],probe["effective_capabilities"],probe["no_new_privs"],probe["ambient_kubernetes_token"])!=(10001,10001,"0000000000000000","1",False):raise RuntimeError("startup_sandbox_profile_differs")
+                                        ready=check(RuntimeClient(actor_base,"Bearer "+token,timeout=15,boundary="driver_to_actor"),actor_id=actor["metadata"]["name"],actor_uid=actor["metadata"]["uid"],ticket_lifetime=deadlines.ticket,policy=plan["readiness"])
+                                        return dict(ready=True,readiness=ready,trial_created=False,tools_executed=0)
+                                finally:
+                                    actor=actor or deployment.last_actor
+                                    if actor:deployment.delete_actor(actor["metadata"]["name"])
+                            definitions=[dict(type="function",function=dict(name=name,description=f"Pinned synthetic banking tool: {name}.",parameters=schema["arguments"])) for name,schema in adapter.catalog.schemas().items()]
+                            startup_actor=ChatOpenAI(model=plan["acting_model"],base_url=base+"/v1",api_key=token,http_client=client,use_responses_api=True,
+                                output_version="responses/v1",max_retries=0,timeout=deadlines.model,temperature=0,max_tokens=2048).bind_tools(definitions,parallel_tool_calls=False)
+                            startup_report=prepare(plan=plan,budget=budget,directory=directory,stage="native",resources=resources,reviewer=llm_reviewer,
+                                actor_model=startup_actor,active=active,store=store,mcp=mcp,platform_check=platform_check)
                         for case in phase_cases:
                             require_prior_evidence(budget,plan,case)
-                            claim_case(budget,case["case_id"],plan);active["case_id"]=case["case_id"]
+                            claim_case(budget,case["case_id"],plan);active.update(case_id=case["case_id"],role="llm_guard",physical_attempts=0)
                             mode=case.get("mode");is_control=case["kind"]=="control";calls=None
                             if is_control:
                                 resources.select("control")
@@ -406,6 +444,7 @@ def execute(args,plan):
                                 provider_probe=lambda **kw:provider_status(plan["acting_model"],**kw),
                                 reconciliation_options={k:v for k,v in plan["reconciliation"].items() if k!="provider_idle_required"})
                             record["serving_resources"]=resources.snapshot()
+                            if plan.get("startup_profile"):record["services_ready_before_case"]=bool(startup_report and startup_report["ready"])
                             records.append(record);private(directory/(case["case_id"]+".json"),record)
                             card=make_card(case,record);cards.append(card);write_report(directory,cards);mlflow.log_dict(card,"cards/"+case["case_id"]+".json")
                             mechanical=card["enforcement_correct"] and not record["cleanup_errors"] and record["telemetry_reconciliation"]["status"]=="complete"
@@ -465,7 +504,9 @@ def main():
     args=parser.parse_args()
     if args.list_demo_cases or args.dry_run:
         print(json.dumps(dict(cards=CARDS,implemented_native_flow="existing wiring.run_case",phase="validation",inference_requests=0,cluster_mutations=0,
-            planning_local_cap=80 if args.protocol=="demo-qualification-v1" else 64 if args.protocol=="demo-rehearsal-v1" else 117 if re.fullmatch(r"nd[1-9][0-9]*",args.phase) and int(args.phase[2:])>=4 else 120,
+            planning_local_cap=(88 if re.fullmatch(r"nd[1-9][0-9]*",args.phase) and int(args.phase[2:])>=11 else 80) if args.protocol=="demo-qualification-v1" else
+                (66 if re.fullmatch(r"nd[1-9][0-9]*",args.phase) and int(args.phase[2:])>=11 else 64) if args.protocol=="demo-rehearsal-v1" else
+                121 if re.fullmatch(r"nd[1-9][0-9]*",args.phase) and int(args.phase[2:])>=11 else 117 if re.fullmatch(r"nd[1-9][0-9]*",args.phase) and int(args.phase[2:])>=4 else 120,
             planning_gemini_cap=1 if args.protocol=="demo-rehearsal-v1" else 17,artifact=str(args.artifact),readiness="requires frozen matrix and actual validation evidence"),indent=2));return
     from dotenv import load_dotenv
     load_dotenv(ROOT/".env")

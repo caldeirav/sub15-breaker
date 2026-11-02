@@ -114,7 +114,7 @@ def execute(args,plan):
     mask=Mask([os.getenv(k) for k in ("GEMINI_API_KEY","GOOGLE_API_KEY","OPENAI_API_KEY")]);token=(DIRECTORY/"runtime.token").read_text().strip();mask.secrets.add(token)
     mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI","http://localhost:5001"));mlflow.set_experiment("breaker-banking-target-agent")
     mlflow.langchain.autolog();mlflow.openai.autolog(disable=True);mlflow.tracing.configure(span_processors=[mask.span_processor])
-    deadlines=profile(plan["deadlines"]["name"]);active={};rows=[];encoder_rows=[];accuracy_rows=[]
+    deadlines=profile(plan["deadlines"]["name"]);active={};rows=[];encoder_rows=[];accuracy_rows=[];startup_report=None
     hardware=dict(platform=platform.platform(),cpu=subprocess.check_output(["sysctl","-n","machdep.cpu.brand_string"],text=True).strip(),
         memory_bytes=int(subprocess.check_output(["sysctl","-n","hw.memsize"],text=True)),model=plan["acting_model"],classifier_device=plan["serving"]["classifier_device"])
     private(directory/"hardware.json",hardware)
@@ -125,7 +125,7 @@ def execute(args,plan):
             require_capacity(RuntimeClient(base,"Bearer "+token),budget,plan,directory,minimum_trials=42)
     with mlflow.start_run(run_name="fixed-laptop-measurement-"+plan["namespace"]) as run:
         with ExitStack() as stack:
-            resources=ServingResources(args.artifact,json.loads((args.artifact/"benchmark-guard.json").read_text())["calibration"],classifier_device=plan["serving"]["classifier_device"])
+            resources=ServingResources(args.artifact,json.loads((args.artifact/"benchmark-guard.json").read_text())["calibration"],classifier_device=plan["serving"]["classifier_device"],resident=bool(plan.get("startup_profile")))
             stack.callback(resources.release_classifier);values,episode,adapter=inputs(plan,resources)
             encoder_case=next(c for c in plan["cases"] if c["kind"]=="encoder_measurement")
             if len(values)*plan["measurement_protocol"]["encoder_calls_per_input"]!=encoder_case["encoder_forward_cap"]:raise RuntimeError("encoder_measurement_allocation_mismatch")
@@ -140,6 +140,23 @@ def execute(args,plan):
             reviewer=llm_guard(ChatOpenAI(**common,max_tokens=256),guard_id="qwen-native-demo-reviewer-"+version,reserve_model=lambda:None,prompt_version=version)
             definitions=[dict(type="function",function=dict(name=name,description=f"Pinned synthetic banking tool: {name}.",parameters=schema["arguments"])) for name,schema in adapter.catalog.schemas().items()]
             actor=ChatOpenAI(**common,max_tokens=2048).bind_tools(definitions,parallel_tool_calls=False)
+            if plan.get("startup_profile"):
+                from src.benchmark.startup import prepare
+                from src.banking_service.http import RuntimeClient
+                with d.forward("service/banking-store") as store_base:
+                    startup_report=prepare(plan=plan,budget=budget,directory=directory,stage="diagnostics",resources=resources,reviewer=reviewer,
+                        actor_model=actor,active=active,store=RuntimeClient(store_base,"Bearer "+token))
+            def measure_encoder():
+                case=next(c for c in plan["cases"] if c["kind"]=="encoder_measurement");claim_case(budget,case["case_id"],plan)
+                guard=resources.select("classifier")
+                for index in range(plan["measurement_protocol"]["encoder_calls_per_input"]):
+                    for name,value in values.items():
+                        with mlflow.start_span(name="fixed_encoder_measurement",span_type="GUARDRAIL") as span:
+                            review=timed_review(guard,value);row=dict(case_id=case["case_id"],input=name,index=index,input_digest=value.digest(),review=review,
+                                status="completed" if review["decision"] in {"allow","block"} else "error",elapsed_ms=review["review_latency_ns"]/1e6,trace_id=span.trace_id)
+                            span.set_outputs(row);encoder_rows.append(row)
+                        private(directory/"encoder-samples.json",encoder_rows)
+            if plan.get("startup_profile"):measure_encoder()
             for case in [c for c in plan["cases"] if c["kind"]=="diagnostic"]:
                 claim_case(budget,case["case_id"],plan);active.update(case_id=case["case_id"],role="actor" if case["probe"]=="actor" else "llm_guard",physical_attempts=0)
                 row=dict(case_id=case["case_id"],probe=case["probe"],index=case["index"],role=active["role"],producer="model transport diagnostic; no tool effects or agent utility",serving_resources=resources.snapshot())
@@ -162,15 +179,7 @@ def execute(args,plan):
                 row["reconciliation"]=reconcile_record(row,audit=transport_audit,provider_probe=lambda **kw:provider_status(plan["acting_model"],**kw),timeout_seconds=120,quiet_seconds=2,poll_seconds=1)
                 rows.append(row);private(directory/(case["case_id"]+".json"),row)
                 print(json.dumps({k:row.get(k) for k in ("case_id","status","elapsed_ms","physical_attempts")}),flush=True)
-            case=next(c for c in plan["cases"] if c["kind"]=="encoder_measurement");claim_case(budget,case["case_id"],plan)
-            guard=resources.select("classifier")
-            for index in range(plan["measurement_protocol"]["encoder_calls_per_input"]):
-                for name,value in values.items():
-                    with mlflow.start_span(name="fixed_encoder_measurement",span_type="GUARDRAIL") as span:
-                        review=timed_review(guard,value);row=dict(case_id=case["case_id"],input=name,index=index,input_digest=value.digest(),review=review,
-                            status="completed" if review["decision"] in {"allow","block"} else "error",elapsed_ms=review["review_latency_ns"]/1e6,trace_id=span.trace_id)
-                        span.set_outputs(row);encoder_rows.append(row)
-                    private(directory/"encoder-samples.json",encoder_rows)
+            if not plan.get("startup_profile"):measure_encoder()
             for index,case in enumerate(c for c in plan["cases"] if c["kind"]=="accuracy"):
                 claim_case(budget,case["case_id"],plan);source=plan["accuracy"]["rows"][index];value=review_input(source["model_input"])
                 if value.digest()!=case["input_digest"]:raise RuntimeError("accuracy_frozen_input_changed")
@@ -195,9 +204,12 @@ def execute(args,plan):
             [dict(evidence=dict(actions=[dict(guard=r["review"])])) for r in rows if r.get("input_digest")==value.digest() and r.get("review")]) for name,value in values.items()}
         result=dict(run_id=run.info.run_id,directory=str(directory),hardware=hardware,diagnostics=summary(rows),encoder=summary(encoder_rows),review_comparisons=comparisons,
             accuracy={group:{arm:metrics([r for r in accuracy_rows if r["backend"]==arm and r["cohort"]==group]) for arm in ("classifier","llm")} for group in sorted({r["cohort"] for r in accuracy_rows})},
-            decision_core={name:distribution([r["review"]["classifier_decision_core_ns"]/1e6 for r in encoder_rows if r["input"]==name and r["index"]>0 and r["review"].get("classifier_decision_core_ns") is not None]) for name in values},
-            server_projection={name:server_projection([r for r in encoder_rows if r["input"]==name]) for name in values},generative_requests=sum(r["physical_attempts"] for r in rows+accuracy_rows),encoder_forwards=len(encoder_rows)+sum(r["backend"]=="classifier" for r in accuracy_rows),
-            optimized=False,first_use_note="first observed/first input shape, not proof of cold weights; shared model was already loaded; no hidden warmup",native_admission_latency_claim=False)
+            decision_core={name:distribution([r["review"]["classifier_decision_core_ns"]/1e6 for r in encoder_rows if r["input"]==name and (plan.get("startup_profile") or r["index"]>0) and r["review"].get("classifier_decision_core_ns") is not None]) for name in values},
+            **({} if plan.get("startup_profile") else dict(server_projection={name:server_projection([r for r in encoder_rows if r["input"]==name]) for name in values})),
+            generative_requests=sum(r["physical_attempts"] for r in rows+accuracy_rows)+sum(r["physical_attempts"] for r in (startup_report or {}).get("model_probes",[])),
+            encoder_forwards=len(encoder_rows)+sum(r["backend"]=="classifier" for r in accuracy_rows),
+            **(dict(startup=startup_report,startup_model_requests=2,classifier_priming_forwards=len(startup_report["classifier"]["startup_priming"]),all_test_samples_after_ready=True) if startup_report else {}),
+            optimized=False,first_use_note="All scored/timed forwards follow explicit recorded startup priming on the same resident worker; no startup samples discarded from the startup report." if plan.get("startup_profile") else "first observed/first input shape, not proof of cold weights; shared model was already loaded; no hidden warmup",native_admission_latency_claim=False)
         private(directory/"result.json",result);mlflow.log_dict(result,"measurement/result.json");mlflow.log_dict(rows,"measurement/diagnostic-samples.json");mlflow.log_dict(encoder_rows,"measurement/encoder-samples.json")
         if accuracy_rows:mlflow.log_dict(accuracy_rows,"measurement/accuracy-samples.json")
         if plan.get("protocol")=="demo-qualification-v1":

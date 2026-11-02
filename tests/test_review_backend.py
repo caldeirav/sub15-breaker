@@ -54,6 +54,17 @@ def test_readiness_recovery_remains_visible_separate_from_model_calls(tmp_path):
     assert len([e for e in run["events"] if e["stage"]=="readiness_observation"])==2
 
 
+def test_new_projection_exposes_golden_verdicts_and_startup_not_threshold_counts(tmp_path):
+    entry=fixture(tmp_path);path=tmp_path/"native/report.json";value=json.loads(path.read_text())
+    value.update(golden_accuracy=dict(unique_inputs=1,results=[dict(candidate_id="read",task_id="user_task_0",input_digest="a"*64,golden="allow",use_cases=["D01"],
+        backends={arm:dict(observed="allow",correct=True) for arm in ("classifier","llm")})],overall={},by_use_case={}),
+        decision_core=dict(read=dict(below15=6,core=dict(median_ms=12))),native_core_below15=10,
+        service_startup=dict(native=dict(ready=True,classifier=dict(classifier_primed=True,startup_priming=[]),model_probes=[])))
+    path.write_text(json.dumps(value));payload=build_bundle([entry],tmp_path/"bundle");run=payload["runs"][0]
+    assert run["golden_accuracy"]["results"][0]["golden"]=="allow" and run["golden_accuracy"]["results"][0]["backends"]["llm"]["correct"]
+    assert run["service_startup"]["native"]["ready"] and "below15" not in json.dumps(payload)
+
+
 def test_bundle_and_sources_are_hash_checked(tmp_path):
     entry=fixture(tmp_path);output=tmp_path/"bundle";build_bundle([entry],output)
     (tmp_path/"native/nd7-ok.json").write_text("tampered")

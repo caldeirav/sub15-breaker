@@ -11,6 +11,19 @@ from src.integrations.agentdojo.inventory import digest
 
 
 class DemoBudget(TrainingBudget):
+    def approve_golden_allowance(self,*,reason):
+        """Fresh18-review demo retest with explicit startup/priming, never a reset."""
+        if not isinstance(reason,str) or not reason.strip():raise ValueError("golden_reason_required")
+        with self.locked():
+            entries=self.entries();baseline=self.baseline(entries);path=self.directory/"golden-demo-allowance-v1.json"
+            if path.exists():return self.external_limit("nd11",entries=entries)
+            if any(e["case_id"].split("-",1)[0] in {"nd11","nd12"} for e in entries):raise RuntimeError("golden_already_spent")
+            issued=sum(e["role"] in EXTERNAL for e in entries[baseline["prefix_length"]:])
+            if sum(e["role"] in EXTERNAL for e in entries)+18>POLICY["gemini_total"] or self.accounted(entries,baseline)+18*usd(POLICY["gemini_hold_per_operation_usd"])>usd(POLICY["gemini_cost_cap_usd"]):raise ValueError("golden_global_envelope")
+            self._exclusive(path,dict(schema_version="golden-demo-allowance-v1",parent_policy_sha256=digest(POLICY),namespaces=["nd11","nd12"],maximum_new_external_operations=18,
+                new_external_limit=issued+18,prefix_length=len(entries),prefix_sha256=digest(entries),reason=reason,global_caps_unchanged=True))
+            return issued+18
+
     def approve_acceptance_allowance(self,*,reason):
         """Fresh owner-approved17+1 review allocation; no old allowance or ledger reset."""
         if not isinstance(reason,str) or not reason.strip():raise ValueError("acceptance_reason_required")
@@ -52,6 +65,13 @@ class DemoBudget(TrainingBudget):
             if (value.get("parent_policy_sha256")!=digest(POLICY) or value.get("namespaces")!=["nd9","nd10"] or value.get("maximum_new_external_operations")!=18 or
                     value.get("new_external_limit")!=issued+18 or value.get("global_caps_unchanged") is not True or len(prefix)!=value["prefix_length"] or digest(prefix)!=value["prefix_sha256"]):
                 raise RuntimeError("acceptance_allowance_changed")
+            if namespace in value["namespaces"]:limit=value["new_external_limit"]
+        golden=self.directory/"golden-demo-allowance-v1.json"
+        if golden.exists():
+            value=json.loads(golden.read_text());baseline=self.baseline(entries);prefix=entries[:value["prefix_length"]]
+            issued=sum(e["role"] in EXTERNAL for e in prefix[baseline["prefix_length"]:])
+            if (value.get("parent_policy_sha256")!=digest(POLICY) or value.get("namespaces")!=["nd11","nd12"] or value.get("maximum_new_external_operations")!=18 or
+                    value.get("new_external_limit")!=issued+18 or value.get("global_caps_unchanged") is not True or len(prefix)!=value["prefix_length"] or digest(prefix)!=value["prefix_sha256"]):raise RuntimeError("golden_allowance_changed")
             if namespace in value["namespaces"]:limit=value["new_external_limit"]
         return limit
 
