@@ -59,6 +59,20 @@ def test_new_matrix_declares_fixed_eight_diagnostics_and_twelve_encoder_calls(mo
     assert not any(c["kind"] in {"diagnostic","encoder_measurement"} for c in continuation["cases"])
 
 
+def test_full_comparison_is_fixed_117_local_with_all_three_native_workflows(monkeypatch,tmp_path):
+    monkeypatch.setattr("src.benchmark.demo.DIRECTORY",tmp_path)
+    (tmp_path/"deployment.json").write_text(json.dumps(dict(deadline_profile="native-measure-v2",image="image@sha256:"+"a"*64,template="owned")))
+    monkeypatch.setattr("src.benchmark.demo.manifest",lambda *a,**kw:dict(model_id="frozen",calibration=dict(threshold=.5)))
+    monkeypatch.setattr("src.benchmark.demo.cohort",lambda base:dict(rows=[dict(candidate_id=str(i),task_id="user_task_0",input_digest=str(i)) for i in range(19)]))
+    p=make_plan(tmp_path,acting_model="frozen",namespace="nd4")
+    assert sum(c.get("actor",0)+c.get("llm_guard",0) for c in p["cases"])==117
+    assert sum(c.get("gemini_task_judge",0)+c.get("gemini_harness_judge",0) for c in p["cases"])==17
+    assert {(c["task_id"],c["arm"]) for c in p["cases"] if c["kind"]=="card" and c["producer"]=="acting_model"}=={
+        (task,arm) for task in ("user_task_0","user_task_2","user_task_13") for arm in ("classifier","llm")}
+    assert p["reviewer_prompt_version"]=="v2" and p["decision_latency_target_ms"]==15
+    budget(tmp_path/"ledger").freeze_phase(p)
+
+
 def test_completion_profile_covers_full_chain_without_changing_legacy():
     from src.banking_service.deadlines import MEASURE,DEMO
     assert MEASURE.actor_store+15+5+MEASURE.commit+5<=MEASURE.actor_server

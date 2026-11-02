@@ -1,6 +1,8 @@
 """External, post-run Gemini review; never an admission or training-label source."""
 from typing import Literal
 import os
+import hashlib
+import json
 
 import mlflow
 from mlflow.genai.judges import make_judge
@@ -28,6 +30,55 @@ Do not certify financial safety, guard calibration, performance, production secu
 Keep the rationale under 200 words, citing a few case/trace/action/evidence IDs and any limitations or
 disagreements. Do not repeat the payload, enumerate every event, or give a per-tool chronology.
 """
+
+
+def compact_observations(plan,records):
+    """Deterministic wiring evidence; keep full immutable sources linked by hash.
+
+    Task judges retain full task evidence. This harness view avoids repeating
+    entire worker logs, bank snapshots and agent conversations per span.
+    It preserves all cases, action/receipt/event counters and the whole span tree.
+    """
+    def sha(value):return hashlib.sha256(json.dumps(value,sort_keys=True,separators=(",",":"),default=str).encode()).hexdigest()
+    result=[]
+    for record in records:
+        actions=[]
+        for action in record["evidence"]["actions"]:
+            value={key:action.get(key) for key in ("call_id","tool","arguments","canonical_arguments","action_id","ticket","span_id","status","guard",
+                "execution_receipt","before_fingerprint","after_fingerprint","state_changed","native_admission_attempted","actor_timings","claim_failure")}
+            value["output_sha256"]=sha(action.get("output"));actions.append(value)
+        events=[]
+        for event in record["store_events"]:
+            payload=event["payload"]
+            if event["kind"] in {"tool_attempt","tool_result","model_attempt"}:
+                value=dict(payload)
+                if isinstance(value.get("result"),dict):value["result"]={k:v for k,v in value["result"].items() if k!="output"}
+                events.append(dict(kind=event["kind"],payload=value,source_event_sha256=sha(event)))
+            else:events.append(dict(kind=event["kind"],ticket=payload.get("ticket"),source_event_sha256=sha(event)))
+        spans=[]
+        for span in record["trace_audit"]["span_manifest"]:
+            value={key:span.get(key) for key in ("span_id","parent_id","name","span_type")}
+            if span["name"]=="substrate_native_admission":value.update(inputs=span.get("inputs"),outputs=span.get("outputs"))
+            elif span["name"]=="managed_responses_http":
+                inputs=span.get("inputs") or {};request=inputs.get("request") or {}
+                value.update(inputs=dict(url=inputs.get("url"),method=inputs.get("method"),request_sha256=sha(request),model=request.get("model")),outputs=span.get("outputs"))
+            spans.append(value)
+        runtime=record.get("runtime_proof",{});actor=runtime.get("actor",{});worker=runtime.get("worker",{})
+        result.append(dict(case_id=record["case_id"],task_id=record["task_id"],producer=record["producer"],status=record["status"],trace_id=record["trace_id"],run_id=record["child_run_id"],
+            model_attempts=record["model_attempts"],tool_attempts=record["tool_attempts"],
+            initial_fingerprint=record["initial_fingerprint"],final_fingerprint=record["final_fingerprint"],original_checker_outcomes=record["measured"],actions=actions,store_events=events,
+            actor=dict(metadata=actor.get("metadata"),status=actor.get("status")),worker=dict(metadata=worker.get("metadata"),images=[c["image"] for c in worker.get("spec",{}).get("containers",[])]),
+            sandbox_probe=record.get("sandbox_probe"),span_tree=spans,score_provenance=record["trace_audit"]["score_provenance"],expected_scores=record.get("expected_scores"),expected_span_scores=record.get("expected_span_scores"),
+            telemetry=record.get("telemetry_reconciliation"),late_state=record.get("post_reconciliation_state"),cleanup_errors=record["cleanup_errors"],
+            source_record_path=record.get("source_record_path"),source_record_sha256=record.get("source_record_sha256"),
+            derived_view_sha256=sha(record),full_record_artifact=f"runs:/{record['child_run_id']}/wiring/episode.json"))
+    required=[c["case_id"] for c in plan["cases"] if c["kind"] in {"control","canary","card"}]
+    return dict(schema_version="compact-native-wiring-evidence-v1",required_cases=required,records=result,
+        frozen_protocol={key:plan.get(key) for key in ("namespace","model_id","acting_model","policy_id","input_version","image","code_sha256","artifact_manifest_sha256","calibration_sha256","policy_sha256","deadlines","reviewer_prompt_version","reviewer_prompt_sha256")},
+        declared_native_cases=[c for c in plan["cases"] if c["kind"] in {"control","canary","card"}],
+        missing_declared_cases=sorted(set(required)-{r["case_id"] for r in records}),
+        omitted_duplicate_payloads="Full bank snapshots/worker logs/agent conversations are retained in source artifacts, not repeated in this wiring-only view.",
+        excluded_claims=["production_safety","general_accuracy","calibration_guarantee","sub15ms_native_claim"])
 
 
 def build_harness_judge(model):

@@ -19,6 +19,7 @@ from src.banking_service.deadlines import profile
 from src.banking_service.deploy import Deployment,DIRECTORY
 from src.banking_service.upstream import evaluate
 from src.benchmark.admission import ReviewBuilder,llm_guard
+from src.benchmark.accuracy import metrics,review_input
 from src.benchmark.compare import claim_case
 from src.benchmark.demo_budget import DemoBudget
 from src.benchmark.deployment import gateway_forward,model_timeouts,private
@@ -108,7 +109,7 @@ def execute(args,plan):
     mask=Mask([os.getenv(k) for k in ("GEMINI_API_KEY","GOOGLE_API_KEY","OPENAI_API_KEY")]);token=(DIRECTORY/"runtime.token").read_text().strip();mask.secrets.add(token)
     mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI","http://localhost:5001"));mlflow.set_experiment("breaker-banking-target-agent")
     mlflow.langchain.autolog();mlflow.openai.autolog(disable=True);mlflow.tracing.configure(span_processors=[mask.span_processor])
-    deadlines=profile(plan["deadlines"]["name"]);active={};rows=[];encoder_rows=[]
+    deadlines=profile(plan["deadlines"]["name"]);active={};rows=[];encoder_rows=[];accuracy_rows=[]
     hardware=dict(platform=platform.platform(),cpu=subprocess.check_output(["sysctl","-n","machdep.cpu.brand_string"],text=True).strip(),
         memory_bytes=int(subprocess.check_output(["sysctl","-n","hw.memsize"],text=True)),model=plan["acting_model"],classifier_device=plan["serving"]["classifier_device"])
     private(directory/"hardware.json",hardware)
@@ -125,7 +126,8 @@ def execute(args,plan):
                 active["physical_attempts"]+=1
             http=stack.enter_context(httpx.Client(transport=ModelTransport(base,on_request=reserve),timeout=deadlines.model,trust_env=False))
             common=dict(model=plan["acting_model"],base_url=base+"/v1",api_key=token,http_client=http,use_responses_api=True,output_version="responses/v1",max_retries=0,timeout=deadlines.model,temperature=0)
-            reviewer=llm_guard(ChatOpenAI(**common,max_tokens=256),guard_id="qwen-native-demo-reviewer-v1",reserve_model=lambda:None)
+            version=plan["reviewer_prompt_version"]
+            reviewer=llm_guard(ChatOpenAI(**common,max_tokens=256),guard_id="qwen-native-demo-reviewer-"+version,reserve_model=lambda:None,prompt_version=version)
             definitions=[dict(type="function",function=dict(name=name,description=f"Pinned synthetic banking tool: {name}.",parameters=schema["arguments"])) for name,schema in adapter.catalog.schemas().items()]
             actor=ChatOpenAI(**common,max_tokens=2048).bind_tools(definitions,parallel_tool_calls=False)
             for case in [c for c in plan["cases"] if c["kind"]=="diagnostic"]:
@@ -159,11 +161,33 @@ def execute(args,plan):
                             status="completed" if review["decision"] in {"allow","block"} else "error",elapsed_ms=review["review_latency_ns"]/1e6,trace_id=span.trace_id)
                         span.set_outputs(row);encoder_rows.append(row)
                     private(directory/"encoder-samples.json",encoder_rows)
+            for index,case in enumerate(c for c in plan["cases"] if c["kind"]=="accuracy"):
+                claim_case(budget,case["case_id"],plan);source=plan["accuracy"]["rows"][index];value=review_input(source["model_input"])
+                if value.digest()!=case["input_digest"]:raise RuntimeError("accuracy_frozen_input_changed")
+                active.update(case_id=case["case_id"],role="llm_guard",physical_attempts=0)
+                for arm in (("classifier","llm") if index%2==0 else ("llm","classifier")):
+                    selected=resources.select(arm);selected=selected if arm=="classifier" else reviewer
+                    before=active["physical_attempts"]
+                    with mlflow.start_span(name="paired_accuracy_"+arm,span_type="GUARDRAIL") as span:
+                        span.set_inputs(dict(input_digest=value.digest(),backend=arm,cohort=source["cohort"]))
+                        if arm=="llm" and idle(plan["acting_model"],plan["diagnostic_provider_idle_timeout"]).get("state")!="idle":
+                            review=dict(input_digest=value.digest(),decision="error",error="provider_not_observed_idle",review_latency_ns=0)
+                        else:review=timed_review(selected,value)
+                        row=dict(case_id=case["case_id"],candidate_id=source["candidate_id"],cohort=source["cohort"],unsafe_label=source["unsafe_label"],
+                            backend=arm,role="llm_guard" if arm=="llm" else "classifier",input_digest=value.digest(),trace_id=span.trace_id,review=review,
+                            physical_attempts=active["physical_attempts"]-before,serving_resources=resources.snapshot())
+                        span.set_outputs(row)
+                    row["reconciliation"]=reconcile_record(row,audit=transport_audit,provider_probe=lambda **kw:provider_status(plan["acting_model"],**kw),timeout_seconds=120,quiet_seconds=2,poll_seconds=1)
+                    accuracy_rows.append(row);private(directory/"accuracy-samples.json",accuracy_rows)
+                    print(json.dumps(dict(case_id=case["case_id"],backend=arm,decision=review["decision"],expected="block" if source["unsafe_label"] else "allow")),flush=True)
             resources.release_classifier();private(directory/"serving-resources.json",resources.snapshot())
         comparisons={name:compare_reviews([dict(evidence=dict(actions=[dict(guard=r["review"])])) for r in encoder_rows if r["input"]==name],
             [dict(evidence=dict(actions=[dict(guard=r["review"])])) for r in rows if r.get("input_digest")==value.digest() and r.get("review")]) for name,value in values.items()}
         result=dict(run_id=run.info.run_id,directory=str(directory),hardware=hardware,diagnostics=summary(rows),encoder=summary(encoder_rows),review_comparisons=comparisons,
-            server_projection={name:server_projection([r for r in encoder_rows if r["input"]==name]) for name in values},generative_requests=sum(r["physical_attempts"] for r in rows),encoder_forwards=len(encoder_rows),
+            accuracy={group:{arm:metrics([r for r in accuracy_rows if r["backend"]==arm and r["cohort"]==group]) for arm in ("classifier","llm")} for group in sorted({r["cohort"] for r in accuracy_rows})},
+            decision_core={name:distribution([r["review"]["classifier_decision_core_ns"]/1e6 for r in encoder_rows if r["input"]==name and r["index"]>0 and r["review"].get("classifier_decision_core_ns") is not None]) for name in values},
+            server_projection={name:server_projection([r for r in encoder_rows if r["input"]==name]) for name in values},generative_requests=sum(r["physical_attempts"] for r in rows+accuracy_rows),encoder_forwards=len(encoder_rows)+sum(r["backend"]=="classifier" for r in accuracy_rows),
             optimized=False,first_use_note="first observed/first input shape, not proof of cold weights; shared model was already loaded; no hidden warmup",native_admission_latency_claim=False)
         private(directory/"result.json",result);mlflow.log_dict(result,"measurement/result.json");mlflow.log_dict(rows,"measurement/diagnostic-samples.json");mlflow.log_dict(encoder_rows,"measurement/encoder-samples.json")
+        if accuracy_rows:mlflow.log_dict(accuracy_rows,"measurement/accuracy-samples.json")
         print(json.dumps(dict(result_path=str(directory/"result.json"),run_id=run.info.run_id,generative_requests=result["generative_requests"])),flush=True)

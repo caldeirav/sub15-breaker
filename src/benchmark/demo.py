@@ -5,6 +5,7 @@ from dataclasses import asdict
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import threading
 from uuid import uuid4
@@ -28,14 +29,15 @@ from src.benchmark.compare import claim_case
 from src.benchmark.demo_budget import DemoBudget
 from src.benchmark.deployment import private,temporary_bridge,gateway_forward,native_hook,model_timeouts
 from src.benchmark.encoder import manifest
-from src.benchmark.guards import INPUT_VERSION
+from src.benchmark.guards import INPUT_VERSION,LLM_PROMPTS
+from src.benchmark.accuracy import cohort
 from src.benchmark.native import Registry,ControlGuard,LateAllowGuard,server
 from src.benchmark.privacy import Mask
 from src.benchmark.projection import POLICY_ID
 from src.benchmark.training_budget import POLICY
 from src.benchmark.wiring import BASE,ROOT,ModelTransport,benchmark_template,run_case
 from src.benchmark.wiring import audit_record
-from src.benchmark.review import build_harness_judge,review_harness
+from src.benchmark.review import build_harness_judge,review_harness,compact_observations
 from src.feasibility.judges import build_judges,review
 from src.benchmark.judge_transport import observe_native_attempt
 from src.infra.model_budget import encoded
@@ -55,12 +57,14 @@ def code_hashes():
         "src/benchmark/projection.py","src/benchmark/admission.py","src/benchmark/deployment.py","src/benchmark/review.py","src/benchmark/guards.py",
         "src/benchmark/encoder.py","src/agent_runtime/runner.py","src/banking_service/app.py","src/banking_service/deadlines.py",
         "src/banking_service/deploy.py","src/banking_service/dataset_replay.py","src/banking_service/store.py","src/banking_contracts/tools.py",
-        "src/benchmark/serving.py","src/benchmark/reconciliation.py","src/benchmark/performance.py","src/benchmark/measurement.py"]
+        "src/benchmark/serving.py","src/benchmark/reconciliation.py","src/benchmark/performance.py","src/benchmark/measurement.py",
+        "src/benchmark/accuracy.py","src/benchmark/comparison_report.py"]
     return {name:hashlib.sha256((ROOT/name).read_bytes()).hexdigest() for name in names}
 
 
 def make_plan(artifact,*,acting_model,classifier_device="mps",namespace="nd1"):
-    if namespace not in {"nd1","nd2","nd3"}:raise ValueError("unsupported_demo_phase")
+    if not re.fullmatch(r"nd[1-9][0-9]*",namespace):raise ValueError("unsupported_demo_phase")
+    full_comparison=int(namespace[2:])>=4
     measurement=namespace!="nd1"
     deadlines=MEASURE if measurement else DEMO
     value=manifest(artifact,policy_id=POLICY_ID);adapter=BankingAdapter()
@@ -82,6 +86,20 @@ def make_plan(artifact,*,acting_model,classifier_device="mps",namespace="nd1"):
                 actor=0 if scripted else 16,llm_guard=(4 if scripted else 24) if arm=="llm" else 0,gemini_task_judge=0 if scripted else 4,
                 producer=card["producer"],expected=card["expected"],target_step=2 if scripted else "single_proposed_mutation"))
     cases.append(dict(case_id="nd1-review",task_id=None,kind="external_review",gemini_harness_judge=1))
+    accuracy=None
+    if full_comparison:
+        for case in cases:
+            if case["kind"]=="card" and case.get("producer")=="acting_model":
+                case["actor"]=8
+                if case["arm"]=="llm":case["llm_guard"]=12
+        for arm in ("llm","classifier"):
+            cases.append(dict(case_id="nd1-rent-adjustment-"+arm,task_id="user_task_2",kind="card",card_id="E02",arm=arm,
+                actor=8,llm_guard=12 if arm=="llm" else 0,producer="acting_model",expected="allow",target_step="last_mutation"))
+        accuracy=cohort(BASE)
+        for index,row in enumerate(accuracy["rows"]):cases.append(dict(case_id=f"nd1-accuracy-{index:02d}",kind="accuracy",task_id=row["task_id"],llm_guard=1,candidate_id=row["candidate_id"],input_digest=row["input_digest"]))
+        for kind in ("read-review","payment-review"):
+            for index in range(3):cases.append(dict(case_id=f"nd1-probe-{kind}-{index}",task_id="user_task_0",kind="diagnostic",probe=kind,index=index,llm_guard=1))
+        cases.append(dict(case_id="nd1-encoder-measurement",task_id="user_task_0",kind="encoder_measurement",encoder_forward_cap=12))
     if namespace=="nd2":
         for kind,count,role in (("actor",2,"actor"),("read-review",3,"llm_guard"),("payment-review",3,"llm_guard")):
             for index in range(count):cases.append(dict(case_id=f"nd1-probe-{kind}-{index}",task_id="user_task_0",kind="diagnostic",probe=kind,index=index,**{role:1}))
@@ -101,6 +119,10 @@ def make_plan(artifact,*,acting_model,classifier_device="mps",namespace="nd1"):
             actor_max_tokens=2048,reviewer_max_tokens=256,temperature=0,max_retries=0,global_settings_changed=False,
             classifier_device=classifier_device,classifier_lifetime="selected classifier arm only; release before LLM/control arm",tokenizer_only_for_llm=True),
         reconciliation=dict(timeout_seconds=120 if measurement else 30,quiet_seconds=2 if measurement else 1,poll_seconds=1 if measurement else .5,provider_idle_required=True),
+        reviewer_prompt_version="v2" if full_comparison else "v1",
+        reviewer_prompt_sha256=hashlib.sha256(LLM_PROMPTS["v2" if full_comparison else "v1"].encode()).hexdigest(),
+        native_limits=dict(model_attempts=8 if full_comparison else 16,tool_attempts=12 if full_comparison else 24,seconds=deadlines.episode),
+        **(dict(accuracy=accuracy,decision_latency_target_ms=15,decision_latency_scope="tokenization+device enqueue+forward/host result+calibration/threshold; excludes tracing, projection, transport") if accuracy else {}),
         retries=0,fallback=False,quality_scope="imperfect frozen prototype; architecture mechanics distinct from reviewer correctness",full_admission_latency_claim=False)
 
 
@@ -154,6 +176,8 @@ def performance(record):
         if "review_latency_ns" in gate:
             review_samples.append(dict(input_digest=gate.get("input_digest"),decision=gate.get("decision"),error=gate.get("error"),
                 review_ms=gate["review_latency_ns"]/1e6,encoder_stage_ms={k:v/1e6 for k,v in gate.get("encoder_stage_timings_ns",{}).items()},
+                classifier_decision_core_ms=gate["classifier_decision_core_ns"]/1e6 if gate.get("classifier_decision_core_ns") is not None else None,
+                encoder_input_tokens=gate.get("encoder_input_tokens"),
                 valid_completed_review=gate.get("decision") in {"allow","block"} and not gate.get("error") and "discarded_decision" not in gate))
     return dict(units="ms",boundaries=dict(claim_roundtrip="same Actor clock: native egress/auth/guard/store claim and return; excludes tool evaluation and host materialization",
         review="review adapter including tokenization/network/parsing as applicable",nested="review is inside service inside claim inside tool-inclusive roundtrip; DO NOT SUM"),
@@ -170,6 +194,9 @@ def make_card(spec,record):
     elif spec.get("card_id")=="D02":
         target=actions[2] if len(actions)==3 else None
         expected="block"
+    elif spec.get("card_id")=="E02":
+        writes=[action for action in actions if action["tool"] in WRITE_TOOLS];target=writes[-1] if writes else None
+        expected="allow"
     else:
         writes=[action for action in actions if action["tool"] in WRITE_TOOLS];target=writes[-1] if len(writes)==1 else None
         expected=expected or "allow"
@@ -225,6 +252,7 @@ def external_reviews(args,plan):
         for path in directory.glob(plan.get("namespace","nd1")+"-*.json"):
             record=json.loads(path.read_text())
             if "evidence" not in record:continue
+            record["source_record_path"]=str(path.resolve());record["source_record_sha256"]=hashlib.sha256(path.read_bytes()).hexdigest()
             case_id=record["case_id"]
             if inherited and not case_id.startswith("nd1-control-"):raise ValueError("only_control_evidence_may_be_inherited")
             if case_id in records:raise ValueError("duplicate_review_case")
@@ -253,7 +281,7 @@ def external_reviews(args,plan):
                 settle(entries,result);results.append(result)
                 private(directory/"reviews.json",results)
         with mlflow.start_span(name="persisted_native_demo_suite",span_type="CHAIN") as suite:
-            observations=dict(plan=plan,records=list(records.values()),missing_declared_cases=sorted(set(required)-set(records)),excluded_claims=["production_safety","model_accuracy","full_admission_latency"])
+            observations=compact_observations(plan,list(records.values()))
             suite.set_inputs(dict(case_ids=required));suite.set_outputs(observations)
         persisted=mlflow.get_trace(suite.trace_id)
         if persisted is None:raise RuntimeError("suite_evidence_not_persisted")
@@ -300,7 +328,8 @@ def execute(args,plan):
                 client=stack.enter_context(httpx.Client(transport=ModelTransport(base,on_request=reserve_guard),timeout=deadlines.reviewer,trust_env=False,follow_redirects=False))
                 reviewer=ChatOpenAI(model=plan["acting_model"],base_url=base+"/v1",api_key=token,http_client=client,use_responses_api=True,
                     output_version="responses/v1",max_retries=0,timeout=deadlines.reviewer,temperature=0,max_tokens=256)
-                llm_reviewer=llm_guard(reviewer,guard_id="qwen-native-demo-reviewer-v1",reserve_model=lambda:None)
+                version=plan["reviewer_prompt_version"]
+                llm_reviewer=llm_guard(reviewer,guard_id="qwen-native-demo-reviewer-"+version,reserve_model=lambda:None,prompt_version=version)
                 for phase in ("control","learned"):
                     phase_cases=[case for case in cases if (case["kind"]=="control")== (phase=="control")]
                     if not phase_cases:continue
@@ -323,7 +352,8 @@ def execute(args,plan):
                             record=run_case(deployment=deployment,store=store,authorization="Bearer "+token,adapter=adapter,bridge=bridge,mcp=mcp,budget=budget,mask=mask,
                                 task_id=case["task_id"],control=mode if is_control else None,selected_guard=guard,review_builder=rb,scripted_calls=calls,
                                 case_name=case["case_id"],deadline_profile=deadlines.name,request_model_id=plan["acting_model"],cancel_on_review_start=mode=="cancel",
-                                limits=Limits(model_attempts=16,tool_attempts=24,seconds=deadlines.episode),reconcile_telemetry=True,
+                                limits=Limits(**plan["native_limits"]),reconcile_telemetry=True,
+                                verify_admission_readiness=bool(plan.get("accuracy")),
                                 provider_probe=lambda **kw:provider_status(plan["acting_model"],**kw),
                                 reconciliation_options={k:v for k,v in plan["reconciliation"].items() if k!="provider_idle_required"})
                             record["serving_resources"]=resources.snapshot()
@@ -367,7 +397,7 @@ def main():
     parser.add_argument("--list-demo-cases",action="store_true");parser.add_argument("--dry-run",action="store_true")
     parser.add_argument("--demo-case",default="all",choices=["all",*[c["id"] for c in CARDS],*[c["selector"] for c in CARDS]])
     parser.add_argument("--guard",choices=("classifier","llm"));parser.add_argument("--stage",choices=("all","controls","canary","cards","diagnostics"),default="all")
-    parser.add_argument("--phase",choices=("nd1","nd2","nd3"),default="nd1")
+    parser.add_argument("--phase",default="nd1",help="Fresh ndN namespace; nd1–nd3 historical protocols, nd4+ full comparison. Freeze explicitly before execution.")
     parser.add_argument("--classifier-device",choices=("cpu","mps"),default="mps",help="Explicit local classifier device; no automatic fallback or model-service change")
     parser.add_argument("--artifact",type=Path,default=BASE/"modernbert-training-v1/model");parser.add_argument("--budget",type=Path,default=BASE/"combined-budget")
     parser.add_argument("--freeze-demo",action="store_true");parser.add_argument("--execute-demo",action="store_true")
@@ -378,7 +408,7 @@ def main():
     args=parser.parse_args()
     if args.list_demo_cases or args.dry_run:
         print(json.dumps(dict(cards=CARDS,implemented_native_flow="existing wiring.run_case",phase="validation",inference_requests=0,cluster_mutations=0,
-            planning_local_cap=120,planning_gemini_cap=17,artifact=str(args.artifact),readiness="requires frozen matrix and actual validation evidence"),indent=2));return
+            planning_local_cap=117 if re.fullmatch(r"nd[1-9][0-9]*",args.phase) and int(args.phase[2:])>=4 else 120,planning_gemini_cap=17,artifact=str(args.artifact),readiness="requires frozen matrix and actual validation evidence"),indent=2));return
     from dotenv import load_dotenv
     load_dotenv(ROOT/".env")
     os.environ["MLFLOW_ENABLE_ASYNC_TRACE_LOGGING"]="false"

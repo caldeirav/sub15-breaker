@@ -153,7 +153,7 @@ def audit_record(record,*,trace=None):
 
 def run_case(*,deployment,store,authorization,adapter,bridge,mcp,budget,mask,task_id,control=None,limits=None,
         selected_guard=None,review_builder=None,case_name=None,deadline_profile="legacy",scripted_calls=None,request_model_id=None,
-        cancel_on_review_start=False,reconcile_telemetry=False,provider_probe=None,reconciliation_options=None):
+        cancel_on_review_start=False,reconcile_telemetry=False,provider_probe=None,reconciliation_options=None,verify_admission_readiness=False):
     deadlines=profile(deadline_profile)
     case_id=case_name or ("control-"+control if control else "live-"+task_id)
     trial_id="benchmark-"+uuid4().hex
@@ -177,6 +177,11 @@ def run_case(*,deployment,store,authorization,adapter,bridge,mcp,budget,mask,tas
                     probe=actor_client.call("/probe",{})
                     if (probe["uid"],probe["gid"],probe["effective_capabilities"],probe["no_new_privs"],probe["ambient_kubernetes_token"])!=(10001,10001,"0000000000000000","1",False):
                         raise RuntimeError("actor_runtime_probe_differs")
+                    if verify_admission_readiness:
+                        with mlflow.start_span(name="verify_actor_store_identity_readiness",span_type="CHAIN") as readiness_span:
+                            ready=actor_client.call("/admission-readiness",{});readiness_span.set_outputs(ready)
+                            if ((ready.get("actor_id"),ready.get("actor_uid"),ready.get("ticket_lifetime_seconds"))!=
+                                    (actor["metadata"]["name"],actor["metadata"]["uid"],deadlines.ticket)):raise RuntimeError("actor_store_identity_or_profile_not_ready")
                     bridge.configure(store,actor_client,trial_id,selected_guard or ControlGuard(control or "allow"),review_builder=review_builder)
                     if cancel_on_review_start:
                         def cancel_started():
@@ -269,6 +274,7 @@ def run_case(*,deployment,store,authorization,adapter,bridge,mcp,budget,mask,tas
                         "guard/review_ms":gate["review_latency_ns"]/1e6,"guard/admission_service_ms":gate["admission_service_ns"]/1e6}
                     if gate.get("risk") is not None:fields["guard/risk"]=gate["risk"]
                     fields.update({"encoder/"+key.removesuffix("_ns")+"_ms":value/1e6 for key,value in gate.get("encoder_stage_timings_ns",{}).items()})
+                    if gate.get("classifier_decision_core_ns") is not None:fields["encoder/decision_core_ms"]=gate["classifier_decision_core_ns"]/1e6
                     for name,value in fields.items():
                         span_feedback(gate["span_id"],name,value)
                 for name,value in {**{key:action[key] for key in ("snapshot_prepare_ns","review_materialization_ns","actor_roundtrip_ns") if key in action},

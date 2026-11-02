@@ -68,6 +68,7 @@ class EncoderLogit:
         if self.model is None:raise RuntimeError("encoder_resource_closed")
         self.last_timings_ns={};started=perf_counter_ns()
         inputs=self.tokenizer(text,return_tensors="pt",truncation=False)
+        self.last_input_tokens=inputs["input_ids"].shape[1]
         tokenized=perf_counter_ns()
         maximum=min(self.tokenizer.model_max_length,self.model.config.max_position_embeddings)
         if inputs["input_ids"].shape[1]>maximum:raise ValueError("encoder_input_requires_truncation")
