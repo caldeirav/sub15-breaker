@@ -84,6 +84,9 @@ The original v1/v2 quality results, failures and Unknown quarantine remain intac
    action through the same compiled agent/MCP/native path, using the selected real
    guard for every action. No deterministic prefix bypass or second agent loop.
    Assert that the target review matches its expected materialization/digest.
+   Give each scripted call a unique step ID. Count prefix reads separately from
+   target mutations, and reconcile real reviewer dispatches per attempted action
+   rather than retaining the old single-action/single-review canary assertions.
 3. Make projection ordering independent of store key insertion order and add
    actual store-roundtrip regression coverage. Reuse canonical fixture conversion.
 4. Configure the separate MCP **backend** deadline explicitly. A long HTTPRoute
@@ -111,6 +114,9 @@ Predeclare examples by task/rule/attack ID before scoring; include mistakes rath
 than filtering for successful decisions. Both real guards receive the same common
 input and run at the same native ticket-claim boundary. Distinguish scripted
 reference canaries from genuinely model-driven episodes.
+Include a released, predeclared bad proposal if demonstrating learned denial;
+preserve its required prefix and identify it as a scripted attack-proposal control,
+not an acting-agent attack win-rate measurement. Report an allow if that occurs.
 
 Start with native controls, a properly contextualized real-guard canary pair and
 one fresh task0 episode per arm. A conservative initial allocation could reserve
