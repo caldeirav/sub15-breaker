@@ -22,6 +22,12 @@ PR #49 is the scoped delivery PR and will be updated, not automatically merged.
 Fresh `nd4-*` IDs; existing v4 ledger/caps and every earlier failed run, hold,
 review and Unknown quarantine remain. Maximum **117 local /17 external requests**:
 
+Frozen matrix SHA256:
+`7c09e763f31c44e563d4c5a0591203f898bfd71f4880f57bb0024ca96e131d9e`.
+Verified image:
+`localhost:5002/breaker-banking@sha256:ac8e0005d263d3a11332420a7f2ba947bf4b8e02727bd0a5d9265d49a5f5ce64`.
+All577 offline tests passed on Python3.11–3.13 before freezing/dispatch.
+
 - Native controls, both real full-prefix canaries, D01/D02/D03, plus genuine task2
   rent adjustment under both guards:92 local maximum. Genuine episodes have8
   acting-model and12 tool/reviewer slots. Same compiled graph and native boundary.
