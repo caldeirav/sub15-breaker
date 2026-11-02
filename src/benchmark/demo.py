@@ -58,11 +58,12 @@ def code_hashes():
         "src/benchmark/encoder.py","src/agent_runtime/runner.py","src/banking_service/app.py","src/banking_service/deadlines.py",
         "src/banking_service/deploy.py","src/banking_service/dataset_replay.py","src/banking_service/store.py","src/banking_contracts/tools.py",
         "src/benchmark/serving.py","src/benchmark/reconciliation.py","src/benchmark/performance.py","src/benchmark/measurement.py",
-        "src/benchmark/accuracy.py","src/benchmark/comparison_report.py","src/benchmark/demo_qualification.py"]
+        "src/benchmark/accuracy.py","src/benchmark/comparison_report.py","src/benchmark/demo_qualification.py",
+        "src/benchmark/capacity.py","src/benchmark/review_backend.py"]
     return {name:hashlib.sha256((ROOT/name).read_bytes()).hexdigest() for name in names}
 
 
-def make_plan(artifact,*,acting_model,classifier_device="mps",namespace="nd1",protocol=None,rehearsal_of=None):
+def make_plan(artifact,*,acting_model,classifier_device="mps",namespace="nd1",protocol=None,rehearsal_of=None,capacity_campaign=None):
     if not re.fullmatch(r"nd[1-9][0-9]*",namespace):raise ValueError("unsupported_demo_phase")
     if protocol not in {None,"demo-qualification-v1","demo-rehearsal-v1"}:raise ValueError("unsupported_demo_protocol")
     if protocol and int(namespace[2:])<5:raise ValueError("fresh_demo_protocol_namespace_required")
@@ -141,6 +142,7 @@ def make_plan(artifact,*,acting_model,classifier_device="mps",namespace="nd1",pr
         native_limits=dict(model_attempts=8 if bounded else 16,tool_attempts=12 if bounded else 24,seconds=deadlines.episode),
         **(dict(protocol=protocol,rehearsal_of=rehearsal_of,mcp_connect_timeout=30,verify_admission_readiness=True,
             transport_probes=4,stop_on_card_failure=True) if protocol else {}),
+        **(dict(capacity=dict(campaign_id=capacity_campaign,requirements=dict(trials=42,actions=192,events=1200),store_limits=config["store_limits"])) if capacity_campaign else {}),
         **(dict(accuracy=accuracy,decision_latency_target_ms=15,decision_latency_scope="tokenization+device enqueue+forward/host result+calibration/threshold; excludes tracing, projection, transport") if accuracy else {}),
         retries=0,fallback=False,quality_scope="imperfect frozen prototype; architecture mechanics distinct from reviewer correctness",full_admission_latency_claim=False)
 
@@ -348,6 +350,9 @@ def execute(args,plan):
             mlflow.log_dict(plan,"protocol/plan.json")
             with ExitStack() as stack:
                 store=RuntimeClient(stack.enter_context(deployment.forward("service/banking-store")),"Bearer "+token)
+                if plan.get("capacity"):
+                    from src.benchmark.capacity import require_capacity
+                    require_capacity(store,budget,plan,directory,minimum_trials=42 if plan["protocol"]=="demo-qualification-v1" else 28)
                 resources=ServingResources(args.artifact,json.loads((args.artifact/"benchmark-guard.json").read_text())["calibration"],classifier_device=plan["serving"]["classifier_device"])
                 stack.callback(resources.release_classifier)
                 mlflow.log_dict(resources.snapshot(),"protocol/startup.json")
@@ -391,7 +396,8 @@ def execute(args,plan):
                             record=run_case(deployment=deployment,store=store,authorization="Bearer "+token,adapter=adapter,bridge=bridge,mcp=mcp,budget=budget,mask=mask,
                                 task_id=case["task_id"],control=mode if is_control else None,selected_guard=guard,review_builder=rb,scripted_calls=calls,
                                 case_name=case["case_id"],deadline_profile=deadlines.name,request_model_id=plan["acting_model"],cancel_on_review_start=mode=="cancel",
-                                limits=Limits(**plan["native_limits"]),reconcile_telemetry=True,
+                                 limits=Limits(**plan["native_limits"]),reconcile_telemetry=True,
+                                 capacity_campaign=plan.get("capacity",{}).get("campaign_id"),
                                 verify_admission_readiness=bool(plan.get("accuracy")) or plan.get("verify_admission_readiness",False),
                                 provider_probe=lambda **kw:provider_status(plan["acting_model"],**kw),
                                 reconciliation_options={k:v for k,v in plan["reconciliation"].items() if k!="provider_idle_required"})
@@ -444,6 +450,7 @@ def main():
     parser.add_argument("--phase",default="nd1",help="Fresh ndN namespace; nd1–nd3 historical protocols, nd4+ full comparison. Freeze explicitly before execution.")
     parser.add_argument("--protocol",choices=("demo-qualification-v1","demo-rehearsal-v1"))
     parser.add_argument("--rehearsal-of",help="Frozen qualification namespace; requires separately preallocated campaign and successful source-bound qualification")
+    parser.add_argument("--capacity-campaign",help="Explicit durable capacity reservation; no automatic capacity increase")
     parser.add_argument("--classifier-device",choices=("cpu","mps"),default="mps",help="Explicit local classifier device; no automatic fallback or model-service change")
     parser.add_argument("--artifact",type=Path,default=BASE/"modernbert-training-v1/model");parser.add_argument("--budget",type=Path,default=BASE/"combined-budget")
     parser.add_argument("--freeze-demo",action="store_true");parser.add_argument("--execute-demo",action="store_true")
@@ -460,7 +467,7 @@ def main():
     load_dotenv(ROOT/".env")
     os.environ["MLFLOW_ENABLE_ASYNC_TRACE_LOGGING"]="false"
     os.environ["MLFLOW_HTTP_REQUEST_MAX_RETRIES"]="0";os.environ["MLFLOW_HTTP_REQUEST_TIMEOUT"]="10"
-    plan=make_plan(args.artifact,acting_model=os.getenv("LM_STUDIO_MODEL",VERSIONS["local_model"]),classifier_device=args.classifier_device,namespace=args.phase,protocol=args.protocol,rehearsal_of=args.rehearsal_of)
+    plan=make_plan(args.artifact,acting_model=os.getenv("LM_STUDIO_MODEL",VERSIONS["local_model"]),classifier_device=args.classifier_device,namespace=args.phase,protocol=args.protocol,rehearsal_of=args.rehearsal_of,capacity_campaign=args.capacity_campaign)
     if args.freeze_setup_correction:
         plan=DemoBudget(args.budget).freeze_setup_correction(plan,failed_setup_run_id=args.freeze_setup_correction)
     elif args.use_setup_correction:

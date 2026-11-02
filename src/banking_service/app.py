@@ -42,14 +42,22 @@ class StoreApplication:
             state = environment_model().model_validate(body["state"]).model_dump(mode="json")
             return self.store.commit(body["ticket"], identity.name, identity.uid, state, body["output"], body["error"])
         principal = self.identities.driver(authorization)
+        if path=="/capacity":
+            fields(body,());return self.store.capacity()
+        if path=="/reserve-capacity":
+            fields(body,("campaign_id","binding","requirements"))
+            return self.store.reserve_capacity(principal,body["campaign_id"],body["binding"],body["requirements"])
+        if path=="/release-capacity":
+            fields(body,("campaign_id",));return self.store.release_capacity(principal,body["campaign_id"])
         if path == "/create":
-            fields(body, ("trial_id", "actor_id", "actor_uid", "user_request"))
+            fields(body, ("trial_id", "actor_id", "actor_uid", "user_request"),("campaign_id",))
             context = TrustedContext(context_version=1, principal_id=principal, interaction_id=body["trial_id"],
                 trial_id=body["trial_id"], actor_id=body["actor_id"], actor_generation=1, state_version=0,
                 intent_id=body["trial_id"], intent_version=1, user_request=body["user_request"],
                 policy=PolicyProfile(policy_id="controlled-validation-tools", policy_version=1,
                     allowed_tools=tuple(self.store.catalog.names)),
                 expires_at=datetime.now(timezone.utc)+timedelta(hours=1), authority_kind="service-owned")
+            if "campaign_id" in body:return self.store.create(context,body["actor_uid"],initial_state(),campaign_id=body["campaign_id"])
             return self.store.create(context, body["actor_uid"], initial_state())
         if path == "/snapshot":
             fields(body, ("trial_id",))
@@ -143,7 +151,8 @@ def main(runtime_mounts=()):
     identities = (IdentityVerifier(json.loads(os.environ["BANKING_IDENTITY_JSON"]))
         if "BANKING_IDENTITY_JSON" in os.environ else IdentityVerifier.from_file(os.environ["BANKING_IDENTITY_CONFIG"]))
     if args.role == "store":
-        store = StateStore(os.environ["BANKING_STORE_PATH"], Path(os.environ["BANKING_KEY_FILE"]).read_bytes(),ticket_lifetime=deadlines.ticket)
+        store = StateStore(os.environ["BANKING_STORE_PATH"], Path(os.environ["BANKING_KEY_FILE"]).read_bytes(),ticket_lifetime=deadlines.ticket,
+            max_trials=int(os.getenv("BANKING_MAX_TRIALS","100")))
         application = StoreApplication(store, identities)
     else:
         application = ActorApplication(RuntimeClient(os.environ["BANKING_STORE_URL"], "Bearer inject-actor-jwt",timeout=deadlines.actor_store), identities,

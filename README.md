@@ -58,6 +58,23 @@ stopped at the durable store's100-trial capacity after seven prerequisites (#58)
 No trial history or spent IDs were reset; owner acceptance remains blocked.
 This does not establish general accuracy or15ms native classifier performance.
 
+The capacity-corrected follow-up is [PR #61](https://github.com/caldeirav/sub15-breaker/pull/61):
+[end-to-end plan](docs/demo-review-backend-plan.md),
+[testing/review results](docs/demo-review-backend-results.md), and
+[read-only review API contract](docs/demo-review-api.md).
+It preserves the database/history and prepares a saved-evidence backend for a
+future visual demo. Visualization is planning-only (#60); no frontend or live-run
+controls are added.
+
+**Current review status:** nd7 passed all14 native cases and both guards scored4/4
+on fixed curated inputs. Capacity correction worked, but nd8 stopped before
+inference at an Actor readiness JSON/transport error (#62); it is not a pass.
+The consolidated saved-evidence package is at
+`.infra/benchmark-guard-harness/demo-review-verified-package/summary.html`.
+The read-only API runs on `127.0.0.1:8088`; the linked contract/results explain
+private read-token setup, source hashes, telemetry, failures and limitations.
+All609 offline tests pass on Python3.11–3.13. Owner acceptance remains pending.
+
 ## Why this design?
 
 1. **Verify before mutation.** Reviewing a trace after an unauthorized transfer is too late to prevent that transfer. Enforcement must inspect the proposed action before the tool consumes it.

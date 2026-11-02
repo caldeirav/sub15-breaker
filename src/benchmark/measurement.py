@@ -118,6 +118,11 @@ def execute(args,plan):
     hardware=dict(platform=platform.platform(),cpu=subprocess.check_output(["sysctl","-n","machdep.cpu.brand_string"],text=True).strip(),
         memory_bytes=int(subprocess.check_output(["sysctl","-n","hw.memsize"],text=True)),model=plan["acting_model"],classifier_device=plan["serving"]["classifier_device"])
     private(directory/"hardware.json",hardware)
+    if plan.get("capacity"):
+        from src.banking_service.http import RuntimeClient
+        from src.benchmark.capacity import require_capacity
+        with d.forward("service/banking-store") as base:
+            require_capacity(RuntimeClient(base,"Bearer "+token),budget,plan,directory,minimum_trials=42)
     with mlflow.start_run(run_name="fixed-laptop-measurement-"+plan["namespace"]) as run:
         with ExitStack() as stack:
             resources=ServingResources(args.artifact,json.loads((args.artifact/"benchmark-guard.json").read_text())["calibration"],classifier_device=plan["serving"]["classifier_device"])

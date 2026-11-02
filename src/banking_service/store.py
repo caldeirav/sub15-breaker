@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import hmac
 import json
+import re
 from pathlib import Path
 import sqlite3
 import time
@@ -31,13 +32,15 @@ def fail(code):
 
 
 class StateStore:
-    def __init__(self, path, key, *, catalog=None, max_actions=1000, max_events=4000,ticket_lifetime=30):
+    def __init__(self, path, key, *, catalog=None, max_trials=100,max_actions=1000, max_events=4000,ticket_lifetime=30):
         if not isinstance(key, bytes) or len(key) < 32: fail("invalid_runtime_key")
         if type(max_actions) is not int or type(max_events) is not int or min(max_actions, max_events) < 1:
             fail("invalid_store_capacity")
+        if type(max_trials) is not int or not 1<=max_trials<=4096:fail("invalid_trial_capacity")
         self.path, self.key = Path(path), key
         self.catalog = catalog or ToolCatalog.from_pinned_agentdojo()
         self.max_actions, self.max_events = max_actions, max_events
+        self.max_trials=max_trials
         if type(ticket_lifetime) is not int or not 1<=ticket_lifetime<=900:fail("invalid_ticket_lifetime")
         self.ticket_lifetime=ticket_lifetime
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -57,6 +60,11 @@ class StateStore:
                 CREATE TABLE IF NOT EXISTS outbox (
                     id TEXT PRIMARY KEY, kind TEXT NOT NULL, trial TEXT NOT NULL,
                     payload TEXT NOT NULL, exported INTEGER NOT NULL DEFAULT 0);
+                CREATE TABLE IF NOT EXISTS capacity_campaigns (
+                    id TEXT PRIMARY KEY, principal TEXT NOT NULL, binding TEXT NOT NULL,
+                    limits TEXT NOT NULL, used TEXT NOT NULL, status TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS capacity_trials (
+                    trial TEXT PRIMARY KEY REFERENCES trials(id), campaign TEXT NOT NULL REFERENCES capacity_campaigns(id));
             """)
             db.execute("BEGIN IMMEDIATE")  # executescript ends the opening transaction
             existing = db.execute("SELECT value FROM metadata WHERE name='key_check'").fetchone()
@@ -89,7 +97,66 @@ class StateStore:
     def fingerprint(self, value):
         return hmac.new(self.key, canonical_bytes(value, limit=MAX_STATE_BYTES), hashlib.sha256).hexdigest()
 
+    def _capacity_view(self,db):
+        counts=dict(trials=db.execute("SELECT count(*) FROM trials").fetchone()[0],
+            actions=db.execute("SELECT count(*) FROM actions").fetchone()[0],
+            events=db.execute("SELECT count(*) FROM outbox WHERE exported=0").fetchone()[0])
+        pending=db.execute("SELECT count(*) FROM actions WHERE status IN ('prepared','executing')").fetchone()[0]*2
+        limits=dict(trials=self.max_trials,actions=self.max_actions,events=self.max_events)
+        active=db.execute("SELECT id,binding,limits,used FROM capacity_campaigns WHERE status='active'").fetchone()
+        campaign=dict(id=active[0],binding=active[1],limits=json.loads(active[2]),used=json.loads(active[3])) if active else None
+        return dict(schema_version="banking-capacity-v1",limits=limits,used=counts,pending_event_slots=pending,
+            available={k:max(0,limits[k]-counts[k]-(pending if k=="events" else 0)) for k in limits},campaign=campaign)
+
+    def capacity(self):
+        # A readiness GET-equivalent must not BEGIN IMMEDIATE, checkpoint or set WAL pragmas.
+        try:
+            with sqlite3.connect(self.path.resolve().as_uri()+"?mode=ro",uri=True,timeout=3) as db:
+                db.execute("PRAGMA query_only=ON");db.execute("BEGIN")
+                return self._capacity_view(db)
+        except sqlite3.Error:fail("capacity_unavailable")
+
+    def reserve_capacity(self,principal,campaign_id,binding,requirements):
+        if (not isinstance(campaign_id,str) or not re.fullmatch(r"[a-z0-9-]{1,64}",campaign_id) or
+                not isinstance(binding,str) or not re.fullmatch(r"[0-9a-f]{64}",binding) or
+                not isinstance(requirements,dict) or set(requirements)!={"trials","actions","events"} or
+                any(type(v) is not int or v<1 for v in requirements.values())):fail("invalid_capacity_reservation")
+        with self.transaction() as db:
+            existing=db.execute("SELECT * FROM capacity_campaigns WHERE id=?",(campaign_id,)).fetchone()
+            if existing:
+                if (existing["principal"]!=principal or existing["binding"]!=binding or json.loads(existing["limits"])!=requirements or existing["status"]!="active"):
+                    fail("capacity_reservation_conflict")
+                return self._capacity_view(db)
+            view=self._capacity_view(db)
+            if view["campaign"]:fail("capacity_campaign_busy")
+            if db.execute("SELECT count(*) FROM actions WHERE status='executing'").fetchone()[0]:fail("capacity_actions_inflight")
+            if any(requirements[k]>view["available"][k] for k in requirements):fail("campaign_capacity_insufficient")
+            db.execute("INSERT INTO capacity_campaigns VALUES (?,?,?,?,?,?)",(campaign_id,principal,binding,packed(requirements),packed(dict.fromkeys(requirements,0)),"active"))
+            return self._capacity_view(db)
+
+    def release_capacity(self,principal,campaign_id):
+        with self.transaction() as db:
+            row=db.execute("SELECT principal FROM capacity_campaigns WHERE id=? AND status='active'",(campaign_id,)).fetchone()
+            if row is None or row[0]!=principal:fail("unknown_capacity_campaign")
+            if db.execute("SELECT count(*) FROM actions WHERE status='executing'").fetchone()[0]:fail("capacity_actions_inflight")
+            db.execute("UPDATE capacity_campaigns SET status='released' WHERE id=?",(campaign_id,))
+            return self._capacity_view(db)
+
+    def _charge_campaign(self,db,kind,trial,*,campaign_id=None,principal=None):
+        row=db.execute("SELECT * FROM capacity_campaigns WHERE status='active'").fetchone()
+        if row is None:
+            if campaign_id is not None:fail("unknown_capacity_campaign")
+            return
+        if kind=="trials":
+            if campaign_id!=row["id"] or principal!=row["principal"]:fail("capacity_campaign_required")
+        elif not db.execute("SELECT 1 FROM capacity_trials WHERE trial=? AND campaign=?",(trial,row["id"])).fetchone():
+            fail("capacity_campaign_required")
+        used=json.loads(row["used"]);limits=json.loads(row["limits"])
+        if used[kind]>=limits[kind]:fail("capacity_campaign_exhausted")
+        used[kind]+=1;db.execute("UPDATE capacity_campaigns SET used=? WHERE id=?",(packed(used),row["id"]))
+
     def _event(self, db, kind, trial, payload):
+        self._charge_campaign(db,"events",trial)
         event_id = uuid4().hex
         db.execute("INSERT INTO outbox(id,kind,trial,payload) VALUES (?,?,?,?)",
             (event_id, kind, trial, packed(public_view(payload), MAX_EVENT_BYTES)))
@@ -105,18 +172,20 @@ class StateStore:
         if trial is None or trial["principal"] != principal: fail("unknown_owned_trial")
         return trial
 
-    def create(self, context, actor_uid, state):
+    def create(self, context, actor_uid, state,*,campaign_id=None):
         context = TrustedContext.model_validate(context)
         if context.authority_kind != "service-owned": fail("runtime_context_required")
         if not actor_uid or len(actor_uid) > 128: fail("invalid_actor_uid")
         state = packed(state)
         with self.transaction() as db:
             self._capacity(db)
-            if db.execute("SELECT count(*) FROM trials").fetchone()[0] >= 100: fail("trial_capacity")
+            if db.execute("SELECT count(*) FROM trials").fetchone()[0] >= self.max_trials: fail("trial_capacity")
             if db.execute("SELECT 1 FROM trials WHERE id=?", (context.trial_id,)).fetchone(): fail("trial_exists")
+            self._charge_campaign(db,"trials",context.trial_id,campaign_id=campaign_id,principal=context.principal_id)
             db.execute("INSERT INTO trials VALUES (?,?,?,?,?,?,?,?,?,?)", (context.trial_id, context.principal_id,
                 context.actor_generation, context.actor_id, actor_uid, context.state_version, "active",
-                packed(context), state, state))
+                 packed(context), state, state))
+            if campaign_id:db.execute("INSERT INTO capacity_trials VALUES (?,?)",(context.trial_id,campaign_id))
             self._event(db, "trial_created", context.trial_id, dict(context=context, actor_uid=actor_uid,
                 initial_fingerprint=self.fingerprint(json.loads(state))))
         return self.snapshot(context.trial_id, context.principal_id)
@@ -145,6 +214,7 @@ class StateStore:
             if db.execute("SELECT 1 FROM actions WHERE trial=? AND generation=? AND status IN ('prepared','executing')", (trial_id,t["generation"])).fetchone():
                 fail("trial_action_pending")
             self._capacity(db, slots=3)
+            self._charge_campaign(db,"actions",trial_id)
             context = TrustedContext.model_validate(dict(json.loads(t["context"]), state_version=t["version"]))
             if context.expires_at <= datetime.now(timezone.utc): fail("context_expired")
             if proposal.expected_context_version != context.context_version: fail("stale_context")

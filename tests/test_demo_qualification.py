@@ -83,3 +83,15 @@ def test_incomplete_rehearsal_report_preserves_failure_and_cannot_create_accepta
     assert not list(ledger.glob("demo-qualified-*")) and result["physical_local_requests"]==0
     (native/"nd6-ok.json").write_text("changed")
     with pytest.raises((ValueError,json.JSONDecodeError)):failure_report(budget,native,tmp_path/"new-report")
+
+
+def test_capacity_binding_headroom_and_unknown_readiness_are_fail_closed():
+    from src.benchmark.capacity import validate_capacity
+    wanted=dict(campaign_id="campaign",requirements=dict(trials=42,actions=192,events=1200),store_limits=dict(trials=256,actions=1000,events=4000))
+    view=dict(schema_version="banking-capacity-v1",limits=wanted["store_limits"],available=dict(trials=156,actions=811,events=3000),
+        campaign=dict(id="campaign",binding="a"*64,limits=wanted["requirements"],used=dict(trials=0,actions=0,events=0)))
+    assert validate_capacity(view,dict(capacity=wanted),binding="a"*64,minimum_trials=42)==view
+    bad=deepcopy(view);bad["campaign"]["used"]["trials"]=15
+    with pytest.raises(RuntimeError,match="trials_insufficient"):validate_capacity(bad,dict(capacity=wanted),binding="a"*64,minimum_trials=28)
+    bad=deepcopy(view);bad["available"].pop("events")
+    with pytest.raises(RuntimeError,match="headroom_insufficient"):validate_capacity(bad,dict(capacity=wanted),binding="a"*64,minimum_trials=42)

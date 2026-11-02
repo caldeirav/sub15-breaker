@@ -153,23 +153,29 @@ def audit_record(record,*,trace=None):
 
 def run_case(*,deployment,store,authorization,adapter,bridge,mcp,budget,mask,task_id,control=None,limits=None,
         selected_guard=None,review_builder=None,case_name=None,deadline_profile="legacy",scripted_calls=None,request_model_id=None,
-        cancel_on_review_start=False,reconcile_telemetry=False,provider_probe=None,reconciliation_options=None,verify_admission_readiness=False):
+        cancel_on_review_start=False,reconcile_telemetry=False,provider_probe=None,reconciliation_options=None,verify_admission_readiness=False,capacity_campaign=None):
     deadlines=profile(deadline_profile)
     case_id=case_name or ("control-"+control if control else "live-"+task_id)
     trial_id="benchmark-"+uuid4().hex
-    actor=None;record=None;cleanup=[];cancellation_thread=None;cancellation_errors=[]
+    actor=None;record=None;cleanup=[];cancellation_thread=None;cancellation_errors=[];trial_created=False;setup_error=None;deleted=False;allocation_started=False
     with mlflow.start_run(run_name=case_id,nested=True) as child:
         with mlflow.start_span(name="benchmark_episode",span_type="AGENT") as root:
             scripted=control is not None or scripted_calls is not None
             root.set_inputs(dict(case_id=case_id,task_id=task_id,live=not scripted,
                 guard=selected_guard.guard_id if selected_guard else "deterministic-native-"+(control or "allow")))
             try:
+                if capacity_campaign:
+                    capacity=store.call("/capacity",{})
+                    active=capacity.get("campaign") or {}
+                    if active.get("id")!=capacity_campaign or active["used"]["trials"]>=active["limits"]["trials"]:raise RuntimeError("trial_capacity_not_ready")
                 with mlflow.start_span(name="allocate_substrate_actor",span_type="CHAIN") as allocation:
+                    allocation_started=True
                     actor=deployment.create_actor();allocation.set_outputs(actor)
                 proof=runtime_proof(deployment,actor)
                 episode=adapter.episode(task_id,trial_id)
                 snapshot=store.call("/create",dict(trial_id=trial_id,actor_id=actor["metadata"]["name"],
-                    actor_uid=actor["metadata"]["uid"],user_request=episode.public.prompt))
+                    actor_uid=actor["metadata"]["uid"],user_request=episode.public.prompt,**(dict(campaign_id=capacity_campaign) if capacity_campaign else {})))
+                trial_created=True
                 if snapshot["state"]!=episode.initial_state.model_dump(mode="json"):raise RuntimeError("suite_backend_initial_state_differs")
                 mask.learn(snapshot["state"])
                 with deployment.forward(actor["metadata"]["name"],actor=True) as base:
@@ -232,22 +238,33 @@ def run_case(*,deployment,store,authorization,adapter,bridge,mcp,budget,mask,tas
                         tool_attempts=result.tool_attempts,runtime_proof=proof,sandbox_probe=probe,store_events=events,
                         initial_fingerprint=snapshot["fingerprint"],final_fingerprint=final["fingerprint"],guard_control=control,
                         producer="scripted" if scripted else "acting_model"))
+            except Exception as exc:
+                if record is None:
+                    setup_error=exc
+                    exc.partial_record=dict(case_id=case_id,task_id=task_id,trial_id=trial_id,trial_created=trial_created,
+                        trace_id=root.trace_id,child_run_id=child.info.run_id,status="setup_failed",error=type(exc).__name__,
+                        error_code=getattr(exc,"code",None),cleanup_errors=cleanup)
+                raise
             finally:
                 if cancellation_thread and cancellation_thread.is_alive():
                     try:bridge.cancel_and_fence("episode_cleanup")
                     except Exception as exc:cleanup.append(dict(stage="cancel_fence",error=type(exc).__name__))
                     cancellation_thread.join(5)
                     if cancellation_thread.is_alive():cleanup.append(dict(stage="cancel_thread",error="drain_deadline"))
-                actor=actor or deployment.last_actor
+                actor=actor or (deployment.last_actor if allocation_started else None)
                 if actor:
                     with mlflow.start_span(name="cleanup_substrate_actor",span_type="CHAIN") as span:
                         span.set_inputs(dict(trial_id=trial_id,actor=actor["metadata"]["name"]))
-                        try:store.call("/fence",dict(trial_id=trial_id))
-                        except Exception as exc:cleanup.append(dict(stage="fence",error=type(exc).__name__))
+                        if trial_created:
+                            try:store.call("/fence",dict(trial_id=trial_id))
+                            except Exception as exc:cleanup.append(dict(stage="fence",error=type(exc).__name__))
                         if not bridge.wait_idle(30):cleanup.append(dict(stage="bridge_drain",error="drain_deadline"))
-                        try:deployment.delete_actor(actor["metadata"]["name"])
+                        try:deployment.delete_actor(actor["metadata"]["name"]);deleted=True
                         except Exception as exc:cleanup.append(dict(stage="delete",error=type(exc).__name__))
-                        span.set_outputs(dict(errors=cleanup,deleted=not cleanup))
+                        span.set_outputs(dict(errors=cleanup,deleted=deleted,trial_created=trial_created,fence_required=trial_created))
+                if setup_error is not None:
+                    setup_error.partial_record.update(actor_deleted=deleted,cleanup_errors=cleanup)
+                    root.set_outputs(setup_error.partial_record)
                 if record is not None:
                     record["cleanup_errors"]=cleanup
                     try:record["store_events"]=store.call("/trial-events",dict(trial_id=trial_id))["events"]

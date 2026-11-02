@@ -114,7 +114,8 @@ class Deployment:
                 finally:
                     pending.unlink(missing_ok=True)
 
-    def setup(self, image,*,deadline_profile="legacy"):
+    def setup(self, image,*,deadline_profile="legacy",max_trials=100):
+        if type(max_trials) is not int or not 1<=max_trials<=4096:raise ValueError("invalid_trial_capacity")
         from src.banking_service.deadlines import profile
         deadlines=profile(deadline_profile)
         namespaces = self.cluster.get("namespaces")["items"]
@@ -159,13 +160,14 @@ class Deployment:
         container = dict(name="store", image=image, imagePullPolicy="Never", args=["store"],
             env=[dict(name="BANKING_STORE_PATH", value="/data/state.sqlite"),
                 dict(name="BANKING_KEY_FILE", value="/keys/key"), dict(name="BANKING_IDENTITY_CONFIG", value="/identity/identity.json"),
-                dict(name="BANKING_DEADLINE_PROFILE",value=deadlines.name)],
+                 dict(name="BANKING_DEADLINE_PROFILE",value=deadlines.name)],
             securityContext=dict(runAsNonRoot=True, runAsUser=10001, runAsGroup=10001, allowPrivilegeEscalation=False,
                 readOnlyRootFilesystem=True, capabilities=dict(drop=["ALL"])),
             resources=dict(requests=dict(cpu="100m", memory="256Mi"), limits=dict(cpu="1", memory="512Mi")),
             ports=[dict(containerPort=8080)], readinessProbe=dict(httpGet=dict(path="/health",port=8080),periodSeconds=2),
-            volumeMounts=[dict(name=n,mountPath=p,readOnly=ro) for n,p,ro in
-                (("data","/data",False),("keys","/keys",True),("identity","/identity",True),("tmp","/tmp",False))])
+             volumeMounts=[dict(name=n,mountPath=p,readOnly=ro) for n,p,ro in
+                 (("data","/data",False),("keys","/keys",True),("identity","/identity",True),("tmp","/tmp",False))])
+        container["env"].append(dict(name="BANKING_MAX_TRIALS",value=str(max_trials)))
         deployment = obj("Deployment", "banking-store", dict(replicas=1, strategy=dict(type="Recreate"),
             selector=dict(matchLabels=dict(app="banking-store")), template=dict(
                 metadata=dict(labels=dict(LABELS,app="banking-store"), annotations={"breaker.sub15/identity": hashlib.sha256(json.dumps(identities).encode()).hexdigest()}),
@@ -201,6 +203,7 @@ class Deployment:
         if not any(t.get("metadata",{}).get("name")==template_name for t in templates.get("actorTemplates",templates.get("items",[]))):
             self.ate("create","actor-template","-f",str(private_json("actor-template.json",template)))
         private_json("deployment.json",dict(image=image,template=template_name,space=SPACE,namespace=NAMESPACE,deadline_profile=deadlines.name,
+            store_limits=dict(trials=max_trials,actions=1000,events=4000),
             state_durability="single-node PVC; no node/disk-loss or HA guarantee",traffic="Actor egress authenticated by injected platform JWT; local-cluster HTTP segment"))
 
     def verify_deployment(self,manifest):
@@ -208,6 +211,10 @@ class Deployment:
         store=self.cluster.get("deployment","banking-store","-n",NAMESPACE)
         pods=self.cluster.get("pods","-n",NAMESPACE,"-l","app=banking-store")["items"]
         pod=verify_store_rollout(store,pods,manifest["image"])
+        if "store_limits" in manifest:
+            env=store["spec"]["template"]["spec"]["containers"][0].get("env",[])
+            if [e.get("value") for e in env if e["name"]=="BANKING_MAX_TRIALS"]!=[str(manifest["store_limits"]["trials"])]:
+                raise RuntimeError("Observed store capacity differs from validated deployment")
         owners=[r for r in pod["metadata"].get("ownerReferences",[]) if r.get("kind")=="ReplicaSet" and r.get("controller") is True]
         if len(owners)!=1:raise RuntimeError("Serving store pod lacks a unique ReplicaSet owner")
         replica=self.cluster.get("replicaset",owners[0]["name"],"-n",NAMESPACE)
@@ -293,13 +300,14 @@ def main():
     mode.add_argument("--image",help="Digest-bound image preloaded into Kind and available through its local registry")
     mode.add_argument("--refresh-credentials",action="store_true",help="Renew owned driver tokens only; preserve deployments, keys and state")
     parser.add_argument("--deadline-profile",choices=("legacy","learned-guard-v1","native-demo-v1","native-measure-v2"),default="legacy")
+    parser.add_argument("--max-trials",type=int,default=100,help="Bounded retained-trial capacity; never deletes existing data")
     args=parser.parse_args()
     if args.refresh_credentials:
         Deployment().refresh_credentials()
         print("Renewed scoped banking driver credentials; deployments and durable data unchanged.")
         return
     if "@sha256:" not in args.image:raise SystemExit("A digest-bound image is required")
-    Deployment().setup(args.image,deadline_profile=args.deadline_profile)
+    Deployment().setup(args.image,deadline_profile=args.deadline_profile,max_trials=args.max_trials)
 
 
 if __name__=="__main__":main()
