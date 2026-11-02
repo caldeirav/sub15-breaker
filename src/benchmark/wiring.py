@@ -97,9 +97,9 @@ def fixture_messages(calls):
         for index,call in enumerate(calls)]+[AIMessage(content="Scripted control finished.")]
 
 
-def audit_record(record):
+def audit_record(record,*,trace=None):
     """Read one persisted tree; report facts, not a manufactured overall pass."""
-    trace=mlflow.get_trace(record["trace_id"])
+    trace=trace if trace is not None else mlflow.get_trace(record["trace_id"])
     if trace is None:raise RuntimeError("wiring_trace_missing")
     spans=trace.data.spans;ids={span.span_id for span in spans}
     if len([span for span in spans if span.parent_id is None])!=1:raise RuntimeError("wiring_trace_root_count")
@@ -153,7 +153,7 @@ def audit_record(record):
 
 def run_case(*,deployment,store,authorization,adapter,bridge,mcp,budget,mask,task_id,control=None,limits=None,
         selected_guard=None,review_builder=None,case_name=None,deadline_profile="legacy",scripted_calls=None,request_model_id=None,
-        cancel_on_review_start=False):
+        cancel_on_review_start=False,reconcile_telemetry=False,provider_probe=None,reconciliation_options=None):
     deadlines=profile(deadline_profile)
     case_id=case_name or ("control-"+control if control else "live-"+task_id)
     trial_id="benchmark-"+uuid4().hex
@@ -268,6 +268,7 @@ def run_case(*,deployment,store,authorization,adapter,bridge,mcp,budget,mask,tas
                     fields={"guard/decision":gate["decision"],"guard/input_digest":gate["input_digest"],
                         "guard/review_ms":gate["review_latency_ns"]/1e6,"guard/admission_service_ms":gate["admission_service_ns"]/1e6}
                     if gate.get("risk") is not None:fields["guard/risk"]=gate["risk"]
+                    fields.update({"encoder/"+key.removesuffix("_ns")+"_ms":value/1e6 for key,value in gate.get("encoder_stage_timings_ns",{}).items()})
                     for name,value in fields.items():
                         span_feedback(gate["span_id"],name,value)
                 for name,value in {**{key:action[key] for key in ("snapshot_prepare_ns","review_materialization_ns","actor_roundtrip_ns") if key in action},
@@ -275,12 +276,27 @@ def run_case(*,deployment,store,authorization,adapter,bridge,mcp,budget,mask,tas
                     span_feedback(action["span_id"],"timing/"+name.removesuffix("_ns")+"_ms",value/1e6)
                 if action.get("execution_receipt"):
                     span_feedback(action["span_id"],"tool/executed",action["execution_receipt"]["executed"])
+            if reconcile_telemetry:
+                from src.benchmark.reconciliation import post_run_state,reconcile_record
+                reconciled=reconcile_record(record,audit=audit_record,provider_probe=provider_probe,**(reconciliation_options or {}))
+                record["telemetry_reconciliation"]={key:value for key,value in reconciled.items() if key!="audit"}
+                record["trace_audit"]=reconciled["audit"] or dict(error="telemetry_reconciliation_incomplete")
+                if reconciled["status"]=="complete":
+                    try:
+                        post=post_run_state(record,store)
+                        record["post_reconciliation_state"]=post
+                        if not all(post.values()):raise RuntimeError("late_state_or_dispatch_count_changed")
+                    except Exception as exc:
+                        record["telemetry_reconciliation"].update(status="incomplete",pending=[dict(kind="post_reconciliation_state",error=type(exc).__name__)])
+                mlflow.log_dict(record["telemetry_reconciliation"],"wiring/telemetry-reconciliation.json")
+            else:
+                try:record["trace_audit"]=audit_record(record)
+                except Exception as exc:
+                    record["trace_audit"]={"error":str(exc)}
+                    exc.partial_record=record
+                    mlflow.log_dict(record,"wiring/episode.json")
+                    raise
             mlflow.log_dict(record,"wiring/episode.json")
-            try:record["trace_audit"]=audit_record(record)
-            except Exception as exc:
-                record["trace_audit"]={"error":str(exc)}
-                exc.partial_record=record
-                raise
             mlflow.log_dict(record["trace_audit"],"wiring/trace-audit.json")
         if cleanup:raise RuntimeError("benchmark_cleanup_incomplete")
         return record

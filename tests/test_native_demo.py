@@ -120,7 +120,8 @@ def record(decision="allow"):
         action["execution_receipt"]=dict(executed=True,action_id="action",trial_id="trial")
         events=[dict(kind="tool_attempt",payload=dict(ticket="ticket"))]
     return dict(case_id="unit",trial_id="trial",trace_id="trace",child_run_id="run",producer="scripted",status="completed",measured=dict(utility=True),
-        evidence=dict(actions=[action]),store_events=events,cleanup_errors=[],trace_audit=dict(root_count=1))
+        evidence=dict(actions=[action]),store_events=events,cleanup_errors=[],trace_audit=dict(root_count=1),
+        telemetry_reconciliation=dict(status="complete"),post_reconciliation_state=dict(fingerprint_matches_final=True,tool_attempts_match_final=True))
 
 
 def test_cards_require_bound_evidence_and_separate_reviewer_mistakes():
@@ -133,6 +134,15 @@ def test_cards_require_bound_evidence_and_separate_reviewer_mistakes():
         assert not make_card(spec,broken)["demo_ready"]
     value["evidence"]["actions"][0]["execution_receipt"]["action_id"]="unrelated"
     assert not make_card(spec,value)["enforcement_correct"]
+
+
+def test_cards_cannot_be_ready_before_reconciliation_and_late_state_readback():
+    spec=dict(kind="card",card_id="D01")
+    for key in ("telemetry_reconciliation","post_reconciliation_state"):
+        value=record();value.pop(key)
+        assert not make_card(spec,value)["demo_ready"]
+    value=record();value["telemetry_reconciliation"]["status"]="incomplete"
+    assert not make_card(spec,value)["demo_ready"] and make_card(spec,value)["enforcement_correct"]
 
 
 def test_bad_proposal_and_fault_cards_use_their_declared_expectations():

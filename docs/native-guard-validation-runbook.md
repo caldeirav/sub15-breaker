@@ -142,3 +142,21 @@ The allocated `nd1-review` slot was used once to review the incomplete matrix an
 returned `not_supported`; do not invoke it again. See
 [the retained results](native-guard-validation-results.md) for exact traces,
 provider-tail reconciliation, spending and the consolidated HTML review page.
+
+### Follow-up source changes: isolation and automatic reconciliation
+
+See [session claim alignment](session-claim-alignment.md). The runner now loads
+classifier weights only in a selected classifier arm and releases local weights
+before an LLM/control arm. Projection-only LLM cases use the verified tokenizer.
+Classifier device is explicit (`--classifier-device mps|cpu`); no shared-model
+settings/reload or automatic fallback is introduced.
+
+New demo records require bounded gateway/provider reconciliation and late store
+readback before readiness. Timeout/incomplete evidence blocks dependent cases.
+Matched-review comparison artifacts exclude errored/cancelled/control/unmatched
+samples and keep canaries separate from genuine-agent cards.
+
+These changes invalidate the spent `nd1` source binding. **Do not use the old
+freeze/setup-correction commands to authorize another attempt.** A fresh phase
+and allocation must bind the resource and reconciliation profile first. No new
+phase, model request or startup warmup has been allocated by this source change.

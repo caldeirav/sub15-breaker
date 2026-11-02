@@ -107,13 +107,16 @@ def timed_review(guard,value):
     """Guard review time, not a claim of complete Substrate admission latency."""
     started=perf_counter_ns()
     expected=None
+    if hasattr(guard,"stage_timings_ns"):guard.stage_timings_ns={}
     try:
         expected=value.digest()
         verdict=guard.review(value)
         if (not isinstance(verdict,Verdict) or verdict.input_digest!=expected or value.digest()!=expected or
                 verdict.decision not in {"allow","block"}):raise ValueError("unbound_guard_verdict")
-        return dict(input_digest=expected,guard_id=verdict.guard_id,decision=verdict.decision,risk=verdict.risk,
+        result=dict(input_digest=expected,guard_id=verdict.guard_id,decision=verdict.decision,risk=verdict.risk,
                     review_latency_ns=perf_counter_ns()-started,error=None)
+        if getattr(guard,"stage_timings_ns",None):result["encoder_stage_timings_ns"]=dict(guard.stage_timings_ns)
+        return result
     except Exception as exc:
         return dict(input_digest=expected,guard_id=getattr(guard,"guard_id","unknown"),decision="error",risk=None,
                     review_latency_ns=perf_counter_ns()-started,error=type(exc).__name__)
