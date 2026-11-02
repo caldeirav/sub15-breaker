@@ -74,13 +74,18 @@ Medians use ALL6 classifier timing samples per input, not a selected subsequent
 subset. Priming samples belong only in startup. Full raw distributions/errors
 remain in JSON/MLflow; no sample is removed for being slow.
 
-| Input | Classifier core median ms |
-| --- | ---: |
-| Bill read |13.115 |
-| Bill payment |16.865 |
-| Extra transfer |16.826 |
-| Profile read |12.249 |
-| Profile update |15.771 |
+| Input | Classifier core median (ms) | Classifier whole-review median (ms) | LLM whole-review median (ms) |
+| --- | ---: | ---: | ---: |
+| Bill read |13.115 |20.876 |379.438 |
+| Bill payment |16.865 |24.637 |384.506 |
+| Extra transfer |16.826 |24.179 |395.646 |
+| Profile read |12.249 |19.985 |382.739 |
+| Profile update |15.771 |23.843 |431.833 |
+
+Whole-review medians include all6 classifier and3 LLM timing requests per input
+after readiness; startup/priming is separate. Whole review includes adapter/tracing
+work and, for LLM, network/generation/parsing. Compare whole-review columns, not
+classifier core against LLM whole review, for a same-boundary comparison.
 
 These are small descriptive observations, not hardware-independent SLOs. Core,
 whole adapter and native claim remain different timing boundaries. #13 broader

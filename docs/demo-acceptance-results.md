@@ -37,14 +37,45 @@ verifies tracking, loaded/idle Qwen/context, store/capacity, native MCP/Actor pa
 and separately counted real actor/reviewer protocol probes; no proposal is executed.
 No model/weights/precision/calibration/threshold change or shared-model reload.
 
-The previous284.743ms decision was mostly first forward/host-result work; its
-2648.374ms weight load was already separate. The new paired startup recorded
-1333.643ms loading and363.393ms first initialization core as **startup**, retaining
-both costs. The first measured decision AFTER readiness was13.648ms. All30 timed
-classifier requests remain, first included; no slow measured sample is hidden.
-Native calls still show hardware/idle/payload variability despite readiness;
-availability is not a latency guarantee. See detailed distributions rather than
-latency-attainment counts. Startup probes/priming are never accuracy points.
+Startup/loading/priming are excluded from the performance figures below and
+retained separately in the [detailed startup results](ready-golden-results.md).
+All measured requests after readiness are included, including the first; no slow
+measured request was removed. Startup probes/priming are never accuracy points.
+
+## Performance after startup
+
+Same golden inputs for both verifiers. Values are medians in milliseconds,
+using **6 classifier and 3 LLM** timing requests per input, all after readiness.
+
+| Golden action | Classifier core median (ms) | Classifier whole-review median (ms) | LLM whole-review median (ms) |
+| --- | ---: | ---: | ---: |
+| Bill read |13.115 |20.876 |379.438 |
+| Bill payment |16.865 |24.637 |384.506 |
+| Extra transfer |16.826 |24.179 |395.646 |
+| Profile read |12.249 |19.985 |382.739 |
+| Profile update |15.771 |23.843 |431.833 |
+
+Classifier core includes tokenization, device enqueue, forward/host result and
+calibration/threshold. Whole review includes adapter/serialization/tracing work;
+for the LLM it also includes network, generation and parsing. Compare the two
+**whole-review columns** for the same-boundary performance comparison. These are
+not native claim or complete banking-task timings.
+
+### Actual native-serving performance
+
+These medians cover the actual reviewed actions, excluding fault controls and
+startup/priming, with **10 reviews per verifier in each phase**. They describe
+native servicing rather than the fixed-input timing loop above; agent trajectories
+may differ, so they are not an identical-input speed ratio.
+
+| Phase | Classifier core median (ms) | Classifier whole-review median (ms) | LLM whole-review median (ms) |
+| --- | ---: | ---: | ---: |
+| Qualification |86.826 |95.553 |433.469 |
+| Fresh rehearsal |96.255 |103.375 |421.112 |
+
+Native latency still varies despite loaded/primed services. All these measured
+samples remain; readiness is not a latency guarantee. No latency-threshold counts
+are used.
 
 ## Native golden workflow checks
 

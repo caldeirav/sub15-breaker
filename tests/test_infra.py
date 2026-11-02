@@ -351,3 +351,13 @@ def test_documentation_local_links_and_fences_are_valid():
             if not target.startswith(("https://", "http://", "#")):
                 assert ".infra/" not in target, f"Local-only artifacts must be code paths, not repository links: {path}: {target}"
                 assert (path.parent / target.split("#", 1)[0]).exists(), f"{path}: {target}"
+
+
+def test_acceptance_report_keeps_classifier_and_llm_performance_columns():
+    text = (ROOT / "docs/demo-acceptance-results.md").read_text()
+    performance = text.split("## Performance after startup", 1)[1].split("## Native golden workflow checks", 1)[0]
+    assert "Classifier core median (ms)" in performance
+    assert "Classifier whole-review median (ms)" in performance
+    assert "LLM whole-review median (ms)" in performance
+    assert "6 classifier and 3 LLM" in performance
+    assert "startup/priming" in performance
