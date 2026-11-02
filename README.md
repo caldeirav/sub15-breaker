@@ -66,6 +66,15 @@ It preserves the database/history and prepares a saved-evidence backend for a
 future visual demo. Visualization is planning-only (#60); no frontend or live-run
 controls are added.
 
+**Current review status:** nd7 passed all14 native cases and both guards scored4/4
+on fixed curated inputs. Capacity correction worked, but nd8 stopped before
+inference at an Actor readiness JSON/transport error (#62); it is not a pass.
+The consolidated saved-evidence package is at
+`.infra/benchmark-guard-harness/demo-review-verified-package/summary.html`.
+The read-only API runs on `127.0.0.1:8088`; the linked contract/results explain
+private read-token setup, source hashes, telemetry, failures and limitations.
+All609 offline tests pass on Python3.11–3.13. Owner acceptance remains pending.
+
 ## Why this design?
 
 1. **Verify before mutation.** Reviewing a trace after an unauthorized transfer is too late to prevent that transfer. Enforcement must inspect the proposed action before the tool consumes it.

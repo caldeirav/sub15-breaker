@@ -128,12 +128,65 @@ alongside new nd7 qualification and incomplete nd8 rehearsal.
 It exposes versioned cases/runs/results/ordered saved events, sanitizes bank data
 and credentials, retains incomplete/unknown cases, and distinguishes logical replay
 order from authoritative MLflow wall-clock spans. Core/reviewer/claim timers remain
-separate. Loopback binding, limited read token, pagination, hashes and write-method
-rejection are tested. Final actual HTTP verification and consolidated package
-publication follow source validation. No frontend or live-execution API is implemented.
+separate. Actual HTTP checks passed for all five saved runs: readiness, cases,
+runs, results, accounting, full event pagination and auth/Host/write/path/page
+gates. Ledger entries and store capacity were identical before/after the test:
+**zero model/tool/judge calls or durable changes**. The loopback service is
+available at `http://127.0.0.1:8088`, with a limited private read token, not a
+platform/model credential. No frontend or live-execution API is implemented.
 Post-run projection-only changes retain a first-case failure even when no cards
 file exists and check transitive/supplemental evidence hashes. These changes did
 not alter inference/runtime source `b6386ae`, the deployed image or original records.
+Final projection/reporting regressions pass **609 tests on Python3.11–3.13**;
+607 passed before inference. Projection source is `0adfe5b`.
+
+### Open the package or use the API
+
+Local consolidated package:
+`.infra/benchmark-guard-harness/demo-review-verified-package/`:
+
+- `summary.html` / `summary.md`: full run/case matrix and metrics.
+- `review.json`: versioned sanitized cases, ordered events, outcomes, timings,
+  state differences, receipts, trace links and accounting.
+- `manifest.json`: payload/generator and transitive/supplemental source hashes.
+- `http-smoke.json`: actual endpoint checks and zero-spend/write proof.
+
+Source allowlist: `.infra/benchmark-guard-harness/demo-review-final-sources.json`.
+Limited read-token file: `.infra/benchmark-guard-harness/demo-review-read.token`
+(private; never commit/paste into public pages). If stopped, restart with:
+
+```bash
+uv run --locked python -m src.benchmark.review_backend \
+  --serve .infra/benchmark-guard-harness/demo-review-verified-package --port 8088 \
+  --token-file .infra/benchmark-guard-harness/demo-review-read.token
+```
+
+See the [API contract](demo-review-api.md) for endpoints/UI mapping. Requests
+without the token correctly receive401. A future same-origin adapter must not
+expose store/platform/provider credentials. Replay is logical event order, not
+fabricated timestamps or a live stream; MLflow links provide authoritative spans.
+Read-only package regeneration writes a new directory and makes no inference:
+
+```bash
+uv run --locked python -m src.benchmark.review_backend \
+  --sources .infra/benchmark-guard-harness/demo-review-final-sources.json \
+  --output NEW_REVIEW_BUNDLE_DIRECTORY
+```
+
+### Accounting and next gate
+
+nd7 used **40 local /17 external** requests (16 paired/timing LLM,14 actor and10
+native guard requests). nd8 used **0 local /0 external**; its failed case ID is
+still spent. Cumulative: **194 local /166 external /$50.5755570 including holds**,
+within2048/512/$100 caps. The scoped review allowance has1 slot remaining, not
+permission to repeat a case or fund another full qualification. No extra inference
+followed the rehearsal error.
+
+#58 capacity and #59 backend/package have scoped implementation/evidence. #62
+needs correction and a fresh allocation before another live rehearsal; #45/#48
+remain open for complete rehearsal and explicit owner acceptance. You can build
+the planned **saved-replay** visualization on this backend now; reliable live
+presentation is not yet established. #60 remains planning-only.
 
 ## Evidence and ownership
 
