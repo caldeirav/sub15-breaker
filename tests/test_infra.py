@@ -361,10 +361,10 @@ def test_documentation_local_links_and_fences_are_valid():
 
 
 def test_acceptance_report_keeps_classifier_and_llm_performance_columns():
-    text = (ROOT / "docs/results/demo-nd11-nd12.md").read_text()
-    performance = text.split("## Performance after startup", 1)[1].split("## Native golden workflow checks", 1)[0]
-    assert "Classifier core median (ms)" in performance
-    assert "Classifier whole-review median (ms)" in performance
-    assert "LLM whole-review median (ms)" in performance
-    assert "6 classifier and 3 LLM" in performance
-    assert "startup/priming" in performance
+    text = (ROOT / "docs/results/demo-ui1.md").read_text()
+    performance = text.split("## Guardrail performance after readiness", 1)[1].split("## Component breakdown", 1)[0]
+    assert "Classifier core median ms / n" in performance
+    assert "Classifier whole-review median ms / n" in performance
+    assert "LLM whole-review median ms / n" in performance
+    assert "exact action-review counts" in performance
+    assert "Startup/priming" in performance

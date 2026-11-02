@@ -2,7 +2,7 @@
 
 This is an **evidence archive, not current setup instructions**. Current guides:
 [documentation index](../../docs/README.md). Only the latest demo has a current
-[versioned result page](../../docs/results/demo-nd11-nd12.md).
+[versioned result page](../../docs/results/demo-ui1.md).
 
 ## Preservation boundary
 
@@ -38,7 +38,7 @@ still-applicable content is now maintained in these guides:
 | Golden data, metric/evidence amendments, evaluation/harness acceptance and MLflow trace contract | [Validation](../../docs/validation.md); frozen historical protocol bytes stay here |
 | Infrastructure guide, target-stack reviews, readiness and transport investigations | [Local environment](../../docs/infra.md) and relevant failure/startup sections of [agent flow](../../docs/agent-flow.md) |
 | Native-demo plans/runbooks, transport/capacity/readiness/startup follow-ups, review API/backend plans | [Demo](../../docs/demo.md), with implemented commands and explicit operator/authorization limits |
-| Current acceptance + ready-golden methods/results and source bindings | [Latest demo report](../../docs/results/demo-nd11-nd12.md), merged without dropping performance, startup or accounting evidence |
+| Latest live demo methods/results and source bindings | [Latest demo report](../../docs/results/demo-ui1.md); previous nd11/nd12 report remains in Git history/raw artifacts without dropping its performance, startup or accounting evidence |
 | Older nd1–nd10 result pages and superseded future-work/block ledgers | Removed from current docs; original text in Git history, raw run artifacts/negative reviews unchanged; current backlog in [roadmap #14](https://github.com/caldeirav/sub15-breaker/issues/14) |
 | Old documentation audit/session claims | Superseded by source-verified topic guides; unsupported guarantees and relevant caveats remain explicit |
 

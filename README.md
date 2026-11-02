@@ -153,10 +153,12 @@ from measured performance; all after-readiness samples, including slow ones, rem
 Tiny serial samples are not load/tail SLOs or a matched-safety speed guarantee.
 [Validation methodology and full-test instructions](docs/validation.md).
 
-The [latest versioned demo report: nd11/nd12](docs/results/demo-nd11-nd12.md)
-contains the results, both verifiers' performance in separate columns and evidence
-IDs: **5/5 unique golden actions for each verifier; 14/14 qualification and 14/14
-fresh rehearsal cases**. These curated results do not establish general accuracy.
+The [latest versioned live UI report: ui1](docs/results/demo-ui1.md) contains the
+results, both verifiers' performance in separate columns and evidence IDs:
+**18 native cases, 10/10 lane golden/effect expectations met, 16 task-criterion
+agreements and 5 supported scoped harness reviews**. These include scripted/fault
+controls and do not establish general model accuracy. All5 cards were run once
+through the actual browser; the verification allocation is spent, not reusable.
 Owner/process acceptance remains separate in [#17](https://github.com/caldeirav/sub15-breaker/issues/17).
 
 ## Run locally

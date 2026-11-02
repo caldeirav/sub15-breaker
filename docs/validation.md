@@ -1,7 +1,7 @@
 # Testing, data and validation
 
 [Overview](../README.md) · [Architecture](architecture.md) · [Model](model.md)
-· [Demo procedure](demo.md) · [Latest demo results](results/demo-nd11-nd12.md)
+· [Demo procedure](demo.md) · [Latest demo results](results/demo-ui1.md)
 
 ## AgentDojo environment and data
 

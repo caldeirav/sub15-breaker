@@ -1,7 +1,7 @@
 # Five-card live demo UI and operator runbook
 
 [Local setup](infra.md) · [Agent flow](agent-flow.md)
-· [Validation](validation.md) · [Latest versioned results](results/demo-nd11-nd12.md)
+· [Validation](validation.md) · [Latest versioned results](results/demo-ui1.md)
 
 ## What is demonstrated
 
@@ -198,6 +198,19 @@ checks use externally installed Playwright via `PLAYWRIGHT_MODULE` and optional
 validation requires the separate `--execute-authorized-live-campaign` flag, an
 explicit campaign and its frozen one-shot allowance. No automatic live test is
 part of the default suite.
+
+### Verified implementation disposition
+
+The first real UI campaign, **ui1**, passed all18 native cases and all10 lane
+golden/effect expectations. Actual Chromium verified five explicit Run clicks,
+sequential lanes, read-only navigation/reload, responsive/keyboard behavior and no
+JavaScript errors. All16 task reviews agreed and all5 scoped harness reviews were
+supported. [Versioned results, actual timings and source evidence](results/demo-ui1.md).
+The UI was shut down gracefully and global hook/routes, old history, key/PVC and
+ledger prefix were verified preserved. No additional inference was used to
+regenerate the report. The ui1 slots are spent; a new demonstration needs a fresh
+approved allocation. Delivery is on PR#67, not an inferred final owner acceptance
+or permission to merge (#17).
 
 ## Inspect or replay without inference
 
