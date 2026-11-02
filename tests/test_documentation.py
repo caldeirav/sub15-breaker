@@ -71,3 +71,15 @@ def test_model_equations_avoid_unsupported_operatorname_macro():
     assert r"\operatorname" not in text
     assert r"\frac{1}{1+e^{-(z_1-z_0)/T}}" in text
     assert text.count(r"\frac{1}{|B_b|}\sum_{i\in B_b}") == 2
+
+
+def test_readme_routes_model_and_mcp_traffic_through_one_gateway():
+    text = (ROOT / "README.md").read_text()
+    diagram = text.split("## System architecture", 1)[1].split("```mermaid\n", 1)[1].split("```", 1)[0]
+    assert diagram.count("G[agentgateway:") == 1
+    assert "A -->|Responses model requests and MCP tool calls| G" in diagram
+    assert "G -->|model requests| L" in diagram
+    assert "G -->|MCP tool calls| B" in diagram
+    assert "Q -->|review model request| G" in diagram
+    assert "B -->|MCP result| G" in diagram
+    assert "not inside a Substrate Actor" in text

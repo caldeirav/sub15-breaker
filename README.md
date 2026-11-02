@@ -45,25 +45,36 @@ negative/fault controls. [Data, checker semantics and test design](docs/validati
 ```mermaid
 flowchart TD
     H[Experiment harness and pinned AgentDojo adapter] --> A[One LangGraph agent]
-    A -->|model requests| G[agentgateway: Responses and MCP routing]
-    G --> L[Local Qwen model in LM Studio]
-    L --> G
-    G --> A
-    A -->|proposed tool call via gateway MCP| B[Banking bridge: prepare immutable ticket]
+    A -->|Responses model requests and MCP tool calls| G[agentgateway: shared model and tool routing]
+    G -->|model requests| L[Local Qwen model in LM Studio]
+    L -->|model responses| G
+    G -->|model or tool results| A
+    G -->|MCP tool calls| B[Banking bridge: prepare immutable ticket]
     B --> R[Agent Substrate gVisor Actor]
     R -->|claim ticket| N[Substrate Envoy native egress gate]
     N --> V{Selected reviewer}
     V --> C[ModernBERT classifier and calibration]
-    V --> Q[LLM reviewer via agentgateway]
+    V --> Q[LLM review adapter]
+    Q -->|review model request| G
+    G -. review model response .-> Q
     C --> D{Effective decision}
     Q --> D
     D -->|allow| S[Store claim, Actor computation, atomic state and receipt commit]
     D -->|block or error| X[No target tool execution]
-    S --> A
+    S -->|committed tool result| B
+    X -->|denied or error result| B
+    B -->|MCP result| G
     H --> E[Private checkers and post-run review]
     S -. evidence .-> M[MLflow traces and assessments]
     E --> M
 ```
+
+**Where the agent runs:** the LangGraph agent and experiment harness execute in
+the host-side Python process, **not inside a Substrate Actor**. The tool functions
+run in Substrate gVisor Actors. One managed gateway (`breaker-gateway`) carries
+both acting/reviewer model traffic and MCP tool traffic through separate routes;
+the native Substrate Envoy claim gate is a different component, not a second
+agentgateway.
 
 ### Components and design decisions
 

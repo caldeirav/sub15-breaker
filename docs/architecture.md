@@ -8,7 +8,9 @@
 This is a local guard benchmark over synthetic AgentDojo banking. The supported
 entry point is `src.benchmark.demo`, orchestrating the existing `wiring.run_case`;
 it is not a new agent loop. One compiled agent proposes actions under either
-reviewer. Schema/state/identity controls and private evaluation remain outside it.
+reviewer. The LangGraph agent executes in the host-side Python harness, not inside
+a Substrate Actor; pinned tool computation runs inside the Actor. Schema/state/
+identity controls and private evaluation remain outside the agent loop.
 
 | Layer / source | Owns | Must not do |
 | --- | --- | --- |
@@ -38,6 +40,11 @@ connectivity: Responses/model routing, MCP discovery/calls, authentication polic
 backend/route timeouts and distributed telemetry. The deployed Kubernetes
 controller-managed dataplane matters, not an unrelated standalone host binary.
 It is **not** Substrate's Envoy gate and does not replace gVisor or the state store.
+
+Both the local-model route and banking MCP route attach to the same managed
+Gateway, `breaker-gateway`, on its `http` listener. They are separate backends and
+routes, not separate gateway deployments. Acting and LLM-reviewer clients use that
+same gateway endpoint; the local classifier executes directly in the host process.
 
 Model requests enter as Responses and are explicitly translated to the configured
 Completions upstream. LM Studio still applies the model-family chat template and
