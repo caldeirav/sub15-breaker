@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from src.benchmark.readiness_probe import freeze,exclusive
+from src.benchmark.readiness_probe import freeze,exclusive,main
 
 
 def test_probe_protocol_is_fixed_non_effectful_and_cannot_be_refrozen(monkeypatch,tmp_path):
@@ -16,3 +16,11 @@ def test_probe_protocol_is_fixed_non_effectful_and_cannot_be_refrozen(monkeypatc
     with pytest.raises(FileExistsError):freeze(directory)
     exclusive(directory/"started.json",dict(started=True))
     with pytest.raises(FileExistsError):exclusive(directory/"started.json",dict(started=True))
+
+
+def test_readiness_cli_cannot_return_success_for_failed_or_incomplete_batch(monkeypatch,tmp_path):
+    monkeypatch.setattr("sys.argv",["readiness_probe",str(tmp_path),"--execute"])
+    for result in (dict(fixed_batch_complete=True,failures=1),dict(fixed_batch_complete=False,failures=0)):
+        monkeypatch.setattr("src.benchmark.readiness_probe.execute",lambda directory:result)
+        with pytest.raises(SystemExit) as caught:main()
+        assert caught.value.code==1

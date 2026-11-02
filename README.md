@@ -79,6 +79,9 @@ PRs #57/#61 are now merged into `main`. The next focused work is
 [Actor readiness diagnostics and non-effectful verification](docs/actor-readiness-plan.md)
 for #62. It does not repeat spent model runs or declare the incomplete rehearsal
 passing; visualization remains planning-only.
+The [fixed readiness probe results](docs/actor-readiness-results.md) passed8/8
+with zero trial/model/tool/judge calls. That closes the diagnostic visibility gap,
+not the old failure's cause or the complete-rehearsal acceptance gate (#62).
 
 ## Why this design?
 

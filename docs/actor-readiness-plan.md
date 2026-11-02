@@ -33,3 +33,27 @@ authorization. No shared-model reload, classifier/prompt/threshold change, auth
 bypass, frontend implementation or generic executor. #55/#13/#56 stay deferred;
 #60 remains visualisation planning-only. Preserve/update the existing read-only
 review package rather than silently replacing old evidence with successful probes.
+
+## Initial executed bindings
+
+Source `4589899`;622 tests passed Python3.11–3.13 before deployment/probes.
+Diagnostic image:
+`localhost:5002/breaker-banking@sha256:19f625ed48a7c5be2e54429284a390108ba659df5bb93965b9858a974860174d`.
+The same PVC/key, every existing table row and active capacity reservation were
+verified unchanged across deployment. Trial limit256 and profile
+`native-measure-v2` remain unchanged; only transport diagnostic behavior was added.
+
+The initial fixed plan is
+`.infra/benchmark-guard-harness/actor-readiness-probes-v1/plan.json`.
+It binds source hashes/image/configuration and permits four Actor allocations,
+one first and one subsequent readiness observation per Actor, zero model/tool/
+judge calls and zero trial creations. Started markers prevent replay of the batch.
+Results and pre-restoration logs will be retained in that directory, without
+overwriting nd8's failed case or spending its unused allocations.
+
+## Observed result
+
+The fixed batch completed8/8 verified readiness responses; both hops were200/JSON.
+Ledger, history, capacity and hook restoration checks passed, with no remaining
+Actors and no trial/model/tool/judge calls. The old failure did not reproduce;
+cause remains unconfirmed and #62 stays open. See [results](actor-readiness-results.md).

@@ -132,6 +132,7 @@ def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument("directory",type=Path)
     action=p.add_mutually_exclusive_group(required=True);action.add_argument("--freeze",action="store_true");action.add_argument("--execute",action="store_true")
     args=p.parse_args();value=freeze(args.directory) if args.freeze else execute(args.directory);print(json.dumps(value,indent=2))
+    if args.execute and (not value.get("fixed_batch_complete") or value.get("failures")!=0):raise SystemExit(1)
 
 
 if __name__=="__main__":main()
