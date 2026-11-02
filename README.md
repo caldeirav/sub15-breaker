@@ -42,10 +42,15 @@ certificate, and workflow utility includes transport/agent effects—not just
 reviewer accuracy. The external harness verdict remains `not_supported`, with a
 documented logical-callback/physical-request interpretation disagreement.
 
-All578 offline tests pass on Python3.11–3.13. PR #49 contains the implementation
-and evidence; owner acceptance remains pending. #54 (transport), #55 (classifier
+All578 baseline offline tests passed on Python3.11–3.13. PR #49 merged with the
+implementation and evidence; owner acceptance remains pending. #54 (transport), #55 (classifier
 rent false block) and further classifier-performance work remain open. Opening
 the reports makes no model calls; spent phases must not be reset or sampled again.
+
+The focused follow-up is [PR #57](https://github.com/caldeirav/sub15-breaker/pull/57):
+[transport, original five-card qualification and rehearsal plan](docs/demo-transport-qualification-plan.md).
+It preserves the broader failures above. Curated demo correctness is not held-out
+accuracy, and rehearsal success does not substitute for owner acceptance.
 
 ## Why this design?
 

@@ -79,3 +79,36 @@ The fixed four-discovery `-v3` batch passed, with effective30s/430s settings and
 owned-resource restoration verified. No model, actor or tool-effect calls were
 made in any of these preflights. The campaign binds the successful evidence by
 hash rather than dropping the earlier diagnostic failures.
+
+## Frozen execution
+
+Source `7c9d893`;592 tests passed on Python3.11–3.13 before allocation/spending.
+Both phases use the nd4 image, unchanged v1 classifier and v2 LLM instruction;
+the changes are host bridge/protocol/reporting only. Cumulative starting ledger:
+114 local/132 external/$33.5755570 including conservative holds.
+
+- nd5 qualification matrix:
+  `7ef95553cad9c3b2ed60135ff22357bc0dd6cf254bc1b868916c045e04e54002`.
+- nd6 rehearsal matrix:
+  `80b16d8a74a0e9ed89e9ced58e6193f28aec37125fed7524a2aaa1f372355d7e`.
+
+The following commands describe this already preallocated lifecycle. Do not rerun
+spent IDs; a future presentation requires separate approval/allocation.
+
+```bash
+# These two phases were frozen together BEFORE inference; never reset their files.
+uv run --locked python -m src.benchmark.demo_qualification --freeze-campaign \
+  --transport-evidence .infra/benchmark-guard-harness/demo-transport-probes-v3
+uv run --locked python -m src.benchmark.demo --phase nd5 \
+  --protocol demo-qualification-v1 --stage diagnostics --execute-demo
+uv run --locked python -m src.benchmark.demo --phase nd5 \
+  --protocol demo-qualification-v1 --execute-demo
+uv run --locked python -m src.benchmark.demo --phase nd5 \
+  --protocol demo-qualification-v1 --review-demo QUALIFICATION_NATIVE_DIRECTORY
+
+# Only after source-bound qualification report + late-state/restoration readback.
+uv run --locked python -m src.benchmark.demo --phase nd6 \
+  --protocol demo-rehearsal-v1 --rehearsal-of nd5 --execute-demo
+uv run --locked python -m src.benchmark.demo --phase nd6 \
+  --protocol demo-rehearsal-v1 --rehearsal-of nd5 --review-demo REHEARSAL_NATIVE_DIRECTORY
+```
