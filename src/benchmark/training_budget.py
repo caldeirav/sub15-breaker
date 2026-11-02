@@ -159,8 +159,25 @@ class TrainingBudget(CampaignBudget):
                 settlement=json.loads(path.read_text())
                 if settlement.get("sequence")!=entry["sequence"]:raise RuntimeError("v2_settlement_mismatch")
                 if settlement.get("usage_verified"):cost=usd(settlement["accounted_cost_usd"])
+            correction=self.directory/f"cost-hold-correction-{entry['sequence']:04d}.json"
+            if correction.exists():
+                value=json.loads(correction.read_text())
+                if (value.get("sequence")!=entry["sequence"] or not path.exists() or
+                        value.get("settlement_sha256")!=hashlib.sha256(path.read_bytes()).hexdigest()):raise RuntimeError("cost_hold_correction_mismatch")
+                cost=max(cost,usd(value["minimum_accounted_cost_usd"]))
             total+=cost
         return total
+
+    def retain_cost_hold(self,sequence,*,reason):
+        """Append a conservative correction; never edit the original settlement."""
+        if not isinstance(reason,str) or not reason.strip():raise ValueError("cost_correction_reason_required")
+        with self.locked():
+            entries=self.entries();baseline=self.baseline(entries)
+            if type(sequence) is not int or not baseline["prefix_length"]<sequence<=len(entries):raise ValueError("unknown_v2_attempt")
+            entry=entries[sequence-1];path=self.directory/f"settlement-{sequence:04d}.json"
+            if entry["role"] not in EXTERNAL or not path.exists():raise ValueError("settled_external_operation_required")
+            self._exclusive(self.directory/f"cost-hold-correction-{sequence:04d}.json",dict(sequence=sequence,reason=reason,
+                settlement_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),minimum_accounted_cost_usd=entry["cost_hold_usd"],recorded_at=time.time()))
 
     def reserve(self,*,role,case_id,trace_id,request=None,model=None):
         with self.locked():

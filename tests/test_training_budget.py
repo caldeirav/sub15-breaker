@@ -48,6 +48,18 @@ def test_v2_budget_immutable_settlements_and_pilot_scope(tmp_path):
         entries=value.entries();assert str(value.accounted(entries,value.baseline(entries)))=="0.52"
 
 
+def test_conservative_cost_correction_never_rewrites_or_releases_old_settlement(tmp_path):
+    value=budget(tmp_path);value.freeze_pilot(plan())
+    entry=value.reserve(role="gemini_data_generation",case_id="pilot-0",trace_id="unit",model=POLICY["gemini_model"])
+    value.settle(entry["sequence"],accounted_cost_usd="0.10",usage_verified=True)
+    path=tmp_path/f"settlement-{entry['sequence']:04d}.json";original=path.read_bytes()
+    value.retain_cost_hold(entry["sequence"],reason="Native adapter cost omitted provider reasoning tokens")
+    assert path.read_bytes()==original
+    with value.locked():
+        entries=value.entries();assert value.accounted(entries,value.baseline(entries))==1
+    with pytest.raises(FileExistsError):value.retain_cost_hold(entry["sequence"],reason="repeat")
+
+
 def test_v2_budget_detects_pilot_and_historical_changes(tmp_path):
     value=budget(tmp_path);definition=plan();value.freeze_pilot(definition)
     definition["protocol_sha256"]="d"*64

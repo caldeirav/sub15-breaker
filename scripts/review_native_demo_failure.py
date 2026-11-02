@@ -65,7 +65,9 @@ def main():
         result=review_harness(build_harness_judge(POLICY["gemini_model"]),observations=root.outputs,target_trace_id=suite.trace_id,reserve=reserve,
             scope="incomplete-native-demo-validation-all-declared-cases-still-required",required_cases=required)
         for entry in entries:
-            budget.settle(entry["sequence"],accounted_cost_usd=result.get("cost_usd"),usage_verified=result.get("cost_usd") is not None)
+            usage=result.get("transport",{}).get("raw_response",{}).get("usageMetadata",{})
+            complete_cost=result.get("cost_usd") is not None and not usage.get("thoughtsTokenCount",0)
+            budget.settle(entry["sequence"],accounted_cost_usd=result.get("cost_usd"),usage_verified=complete_cost)
         result.update(incomplete_validation=True,missing_cases=missing,run_id=run.info.run_id,output_directory=str(output),
             final_card_readiness=False,remaining_task_review_operations_unspent=16)
         private(output/"review.json",result);mlflow.log_dict(result,"demo/incomplete-validation-review.json")

@@ -135,3 +135,10 @@ Subsequent card and review commands must also include `--use-setup-correction`.
 Do not run controls again. Their enforcement evidence is inherited with its
 original matrix binding; new learned evidence uses the corrected binding. This
 is an explicit infrastructure setup correction, not another model sample.
+
+The corrected canary invocation subsequently stopped on one20s LLM-reviewer
+timeout. **Do not repeat the spent canary or run the real cards past that gate.**
+The allocated `nd1-review` slot was used once to review the incomplete matrix and
+returned `not_supported`; do not invoke it again. See
+[the retained results](native-guard-validation-results.md) for exact traces,
+provider-tail reconciliation, spending and the consolidated HTML review page.
