@@ -82,6 +82,21 @@ passing; visualization remains planning-only.
 The [fixed readiness probe results](docs/actor-readiness-results.md) passed8/8
 with zero trial/model/tool/judge calls. That closes the diagnostic visibility gap,
 not the old failure's cause or the complete-rehearsal acceptance gate (#62).
+The owner-authorized next step is the
+[full acceptance plan with bounded read-only readiness retries](docs/demo-acceptance-plan.md).
+Only startup readiness can retry; model reviews and banking actions cannot.
+**Full demo acceptance now passed:**14/14 qualification +14/14 rehearsal cases,
+both guards4/4 on paired inputs, and both harness reviews supported. All28 live
+readiness checks passed first attempt; controlled HTTP tests verify retry recovery.
+#62 is closed on the operational mitigation, not a claim of the old fault's cause.
+See [complete acceptance results](docs/demo-acceptance-results.md). Owner sign-off
+#45/#48 and separate quality/performance work remain open; historical failures and
+classifier15ms misses are preserved. No visualization frontend was implemented.
+The latest consolidated report is
+`.infra/benchmark-guard-harness/demo-acceptance-review-package/summary.html`.
+The updated read-only API is on `127.0.0.1:8089`; the prior8088 snapshot remains
+available. See the acceptance results for the private read-token file and exact
+telemetry/access instructions. Opening/replaying reports makes no model calls.
 
 ## Why this design?
 

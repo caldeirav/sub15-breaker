@@ -3,6 +3,8 @@
 Implementation: `src/benchmark/review_backend.py`; backend delivery #59.
 Visualization #60 is **planned only**. This server is a read-only adapter over
 immutable saved evidence, not a model runner, banking service or general file API.
+The latest [accepted qualification/rehearsal package](demo-acceptance-results.md)
+is served on owner-local port8089; port8088 is the earlier retained snapshot.
 
 ## Build and serve
 
@@ -73,6 +75,12 @@ schema versions rather than guess the meaning of a missing field.
 - Timers use explicit ns fields: `classifier_core_ns`, `review_ns`, `claim_ns`.
   They have different boundaries.15ms targets the classifier core, not claims;
   null means unrecorded. Aggregate paired/native values remain separate.
+- New acceptance cases expose `readiness.recorded`, `ready`, `retry_count`,
+  `recovered` and bounded `observations` (attempt/status/retryable/elapsed).
+  Readiness observations have their own timeline stage, never model/action retry
+  counts. Historical records without this evidence say recorded=false, not zero
+  fabricated retries. All28 acceptance checks passed first attempt; controlled
+  HTTP regression verifies recovery, not a claimed live recovery.
 - Capacity snapshots are labelled recorded-at-run-start, not current live health.
   The banking service separately exposes authenticated read-only `/capacity`;
   it is not proxied to a browser by this replay API.

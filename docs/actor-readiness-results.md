@@ -1,5 +1,10 @@
 # Actor readiness diagnostic verification — #62
 
+Historical diagnostic-phase record. Subsequently, bounded read-only retries and
+[full qualification plus rehearsal acceptance](demo-acceptance-results.md) passed;
+#62 closed on that operational evidence. The old failure's exact cause is still
+unconfirmed, and this eight-observation batch itself is not a full rehearsal.
+
 **Eight fixed readiness observations passed. The cause of the old failure remains
 unconfirmed; no complete model-backed rehearsal is claimed.**
 

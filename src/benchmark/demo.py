@@ -27,6 +27,7 @@ from src.benchmark.performance import case_comparisons
 from src.benchmark.bridge import Bridge,BridgeServer,MCPClient
 from src.benchmark.compare import claim_case
 from src.benchmark.demo_budget import DemoBudget
+from src.benchmark.readiness import POLICY as READINESS_POLICY
 from src.benchmark.deployment import private,temporary_bridge,gateway_forward,native_hook,model_timeouts
 from src.benchmark.encoder import manifest
 from src.benchmark.guards import INPUT_VERSION,LLM_PROMPTS
@@ -59,7 +60,8 @@ def code_hashes():
         "src/banking_service/deploy.py","src/banking_service/dataset_replay.py","src/banking_service/store.py","src/banking_contracts/tools.py",
         "src/benchmark/serving.py","src/benchmark/reconciliation.py","src/benchmark/performance.py","src/benchmark/measurement.py",
         "src/benchmark/accuracy.py","src/benchmark/comparison_report.py","src/benchmark/demo_qualification.py",
-        "src/benchmark/capacity.py","src/benchmark/review_backend.py"]
+        "src/benchmark/capacity.py","src/benchmark/review_backend.py","src/benchmark/readiness.py",
+        "src/banking_service/http.py","src/banking_service/diagnostics.py","src/banking_service/auth.py"]
     return {name:hashlib.sha256((ROOT/name).read_bytes()).hexdigest() for name in names}
 
 
@@ -143,6 +145,7 @@ def make_plan(artifact,*,acting_model,classifier_device="mps",namespace="nd1",pr
         **(dict(protocol=protocol,rehearsal_of=rehearsal_of,mcp_connect_timeout=30,verify_admission_readiness=True,
             transport_probes=4,stop_on_card_failure=True) if protocol else {}),
         **(dict(capacity=dict(campaign_id=capacity_campaign,requirements=dict(trials=42,actions=192,events=1200),store_limits=config["store_limits"])) if capacity_campaign else {}),
+        **(dict(readiness=READINESS_POLICY) if protocol and int(namespace[2:])>=9 else {}),
         **(dict(accuracy=accuracy,decision_latency_target_ms=15,decision_latency_scope="tokenization+device enqueue+forward/host result+calibration/threshold; excludes tracing, projection, transport") if accuracy else {}),
         retries=0,fallback=False,quality_scope="imperfect frozen prototype; architecture mechanics distinct from reviewer correctness",full_admission_latency_claim=False)
 
@@ -398,6 +401,7 @@ def execute(args,plan):
                                 case_name=case["case_id"],deadline_profile=deadlines.name,request_model_id=plan["acting_model"],cancel_on_review_start=mode=="cancel",
                                  limits=Limits(**plan["native_limits"]),reconcile_telemetry=True,
                                  capacity_campaign=plan.get("capacity",{}).get("campaign_id"),
+                                 readiness_policy=plan.get("readiness"),
                                 verify_admission_readiness=bool(plan.get("accuracy")) or plan.get("verify_admission_readiness",False),
                                 provider_probe=lambda **kw:provider_status(plan["acting_model"],**kw),
                                 reconciliation_options={k:v for k,v in plan["reconciliation"].items() if k!="provider_idle_required"})
