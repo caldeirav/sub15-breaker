@@ -25,6 +25,7 @@ from src.agent_runtime.contracts import Limits
 from src.agent_runtime.runner import run
 from src.banking_service.deploy import Deployment,DIRECTORY,SPACE,STORE_HOST
 from src.banking_service.http import RuntimeClient
+from src.banking_service.deadlines import profile
 from src.banking_service.validation import runtime_proof
 from src.benchmark.bridge import Bridge,BridgeServer,MCPClient
 from src.benchmark.budget import Budget,PILOT,EXTENDED_PILOT
@@ -43,13 +44,15 @@ SOURCE=mlflow.entities.AssessmentSource(source_type="CODE",source_id="benchmark-
 
 class ModelTransport(httpx.BaseTransport):
     """Trace exactly the gateway HTTP dispatch; no SDK retries or direct route."""
-    def __init__(self,base):self.base=base;self.transport=httpx.HTTPTransport(retries=0)
+    def __init__(self,base,*,before_dispatch=lambda:None):
+        self.base=base;self.transport=httpx.HTTPTransport(retries=0);self.before_dispatch=before_dispatch
     def handle_request(self,request):
         if str(request.url)!=self.base+"/v1/responses":raise RuntimeError("unexpected_model_route")
         with mlflow.start_span(name="managed_responses_http",span_type="CLIENT") as span:
             span.set_inputs(dict(url=str(request.url),method=request.method,request=json.loads(request.content)))
             from mlflow.tracing.distributed import get_tracing_context_headers_for_http_request
             request.headers.update(get_tracing_context_headers_for_http_request())
+            self.before_dispatch()
             response=self.transport.handle_request(request)
             span.set_outputs(dict(status=response.status_code,physical_attempts=1))
             return response
@@ -95,8 +98,10 @@ def audit_record(record):
     model_nodes={span.span_id for span in spans if span.name=="model" and span.span_type=="CHAIN"}
     models=[span for span in spans if span.span_type=="CHAT_MODEL" and span.parent_id in model_nodes]
     if len(models)!=record["model_attempts"]:raise RuntimeError("model_attempt_span_count_differs")
-    physical=[span for span in spans if span.name=="managed_responses_http"]
-    physical_ids={span.span_id for span in physical}
+    all_physical=[span for span in spans if span.name=="managed_responses_http"]
+    model_ids={span.span_id for span in models}
+    physical=[span for span in all_physical if span.parent_id in model_ids]
+    physical_ids={span.span_id for span in all_physical}
     gateway_models=[span for span in spans if span.span_type=="CHAT_MODEL" and span.parent_id in physical_ids]
     if record.get("guard_control") is None and len(physical)!=record["model_attempts"]:
         raise RuntimeError("physical_model_dispatch_count_differs")
@@ -107,6 +112,7 @@ def audit_record(record):
             raise RuntimeError("wiring_score_value_or_ownership_differs")
     return dict(trace_id=trace.info.trace_id,span_count=len(spans),chat_model_spans=len(models),
         managed_responses_dispatches=len(physical),gateway_chat_model_spans=len(gateway_models),
+        guard_managed_responses_dispatches=len(all_physical)-len(physical),
         native_admission_spans=len(gate),actor_dispatch_spans=len(tools),root_count=1,orphan_count=0,
         span_types=sorted({span.span_type or "UNKNOWN" for span in spans}),
         span_names=[span.name for span in spans],
@@ -117,13 +123,16 @@ def audit_record(record):
             source_id=a.source.source_id if a.source else None) for a in getattr(trace.info,"assessments",[])])
 
 
-def run_case(*,deployment,store,authorization,adapter,bridge,mcp,budget,mask,task_id,control=None,limits=None):
-    case_id=("control-"+control if control else "live-"+task_id)
+def run_case(*,deployment,store,authorization,adapter,bridge,mcp,budget,mask,task_id,control=None,limits=None,
+        selected_guard=None,review_builder=None,case_name=None,deadline_profile="legacy"):
+    deadlines=profile(deadline_profile)
+    case_id=case_name or ("control-"+control if control else "live-"+task_id)
     trial_id="benchmark-"+uuid4().hex
     actor=None;record=None;cleanup=[]
     with mlflow.start_run(run_name=case_id,nested=True) as child:
         with mlflow.start_span(name="benchmark_episode",span_type="AGENT") as root:
-            root.set_inputs(dict(case_id=case_id,task_id=task_id,live=control is None,guard="deterministic-native-"+(control or "allow")))
+            root.set_inputs(dict(case_id=case_id,task_id=task_id,live=control is None,
+                guard=selected_guard.guard_id if selected_guard else "deterministic-native-"+(control or "allow")))
             try:
                 with mlflow.start_span(name="allocate_substrate_actor",span_type="CHAIN") as allocation:
                     actor=deployment.create_actor();allocation.set_outputs(actor)
@@ -134,11 +143,11 @@ def run_case(*,deployment,store,authorization,adapter,bridge,mcp,budget,mask,tas
                 if snapshot["state"]!=episode.initial_state.model_dump(mode="json"):raise RuntimeError("suite_backend_initial_state_differs")
                 mask.learn(snapshot["state"])
                 with deployment.forward(actor["metadata"]["name"],actor=True) as base:
-                    actor_client=RuntimeClient(base,authorization,timeout=40)
+                    actor_client=RuntimeClient(base,authorization,timeout=deadlines.actor_client)
                     probe=actor_client.call("/probe",{})
                     if (probe["uid"],probe["gid"],probe["effective_capabilities"],probe["no_new_privs"],probe["ambient_kubernetes_token"])!=(10001,10001,"0000000000000000","1",False):
                         raise RuntimeError("actor_runtime_probe_differs")
-                    bridge.configure(store,actor_client,trial_id,ControlGuard(control or "allow"))
+                    bridge.configure(store,actor_client,trial_id,selected_guard or ControlGuard(control or "allow"),review_builder=review_builder)
                     if control:
                         reference=list(episode.task.ground_truth(episode.initial_state))[-1]
                         arguments=dict(reference.args)
@@ -150,14 +159,15 @@ def run_case(*,deployment,store,authorization,adapter,bridge,mcp,budget,mask,tas
                     else:
                         definitions=[dict(type="function",function=dict(name=name,description=f"Pinned synthetic banking tool: {name}.",
                             parameters=schema["arguments"])) for name,schema in adapter.catalog.schemas().items()]
-                        model_http=httpx.Client(transport=ModelTransport(mcp.base),timeout=45,trust_env=False)
+                        def reserve_http():
+                            active=mlflow.get_current_active_span()
+                            entry=budget.reserve(role="actor",case_id=case_name or task_id,trace_id=active.trace_id)
+                            store.call("/client-event",dict(trial_id=trial_id,kind="model_attempt",payload=entry))
+                        model_http=httpx.Client(transport=ModelTransport(mcp.base,before_dispatch=reserve_http),timeout=45,trust_env=False)
                         model=ChatOpenAI(model=os.environ["LM_STUDIO_MODEL"],base_url=mcp.base+"/v1",api_key=authorization.removeprefix("Bearer "),
                             http_client=model_http,use_responses_api=True,output_version="responses/v1",max_retries=0,timeout=45,
                             temperature=0,max_tokens=2048).bind_tools(definitions,parallel_tool_calls=False)
-                        def reserve():
-                            active=mlflow.get_current_active_span()
-                            entry=budget.reserve(role="actor",case_id=task_id,trace_id=active.trace_id)
-                            store.call("/client-event",dict(trial_id=trial_id,kind="model_attempt",payload=entry))
+                        reserve=lambda:None  # Reservation occurs at the physical HTTP hook.
                     try:
                         result=run(episode.public,model=model,execute=mcp.execute,reserve_model=reserve,
                             limits=limits or Limits(model_attempts=6,tool_attempts=12,seconds=180))

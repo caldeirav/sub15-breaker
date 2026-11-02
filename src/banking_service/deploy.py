@@ -114,7 +114,9 @@ class Deployment:
                 finally:
                     pending.unlink(missing_ok=True)
 
-    def setup(self, image):
+    def setup(self, image,*,deadline_profile="legacy"):
+        from src.banking_service.deadlines import profile
+        deadlines=profile(deadline_profile)
         namespaces = self.cluster.get("namespaces")["items"]
         current = next((n for n in namespaces if n["metadata"]["name"] == NAMESPACE), None)
         if current and any(current["metadata"].get("labels", {}).get(k) != v for k,v in LABELS.items()):
@@ -156,7 +158,8 @@ class Deployment:
             storageClassName="standard", resources=dict(requests=dict(storage="1Gi"))))
         container = dict(name="store", image=image, imagePullPolicy="Never", args=["store"],
             env=[dict(name="BANKING_STORE_PATH", value="/data/state.sqlite"),
-                dict(name="BANKING_KEY_FILE", value="/keys/key"), dict(name="BANKING_IDENTITY_CONFIG", value="/identity/identity.json")],
+                dict(name="BANKING_KEY_FILE", value="/keys/key"), dict(name="BANKING_IDENTITY_CONFIG", value="/identity/identity.json"),
+                dict(name="BANKING_DEADLINE_PROFILE",value=deadlines.name)],
             securityContext=dict(runAsNonRoot=True, runAsUser=10001, runAsGroup=10001, allowPrivilegeEscalation=False,
                 readOnlyRootFilesystem=True, capabilities=dict(drop=["ALL"])),
             resources=dict(requests=dict(cpu="100m", memory="256Mi"), limits=dict(cpu="1", memory="512Mi")),
@@ -187,17 +190,17 @@ class Deployment:
         self.apply([config,*key_object,pvc,deployment,network,
             obj("Service","banking-store",dict(selector=dict(app="banking-store"),ports=[dict(port=8080,targetPort=8080)])),pool])
         self.cluster.kubectl("rollout","status","deployment/banking-store","-n",NAMESPACE,"--timeout=180s")
-        template_name="banking-"+hashlib.sha256((image+json.dumps(identities)).encode()).hexdigest()[:12]
+        template_name="banking-"+hashlib.sha256((image+json.dumps(identities)+deadlines.name).encode()).hexdigest()[:12]
         template=dict(metadata=dict(atespace=SPACE,name=template_name),workerSelector=dict(matchLabels=dict(workload="breaker-banking")),
             containers=[dict(name="banking",image=image,wakeupProbe=dict(httpGet=dict(path="/health",port=8080)),
                 securityContext=dict(capabilities=dict(drop=["ALL"],add=["SETUID","SETGID"])),env=[dict(name="BANKING_STORE_URL",value=f"http://{STORE_HOST}:8080"),
-                    dict(name="BANKING_IDENTITY_JSON",value=json.dumps(identities))])],
+                    dict(name="BANKING_IDENTITY_JSON",value=json.dumps(identities)),dict(name="BANKING_DEADLINE_PROFILE",value=deadlines.name)])],
             resources=dict(limits=dict(cpuMillicores=1000,memoryBytes=536870912)),
             snapshotConfig=dict(goldenSnapshotConfig=dict(mode="GOLDEN_SNAPSHOT_MODE_DISABLED")))
         templates=json.loads(self.ate("get","actor-templates","-a",SPACE,"-o","json").stdout)
         if not any(t.get("metadata",{}).get("name")==template_name for t in templates.get("actorTemplates",templates.get("items",[]))):
             self.ate("create","actor-template","-f",str(private_json("actor-template.json",template)))
-        private_json("deployment.json",dict(image=image,template=template_name,space=SPACE,namespace=NAMESPACE,
+        private_json("deployment.json",dict(image=image,template=template_name,space=SPACE,namespace=NAMESPACE,deadline_profile=deadlines.name,
             state_durability="single-node PVC; no node/disk-loss or HA guarantee",traffic="Actor egress authenticated by injected platform JWT; local-cluster HTTP segment"))
 
     def verify_deployment(self,manifest):
@@ -289,13 +292,14 @@ def main():
     mode=parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--image",help="Digest-bound image preloaded into Kind and available through its local registry")
     mode.add_argument("--refresh-credentials",action="store_true",help="Renew owned driver tokens only; preserve deployments, keys and state")
+    parser.add_argument("--deadline-profile",choices=("legacy","learned-guard-v1"),default="legacy")
     args=parser.parse_args()
     if args.refresh_credentials:
         Deployment().refresh_credentials()
         print("Renewed scoped banking driver credentials; deployments and durable data unchanged.")
         return
     if "@sha256:" not in args.image:raise SystemExit("A digest-bound image is required")
-    Deployment().setup(args.image)
+    Deployment().setup(args.image,deadline_profile=args.deadline_profile)
 
 
 if __name__=="__main__":main()

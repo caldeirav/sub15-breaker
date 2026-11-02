@@ -22,10 +22,12 @@ class Bridge:
         self.catalog,self.registry,self.mask=catalog,registry,mask
         self.store=None;self.actor=None;self.trial_id=None;self.guard=None
         self.pending=None;self.lock=threading.Lock();self.actions=[]
+        self.review_builder=None
 
-    def configure(self,store,actor,trial_id,guard):
+    def configure(self,store,actor,trial_id,guard,review_builder=None):
         self.store,self.actor,self.trial_id,self.guard=store,actor,trial_id,guard
         self.pending=None;self.actions=[]
+        self.review_builder=review_builder
 
     def tools(self):
         return [dict(name=name,description=f"Pinned synthetic banking tool: {name}.",
@@ -73,10 +75,16 @@ class Bridge:
                 if prepared["status"]!="prepared":raise RuntimeError("unexpected_prepared_status")
                 ticket=prepared["ticket"]
                 # Context is caller/backend-owned, never model-supplied authority.
-                review=ReviewInput(snapshot["context"]["user_request"],"banking-wiring-v1",
-                    "Synthetic banking wiring control; learned policy evaluation is not claimed.",call.name,arguments,
-                    state={"state_version":snapshot["state_version"]})
-                self.registry.register(ticket,review,self.guard,parent=span)
+                materialize=perf_counter_ns();issues=()
+                if self.review_builder:
+                    projected=self.review_builder(snapshot,call.name,arguments,self.actions)
+                    review=projected.value;issues=projected.issues
+                else:
+                    review=ReviewInput(snapshot["context"]["user_request"],"banking-wiring-v1",
+                        "Synthetic banking wiring control; learned policy evaluation is not claimed.",call.name,arguments,
+                        state={"state_version":snapshot["state_version"]})
+                record["review_materialization_ns"]=perf_counter_ns()-materialize
+                self.registry.register(ticket,review,self.guard,parent=span,input_issues=issues)
                 started=perf_counter_ns()
                 try:
                     result=self.actor.call("/execute",dict(ticket=ticket))
@@ -135,14 +143,15 @@ class Handler(BaseHTTPRequestHandler):
 
 
 class MCPClient:
-    def __init__(self,base,token,bridge):self.base,self.token,self.bridge=base,token,bridge;self.names={}
+    def __init__(self,base,token,bridge,*,timeout=50):
+        self.base,self.token,self.bridge=base,token,bridge;self.names={};self.timeout=timeout
 
     def rpc(self,method,params):
         body,headers=mcp_context(dict(jsonrpc="2.0",id=uuid4().hex,method=method,params=params),MODERN)
         headers.update(authorization="Bearer "+self.token,accept="application/json, text/event-stream")
         from mlflow.tracing.distributed import get_tracing_context_headers_for_http_request
         headers.update(get_tracing_context_headers_for_http_request())
-        with httpx.Client(timeout=50,trust_env=False,follow_redirects=False) as client:
+        with httpx.Client(timeout=self.timeout,trust_env=False,follow_redirects=False) as client:
             response=client.post(self.base+"/benchmark/mcp",json=body,headers=headers)
         response.raise_for_status()
         if "text/event-stream" in response.headers.get("content-type",""):

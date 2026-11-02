@@ -169,6 +169,47 @@ review; an early wiring failure may need only the overall diagnostic review.
 
 ## Earliest live wiring pilot
 
+### Current B2 budget extension
+
+The owner approved cumulative ceilings of **2,048 local actor/LLM-guard
+requests,512 Gemini operations and$50 accounted Gemini cost**. Spent historical
+requests remain counted. Additional existing pinned banking groups are approved
+for **offline data only**; live tasks remain the same three. Validation minimizes
+false allows subject to at most10% observed false blocks, then freezes before
+test; this is not a population safety guarantee.
+
+`src.benchmark.campaign_budget` freezes a hash-linked v3 policy and the complete
+historical ledger prefix. Old live-pilot reservation APIs are superseded, not
+reset. The ceilings provide room for all three tasks under both guards, repeats,
+paired replay, controls and diagnostics. A case/phase matrix bound to reviewed
+input/data/artifacts must still be frozen before dispatch; **a large budget is
+not permission to infer before the data/calibration gates or sample for wins**.
+
+Gemini cost accounting holds$0.50 before each new operation on the pinned
+Gemini2.5Flash cost profile. Missing/unverified usage keeps the hold; a verified
+conservative usage-cost settlement may release the difference. All recorded
+historical Gemini operations also retain a$0.50 envelope because historical raw
+HTTP retry counts/usage gaps cannot be reconstructed completely. These are
+accounting holds, not measured expenses or a guaranteed provider invoice cap.
+Stop when cumulative counts or accounted costs/holds reach a ceiling.
+
+```bash
+# Freeze the owner-approved ceilings on the existing ledger; no model calls.
+uv run --locked python -m src.benchmark.campaign_budget \
+  --directory .infra/benchmark-guard-harness/combined-budget --freeze
+
+# Export a new private annotation packet; no tool execution or model inference.
+uv run --locked python -m src.integrations.agentdojo.inventory \
+  --output .infra/benchmark-guard-harness/NEW_REVIEW_PACKET
+```
+
+The packet contains pending candidates, **not training labels**. Review the
+[draft labeling rubric](banking-action-label-policy.md), source/group links,
+missing prefix states and encoder input bound before training. A random split
+of the full task/attack cross-product is not an independent held-out evaluation.
+
+### Historical wiring allocations
+
 Do not wait for neural training to test the assembled plumbing. The first pilot
 uses the **deterministic native allow control**, not a learned guard:
 
