@@ -38,6 +38,13 @@ try{
     ]);
     if(response.status()!==202)throw new Error(`Run rejected: ${response.status()}`);
     const initial=await response.json();
+    if(!live&&results.length===0){
+      for(const arm of ["classifier","llm"]){
+        await page.locator(`#${arm} .result`).filter({hasText:"Latest startup observation:"}).waitFor();
+        if(await page.locator(`#${arm} .lane-status`).textContent()!=="Startup")throw new Error("Startup lane is still labelled waiting");
+      }
+      if(!await page.locator("#system-events").evaluate(e=>e.closest("details").open))throw new Error("Startup progress hidden in collapsed panel");
+    }
     // Wait for the rendered terminal state, then read the matching server result.
     // Do not treat an unresolved async predicate as completion.
     await page.waitForFunction(id=>{
@@ -62,6 +69,13 @@ try{
     if(["D04","D05"].includes(card)&&Object.values(result.lanes).some(l=>!l.summary.fault_control||l.summary.timing.guard_whole_review!==null))throw new Error("Fault incorrectly treated as model speed");
   }
   const before=requests.filter(r=>r.method==="POST"&&r.path==="/api/live/runs").length;
+  if(!live){
+    await page.evaluate(()=>renderProgress({phase:"failed",error:"offline_startup_fixture",lanes:{
+      classifier:{phase:"waiting",summary:null},llm:{phase:"waiting",summary:null}}}));
+    for(const arm of ["classifier","llm"]){
+      if(await page.locator(`#${arm} .lane-status`).textContent()!=="Not completed")throw new Error("Failed startup still appears to be waiting");
+    }
+  }
   await page.reload();
   await page.getByRole("heading",{name:"Before the action, a decision.",exact:true}).waitFor();
   const after=requests.filter(r=>r.method==="POST"&&r.path==="/api/live/runs").length;

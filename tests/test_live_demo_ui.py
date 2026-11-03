@@ -143,6 +143,9 @@ def test_static_ui_is_accessible_text_only_and_has_no_automatic_run_post():
     assert ":focus-visible" in css and "@media" in css
     assert '$("#run").addEventListener("click"' in script
     assert "Classifier decision core" in script and "Whole decision-guard review" in script
+    assert "Waiting for its frozen turn" not in script
+    assert "Startup in progress:" in script and "Latest startup observation:" in script
+    assert 'closest("details").open=true' in script and "This route did not complete" in script
 
 
 def test_repeated_runs_are_unlimited_and_do_not_modify_historical_allocations(tmp_path):

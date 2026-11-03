@@ -125,6 +125,13 @@ runs the native controls/canaries. It keeps the classifier
 resident on the measured worker and installs one native hook/bridge for the UI
 session. The same compiled agent/native store path is reused, not a second loop.
 
+During this first-run gate, both lanes show **Startup**, including the latest
+observed step and native-check count, and the startup-observations panel opens
+automatically. This gate can take several minutes before either measured route
+starts. A startup failure is shown as a failed/not-completed run, not perpetual
+waiting. Once a route starts, its panel shows Running until final evidence is
+reconciled; the other route explains that it is waiting for sequential execution.
+
 One arm runs, is fenced/cleaned up/reconciled, then the other runs on equivalent
 fresh state. Scoped driver authority is renewed before each arm so an idle pause
 does not blindly reuse expired credentials; renewal never runs a model or replays

@@ -16,9 +16,11 @@ def plan():
 
 
 class FixtureRuntime:
-    def __init__(self,*args):self.calls=[];self.opened=False;self.closed=False
+    def __init__(self,*args,startup_delay=0):self.calls=[];self.opened=False;self.closed=False;self.startup_delay=startup_delay
     def open(self,job):
-        self.opened=True;job.emit("startup",dict(stage="fixture_startup",phase="finished"))
+        self.opened=True;job.emit("startup",dict(stage="fixture_startup",phase="started"))
+        time.sleep(self.startup_delay)
+        job.emit("startup",dict(stage="fixture_startup",phase="finished"))
     def run_lane(self,job,arm,spec):
         self.calls.append((spec["card_id"],arm))
         fault=spec["card_id"] in {"D04","D05"}
@@ -48,7 +50,7 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument("--directory",type=Path,required=True);parser.add_argument("--port",type=int,default=8092)
     args=parser.parse_args()
     args.directory.mkdir(parents=True,exist_ok=False)
-    controller=FixtureController(plan(),args.directory/"jobs",FixtureRuntime)
+    controller=FixtureController(plan(),args.directory/"jobs",lambda *values:FixtureRuntime(*values,startup_delay=2))
     uvicorn.run(create_app(controller,TOKEN,port=args.port),host="127.0.0.1",port=args.port,access_log=False)
 
 
