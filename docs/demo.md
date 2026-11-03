@@ -89,6 +89,16 @@ or budget files are deleted or reset. The mode removes retained trial/action cap
 and does not create any new reservation. The ordinary benchmark/store default is
 still bounded; its historical policies/ledgers are independent of this demo.
 
+If image building fails with `dns error` / `failed to lookup address` while
+downloading a wheel, the failure is Podman build-network DNS, not a missing
+package or a model error. Retry the build when connectivity recovers; downloads
+use reduced concurrency and bounded transport retries with the lock/TLS intact.
+For a persistent VM/VPN resolver problem, supply a reachable DNS server permitted
+by your network with `BANKING_BUILD_DNS=DNS_SERVER_IP bash scripts/build_banking_image.sh`.
+`UV_CONCURRENT_DOWNLOADS=1` can further reduce concurrent download pressure. No
+global resolver changes, public-DNS substitution or cluster/Actor egress changes
+are made automatically. Do not delete the database, lockfile, VM or cluster.
+
 The demo has no artificial run-count or spending limit. Physical disk capacity,
 provider quotas, per-episode model/tool/time limits and unexported-evidence outbox
 backpressure still apply. Gemini is **not free**: every new run performs real
