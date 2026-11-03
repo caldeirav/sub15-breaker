@@ -28,7 +28,7 @@ from src.benchmark.privacy import Mask
 from src.benchmark.readiness import POLICY as READINESS
 from src.benchmark.serving import ServingResources, provider_status
 from src.benchmark.wiring import benchmark_template, run_case, ModelTransport, audit_record
-from src.demo_ui.protocol import ROOT,source_hashes
+from src.demo_ui.protocol import ROOT,check_execution_source
 from src.integrations.agentdojo.banking import BankingAdapter
 from src.integrations.agentdojo.inventory import digest
 
@@ -142,7 +142,7 @@ class Runtime:
         fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
         from src.infra.demo_stack import System,Config
         System(Config()).quiescent()
-        if self.plan["code_hashes"]!=source_hashes():raise RuntimeError("demo_source_changed_restart_server")
+        check_execution_source(self.plan)
         from src.benchmark.encoder import manifest
         from src.benchmark.projection import POLICY_ID
         artifact=manifest(self.artifact,policy_id=POLICY_ID)
@@ -278,7 +278,7 @@ class Runtime:
         return record,path
 
     def run_lane(self, job, arm, spec):
-        if self.plan["code_hashes"]!=source_hashes():raise RuntimeError("demo_source_changed_restart_server")
+        check_execution_source(self.plan)
         self.renew_authority()
         job.emit(arm,dict(stage="credentials",phase="renewed"))
         self.capacity()

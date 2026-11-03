@@ -146,6 +146,14 @@ halts further dispatch: inspect evidence, shut down gracefully and restart after
 fixing the underlying problem. Fresh startup then checks real quiescence/readiness
 before creating any work; it cannot ignore leftover Actors or unresolved actions.
 
+Execution-code changes require a graceful server restart before a new run;
+runtime source integrity is checked between arms. Browser-only HTML/CSS/JavaScript
+updates remain recorded in the protocol but do not abort native execution. If a
+run fails between arms, the finished lane stays completed, the interrupted lane
+is marked failed, and a safe known reason (such as restart required) is displayed
+instead of leaving the lane looking active. Unknown raw exception text is never
+exported to the browser.
+
 ### Interpret the display
 
 - **Timeline:** actual observed agent proposals, managed model HTTP, MCP, native

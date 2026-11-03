@@ -14,6 +14,10 @@ from src.integrations.agentdojo.inventory import digest
 from src.demo_ui.protocol import CARDS,UsageLog,make_pair
 
 TERMINAL = {"completed", "failed", "interrupted"}
+ERROR_MESSAGES = {
+    "demo_source_changed_restart_server": "Execution code changed after this server started. Stop the UI with Ctrl-C, wait for cleanup, then restart it before a new run.",
+    "repeatable_demo_store_required_run_documented_store_setup": "The installed banking store needs the documented repeatable-demo image upgrade before running this UI.",
+}
 EVENT_FIELDS = {"stage", "phase", "tool", "tools", "role", "attempt", "status", "utility", "decision", "discarded",
                 "duration_ns", "core_ns", "trace_id", "span_id", "run_id", "deleted", "errors", "actor_timings", "error"}
 
@@ -137,8 +141,13 @@ class Controller:
             job.update(external_review=self.runtime.review(job,slot,records),phase="completed")
         except Exception as exc:
             self.halted=True
-            private(job.directory/"failure.json",dict(error=type(exc).__name__,partial_lanes=job.snapshot()["lanes"]))
-            job.update(phase="failed",error=type(exc).__name__)
+            code=str(exc) if str(exc) in ERROR_MESSAGES else None
+            message=ERROR_MESSAGES.get(code,"The run stopped after a runtime error. Inspect server logs and retained evidence before restarting.")
+            for arm,data in job.snapshot()["lanes"].items():
+                if data["phase"]=="running":job.lane(arm,phase="failed")
+            private(job.directory/"failure.json",dict(error=type(exc).__name__,error_code=code,
+                error_message=message,partial_lanes=job.snapshot()["lanes"]))
+            job.update(phase="failed",error=type(exc).__name__,error_code=code,error_message=message)
             job.emit("system",dict(stage="run",phase="failed",error=type(exc).__name__))
         finally:
             with self.lock:

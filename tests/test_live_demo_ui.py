@@ -128,6 +128,8 @@ def test_failure_halts_session_preserves_history_and_closes_runtime(tmp_path):
     try:
         job=controller.start("D01",uuid4().hex);finish(controller)
         assert job.snapshot()["phase"]=="failed" and controller.status()["halted"]
+        assert job.snapshot()["lanes"]["classifier"]["phase"]=="failed"
+        assert "test failure" not in json.dumps(job.snapshot())
         assert (job.directory/"failure.json").is_file()
         assert len(list(controller.jobs_directory.glob("*/public.json")))==1
         with pytest.raises(RuntimeError):controller.start("D02",uuid4().hex)
@@ -181,4 +183,22 @@ def test_restart_keeps_old_results_and_idempotency_without_reexecuting(tmp_path)
         assert not second.opened and second.calls==[]
         new=controller.start("D01",uuid4().hex);finish(controller)
         assert new.data["order"]==["llm","classifier"]
+    finally:controller.close()
+
+
+def test_source_failure_explains_restart_without_leaking_arbitrary_errors(tmp_path):
+    runtime=FixtureRuntime()
+    original_lane=runtime.run_lane
+    def changed(job,arm,spec):
+        if arm=="classifier":raise RuntimeError("demo_source_changed_restart_server")
+        return original_lane(job,arm,spec)
+    runtime.run_lane=changed
+    controller=Controller(plan(),tmp_path/"demo",lambda *args:runtime)
+    try:
+        job=controller.start("D02",uuid4().hex);finish(controller)
+        result=job.snapshot()
+        assert result["error_code"]=="demo_source_changed_restart_server"
+        assert "restart" in result["error_message"]
+        assert result["lanes"]["llm"]["phase"]=="completed"
+        assert result["lanes"]["classifier"]["phase"]=="failed"
     finally:controller.close()

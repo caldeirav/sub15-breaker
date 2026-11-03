@@ -25,6 +25,15 @@ def source_hashes():
     return result
 
 
+def check_execution_source(plan):
+    # Record asset hashes, but do not abort native execution for a browser-only
+    # update. Runtime changes still require a restart to avoid mixed execution.
+    def execution(hashes):
+        return {name:value for name,value in hashes.items() if not name.startswith("src/demo_ui/static/")}
+    if execution(plan["code_hashes"])!=execution(source_hashes()):
+        raise RuntimeError("demo_source_changed_restart_server")
+
+
 def make_plan(artifact):
     from src.benchmark.demo import make_plan as baseline
     from src.demo_ui.review import VERSION, INSTRUCTIONS
