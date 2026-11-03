@@ -158,7 +158,8 @@ results, both verifiers' performance in separate columns and evidence IDs:
 **18 native cases, 10/10 lane golden/effect expectations met, 16 task-criterion
 agreements and 5 supported scoped harness reviews**. These include scripted/fault
 controls and do not establish general model accuracy. All5 cards were run once
-through the actual browser; the verification allocation is spent, not reusable.
+through the actual browser. This historical report predates repeatable-demo mode;
+the current live UI needs no allocations and lets you repeat any card.
 Owner/process acceptance remains separate in [#17](https://github.com/caldeirav/sub15-breaker/issues/17).
 
 ## Run locally
@@ -170,13 +171,13 @@ Owner/process acceptance remains separate in [#17](https://github.com/caldeirav/
 - For **live** runs: the owned rootful Podman/Kind/Substrate stack, managed
   agentgateway routes, digest-bound banking image/store, MLflow and the approved
   loaded Qwen model, plus the verified local classifier/data/provenance bundle.
-- Native Gemini review requires explicit authorization, credentials and allocation;
-  it incurs external usage and sends projected synthetic evidence to the provider.
+- Native Gemini review needs credentials; it incurs provider charges and sends
+  projected synthetic evidence externally. The live UI has no budget gates.
 
 **A clean checkout can run offline tests, but is not a turnkey live demo.** Weights,
-reviewed datasets, credentials and the cumulative ledger are not bundled. Obtain
+reviewed datasets and credentials are not bundled. Obtain
 the compatible artifact handoff before live work; do not substitute base weights
-or initialize a new ledger to evade historical spending. There is no installed
+or reset historical benchmark ledgers. The live UI does not need a ledger. There is no installed
 `sub15-breaker` console command; use the module entry points below.
 
 ```bash
@@ -209,7 +210,8 @@ Then follow the appropriate guide:
 - **[Run the five-card web demo](docs/demo.md#live-web-interface--end-to-end):**
   the live web UI selects any card and runs both arms sequentially with
   real-time observations, golden checks and guardrail/component timings. Live clicks
-  and post-run Gemini reviews need fresh approved allocations.
+  are repeatable without allocations or spending budgets. Gemini provider charges
+  still apply; enable the store's repeatable-demo mode once as documented.
 - **[Run the full test](docs/validation.md#run-the-full-live-comparison):** larger
   three-workflow A/B protocol, separate from the complete offline test suite.
 
@@ -231,8 +233,8 @@ start/check the retained saved-replay API. [Lifecycle options and limits](docs/i
 
 `nd13` above is an inspection example, not an approved run. All recorded nd1–nd12
 execution IDs are spent. Do not replay them, remove markers or repeat failed
-model/actions until they pass. Fresh live runs currently need operator preparation
-and, where necessary, a reviewed budget amendment—not merely a new namespace.
+model/actions until they pass. These historical benchmark protocols are separate
+from the repeatable live UI; their old allocations do not restrict demo clicks.
 
 ## Repository overview
 

@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from src.demo_ui.app import create_app
 from src.demo_ui.state import Job,Controller
-from validation.live_ui_fixture_server import Budget,FixtureController,FixtureRuntime,TOKEN,plan
+from validation.live_ui_fixture_server import FixtureController,FixtureRuntime,TOKEN,plan
 
 ORIGIN="http://127.0.0.1:8091"
 
@@ -17,7 +17,7 @@ ORIGIN="http://127.0.0.1:8091"
 @pytest.fixture
 def ui(tmp_path):
     runtime=FixtureRuntime()
-    controller=FixtureController(Budget(tmp_path/"budget"),tmp_path/"jobs",lambda *args:runtime)
+    controller=FixtureController(plan(),tmp_path/"jobs",lambda *args:runtime)
     with TestClient(create_app(controller,TOKEN),base_url=ORIGIN) as client:
         yield client,controller,runtime
 
@@ -45,7 +45,7 @@ def test_open_select_status_reconnect_are_read_only(ui):
     headers=login(client)
     for _ in range(3):assert client.get("/api/live/status").status_code==200
     assert runtime.calls==[] and not runtime.opened
-    assert not list(controller.budget.directory.glob("native-case-*"))
+    assert not list(controller.jobs_directory.glob("*/public.json"))
 
 
 def test_run_is_idempotent_and_arms_really_execute_sequentially(ui):
@@ -56,8 +56,11 @@ def test_run_is_idempotent_and_arms_really_execute_sequentially(ui):
     result=client.get("/api/live/runs/"+key).json()
     assert result["phase"]=="completed" and runtime.calls==[("D01","classifier"),("D01","llm")]
     assert all(result["lanes"][arm]["summary"]["golden_pass"] for arm in ("classifier","llm"))
-    assert run(client,headers,card="D01").status_code==409
-    assert len(list(controller.budget.directory.glob("native-case-*")))==2
+    second=run(client,headers,card="D01");assert second.status_code==202
+    finish(controller)
+    assert second.json()["id"]!=key
+    assert runtime.calls[-2:]==[("D01","llm"),("D01","classifier")]
+    assert len(list(controller.jobs_directory.glob("*/public.json")))==2
     events=controller.get(key).page(0)
     assert [e["sequence"] for e in events]==list(range(1,len(events)+1))
     assert max(i for i,e in enumerate(events) if e["lane"]=="classifier")<min(i for i,e in enumerate(events) if e["lane"]=="llm")
@@ -117,16 +120,16 @@ def test_event_projection_never_exports_raw_credentials_arguments_or_state(tmp_p
     assert job.events[0]["actor_timings"]==dict(claim_roundtrip_ns=123)
 
 
-def test_failure_halts_session_preserves_spent_slots_and_closes_runtime(tmp_path):
+def test_failure_halts_session_preserves_history_and_closes_runtime(tmp_path):
     runtime=FixtureRuntime()
     def fail(*args):raise RuntimeError("test failure")
     runtime.run_lane=fail
-    controller=Controller(Budget(tmp_path/"budget"),tmp_path/"jobs",lambda *args:runtime)
+    controller=Controller(plan(),tmp_path/"jobs",lambda *args:runtime)
     try:
         job=controller.start("D01",uuid4().hex);finish(controller)
         assert job.snapshot()["phase"]=="failed" and controller.status()["halted"]
         assert (job.directory/"failure.json").is_file()
-        assert len(list(controller.budget.directory.glob("native-case-*")))==2
+        assert len(list(controller.jobs_directory.glob("*/public.json")))==1
         with pytest.raises(RuntimeError):controller.start("D02",uuid4().hex)
     finally:controller.close()
     assert runtime.closed
@@ -140,3 +143,39 @@ def test_static_ui_is_accessible_text_only_and_has_no_automatic_run_post():
     assert ":focus-visible" in css and "@media" in css
     assert '$("#run").addEventListener("click"' in script
     assert "Classifier decision core" in script and "Whole decision-guard review" in script
+
+
+def test_repeated_runs_are_unlimited_and_do_not_modify_historical_allocations(tmp_path):
+    history=tmp_path/"combined-budget";history.mkdir();original=b'{"spent":true}'
+    (history/"live-demo-ui1.json").write_bytes(original)
+    runtime=FixtureRuntime()
+    # No delay: exercise many explicit runs without inference or budget files.
+    original_lane=runtime.run_lane
+    def quick_lane(*args):
+        from unittest.mock import patch
+        with patch("validation.live_ui_fixture_server.time.sleep"):
+            return original_lane(*args)
+    runtime.run_lane=quick_lane
+    controller=Controller(plan(),tmp_path/"demo",lambda *args:runtime)
+    try:
+        for _ in range(12):
+            job=controller.start("D01",uuid4().hex);finish(controller)
+            assert job.snapshot()["phase"]=="completed"
+        assert len(runtime.calls)==24
+        assert controller.status()["repeatable"] and not controller.status()["budget_enforced"]
+    finally:controller.close()
+    assert (history/"live-demo-ui1.json").read_bytes()==original
+
+
+def test_restart_keeps_old_results_and_idempotency_without_reexecuting(tmp_path):
+    directory=tmp_path/"demo";first=FixtureRuntime()
+    controller=Controller(plan(),directory,lambda *args:first)
+    job=controller.start("D01",uuid4().hex);finish(controller);controller.close()
+    second=FixtureRuntime();controller=Controller(plan(),directory,lambda *args:second)
+    try:
+        assert controller.get(job.data["id"]).snapshot()["phase"]=="completed"
+        assert controller.start("D01",job.data["id"]).snapshot()["id"]==job.data["id"]
+        assert not second.opened and second.calls==[]
+        new=controller.start("D01",uuid4().hex);finish(controller)
+        assert new.data["order"]==["llm","classifier"]
+    finally:controller.close()

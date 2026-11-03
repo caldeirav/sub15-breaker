@@ -154,7 +154,7 @@ def main(runtime_mounts=()):
         if "BANKING_IDENTITY_JSON" in os.environ else IdentityVerifier.from_file(os.environ["BANKING_IDENTITY_CONFIG"]))
     if args.role == "store":
         store = StateStore(os.environ["BANKING_STORE_PATH"], Path(os.environ["BANKING_KEY_FILE"]).read_bytes(),ticket_lifetime=deadlines.ticket,
-            max_trials=int(os.getenv("BANKING_MAX_TRIALS","100")))
+            max_trials=int(os.getenv("BANKING_MAX_TRIALS","100")),repeatable_demo=os.getenv("BANKING_REPEATABLE_DEMO")=="1")
         application = StoreApplication(store, identities)
     else:
         application = ActorApplication(RuntimeClient(os.environ["BANKING_STORE_URL"], "Bearer inject-actor-jwt",timeout=deadlines.actor_store,boundary="actor_to_store"), identities,

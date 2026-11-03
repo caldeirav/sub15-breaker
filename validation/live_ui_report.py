@@ -82,7 +82,7 @@ def render(browser, final):
         c=r["lanes"]["classifier"]["summary"];l=r["lanes"]["llm"]["summary"]
         lines.append(f"| {r['card']} | `{r['id']}` | `{c['run_id']}` / `{c['trace_id']}` | `{l['run_id']}` / `{l['trace_id']}` |")
     lines += ["", "## Limits and next use","",
-        "This campaign's slots are spent. A new presentation needs a separately approved frozen `uiN` allocation; do not reset/rerun ui1. The source UI and end-to-end prerequisites are in the demo guide. Earlier demo reports remain in Git history/raw artifacts, not relabelled by this test.","",
+        "This historical campaign's slots are spent under its original protocol. The current repeatable live UI has no allocation or budget gates: click Run again for a new recorded run, without resetting or relabelling these old results. See the demo guide for the current setup. Earlier demo reports remain in Git history/raw artifacts, not relabelled by this test.","",
         "Curated golden success is not larger held-out accuracy (#56), resolution of the rent false block (#55), full admission/load-tail qualification (#11), native serving optimization (#13), completed soak (#39), turnkey artifact distribution/SBOM (#10) or final owner acceptance (#17). Historical v2 transfer failure, negative reviews and failed earlier runs remain unchanged.",""]
     return "\n".join(lines)
 

@@ -20,7 +20,6 @@ from src.banking_service.http import RuntimeClient
 from src.banking_service.deadlines import MEASURE
 from src.benchmark.admission import ReviewBuilder, llm_guard
 from src.benchmark.bridge import Bridge, BridgeServer, MCPClient
-from src.benchmark.capacity import validate_capacity
 from src.benchmark.compare import claim_case
 from src.benchmark.demo import make_card
 from src.benchmark.deployment import private, temporary_bridge, gateway_forward, model_timeouts, native_hook
@@ -29,7 +28,7 @@ from src.benchmark.privacy import Mask
 from src.benchmark.readiness import POLICY as READINESS
 from src.benchmark.serving import ServingResources, provider_status
 from src.benchmark.wiring import benchmark_template, run_case, ModelTransport, audit_record
-from src.demo_ui.allocation import ROOT, POLICY
+from src.demo_ui.protocol import ROOT,source_hashes
 from src.integrations.agentdojo.banking import BankingAdapter
 from src.integrations.agentdojo.inventory import digest
 
@@ -50,6 +49,14 @@ class ObservedRegistry(Registry):
     def admit(self, ticket, **kwargs):
         with self.lock: context = self.contexts.get(ticket)
         return context.copy().run(super().admit, ticket, **kwargs) if context else super().admit(ticket, **kwargs)
+
+    def release_completed(self):
+        # Persisted records own old evidence. Keep no unbounded collection of
+        # ticket contexts/job observers between serial, fully reconciled cases.
+        with self.lock:
+            if any(e.attempted and not e.done.is_set() for e in self.entries.values()):
+                raise RuntimeError("previous_native_review_still_active")
+            self.entries.clear();self.contexts.clear()
 
 
 def validate_case_evidence(spec,record):
@@ -118,21 +125,24 @@ def summarize(spec, record, events, plan):
 
 
 class Runtime:
-    def __init__(self, plan, budget, directory, artifact):
-        self.plan=plan; self.budget=budget; self.directory=Path(directory)/"runtime"; self.artifact=Path(artifact)
+    def __init__(self, plan, usage, directory, artifact):
+        self.plan=plan; self.usage=usage; self.directory=Path(directory)/"runtime"; self.artifact=Path(artifact)
         self.stack=ExitStack(); self.setup=[]; self.active={}; self.closed=False
 
-    def capacity(self, minimum):
-        return validate_capacity(self.store.call("/capacity",{}),self.plan,binding=digest(self.plan),minimum_trials=minimum)
+    def capacity(self):
+        value=self.store.call("/capacity",{})
+        if not value.get("repeatable_demo"):
+            raise RuntimeError("repeatable_demo_store_required_run_documented_store_setup")
+        return value
 
     def open(self, job):
         self.directory.mkdir(mode=0o700,exist_ok=False)
         lock=(ROOT/".infra/live-demo-runtime.lock").open("a")
         self.stack.callback(lock.close)
         fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
-        with self.budget.locked():
-            self.budget._exclusive(self.budget.directory/("live-session-"+self.plan["namespace"]+".json"),dict(started=True,allocation=digest(self.plan)))
-        self.budget.plan(current_source=True)
+        from src.infra.demo_stack import System,Config
+        System(Config()).quiescent()
+        if self.plan["code_hashes"]!=source_hashes():raise RuntimeError("demo_source_changed_restart_server")
         from src.benchmark.encoder import manifest
         from src.benchmark.projection import POLICY_ID
         artifact=manifest(self.artifact,policy_id=POLICY_ID)
@@ -155,11 +165,11 @@ class Runtime:
         mlflow.set_experiment("breaker-banking-target-agent")
         mlflow.langchain.autolog(); mlflow.openai.autolog(disable=True)
         mlflow.tracing.configure(span_processors=[self.mask.span_processor])
-        self.parent=self.stack.enter_context(mlflow.start_run(run_name=self.plan["namespace"]+"-live-demo"))
-        private(self.directory/"run.json",dict(run_id=self.parent.info.run_id,experiment_id=str(self.parent.info.experiment_id),allocation_sha256=digest(self.plan)))
+        self.parent=self.stack.enter_context(mlflow.start_run(run_name="repeatable-live-demo"))
+        private(self.directory/"run.json",dict(run_id=self.parent.info.run_id,experiment_id=str(self.parent.info.experiment_id),protocol_sha256=digest(self.plan),budget_enforced=False))
         mlflow.log_dict(self.plan,"live/protocol.json")
         self.store=RuntimeClient(self.stack.enter_context(self.deployment.forward("service/banking-store")),self.authorization)
-        private(self.directory/"capacity-before.json",self.capacity(self.plan["capacity"]["requirements"]["trials"]))
+        private(self.directory/"capacity-before.json",self.capacity())
         self.resources=ServingResources(self.artifact,json.loads((self.artifact/"benchmark-guard.json").read_text())["calibration"],resident=True)
         self.stack.callback(self.resources.release_classifier)
         self.registry=ObservedRegistry(); self.bridge=ObservedBridge(self.adapter.catalog,self.registry,self.mask)
@@ -176,7 +186,7 @@ class Runtime:
         self.mcp=MCPClient(base,token,self.bridge,timeout=450); self.mcp.discover()
         def reserve_guard(request):
             span=mlflow.get_current_active_span()
-            self.budget.reserve(role=self.active.get("role","llm_guard"),case_id=self.active["case_id"],trace_id=span.trace_id,request=request,model=self.plan["acting_model"])
+            self.usage.reserve(role=self.active.get("role","llm_guard"),case_id=self.active["case_id"],trace_id=span.trace_id,request=request,model=self.plan["acting_model"])
             self.active["physical_attempts"]=self.active.get("physical_attempts",0)+1
         self.client=self.stack.enter_context(httpx.Client(transport=ModelTransport(base,on_request=reserve_guard,role="llm_guard"),timeout=300,trust_env=False,follow_redirects=False))
         common=dict(model=self.plan["acting_model"],base_url=base+"/v1",api_key=token,http_client=self.client,use_responses_api=True,
@@ -193,18 +203,18 @@ class Runtime:
         with native_hook(self.deployment.cluster,control_dir,host,8173,timeout_seconds=2):
             with observing(observer):
                 observer(dict(stage="startup",phase="started"))
-                self.startup=prepare(plan=self.plan,budget=self.budget,directory=self.directory,stage="native",resources=self.resources,
+                self.startup=prepare(plan=self.plan,budget=self.usage,directory=self.directory,stage="native",resources=self.resources,
                     reviewer=self.reviewer,actor_model=actor_model,active=self.active,store=self.store,mcp=self.mcp,platform_check=self._platform_check)
                 observer(dict(stage="startup",phase="finished"))
             for spec in [c for c in self.plan["cases"] if c["kind"]=="control" and not c.get("slot")]:
-                claim_case(self.budget,spec["case_id"],self.plan)
+                claim_case(self.usage,spec["case_id"],self.plan)
                 record,_=self._case(job,"setup",spec)
                 if not make_card(spec,record)["demo_ready"]: raise RuntimeError("live_native_control_failed")
                 self.setup.append(record)
         learned=self.directory/"learned";learned.mkdir()
         self.stack.enter_context(native_hook(self.deployment.cluster,learned,host,8173,timeout_seconds=330))
         for spec in [c for c in self.plan["cases"] if c["kind"]=="canary"]:
-            claim_case(self.budget,spec["case_id"],self.plan)
+            claim_case(self.usage,spec["case_id"],self.plan)
             record,_=self._case(job,"setup",spec)
             if not make_card(spec,record)["demo_ready"]: raise RuntimeError("live_learned_canary_failed")
             self.setup.append(record)
@@ -230,6 +240,7 @@ class Runtime:
             if actor:self.deployment.delete_actor(actor["metadata"]["name"])
 
     def _case(self, job, arm, spec):
+        self.registry.release_completed()
         observer=lambda event:job.emit(arm,event)
         self.bridge.observer=observer
         mode=spec.get("mode")
@@ -245,12 +256,12 @@ class Runtime:
         try:
             with observing(observer):
                 record=run_case(deployment=self.deployment,store=self.store,authorization=self.authorization,adapter=self.adapter,
-                    bridge=self.bridge,mcp=self.mcp,budget=self.budget,mask=self.mask,task_id=spec["task_id"],
+                    bridge=self.bridge,mcp=self.mcp,budget=self.usage,mask=self.mask,task_id=spec["task_id"],
                     control=mode if spec["kind"]=="control" else None,selected_guard=guard,review_builder=builder,
                     scripted_calls=calls,case_name=spec["case_id"],deadline_profile=MEASURE.name,request_model_id=self.plan["acting_model"],
                     cancel_on_review_start=mode=="cancel",limits=Limits(**self.plan["native_limits"]),
                     reconcile_telemetry=True,provider_probe=lambda **kw:provider_status(self.plan["acting_model"],**kw),verify_admission_readiness=True,
-                    capacity_campaign=self.plan["capacity"]["campaign_id"],readiness_policy=READINESS,
+                    readiness_policy=READINESS,
                     reconciliation_options=dict(timeout_seconds=120,quiet_seconds=2,poll_seconds=1))
         except Exception as exc:
             partial=getattr(exc,"partial_record",None)
@@ -260,17 +271,17 @@ class Runtime:
         path=self.directory/(spec["case_id"]+".json");private(path,record)
         record["source_record_path"]=str(path.resolve());record["source_record_sha256"]=hashlib.sha256(path.read_bytes()).hexdigest()
         validate_case_evidence(spec,record)
-        with self.budget.locked(): entries=self.budget.entries()
+        with self.usage.locked(): entries=self.usage.entries()
         for role,key in (("actor","managed_responses_dispatches"),("llm_guard","guard_managed_responses_dispatches")):
             if sum(e["case_id"]==spec["case_id"] and e["role"]==role for e in entries)!=record["trace_audit"][key]:
                 raise RuntimeError("live_request_ledger_mismatch")
         return record,path
 
     def run_lane(self, job, arm, spec):
-        self.budget.plan(current_source=True)
+        if self.plan["code_hashes"]!=source_hashes():raise RuntimeError("demo_source_changed_restart_server")
         self.renew_authority()
         job.emit(arm,dict(stage="credentials",phase="renewed"))
-        self.capacity(1)
+        self.capacity()
         job.emit(arm,dict(stage="lane",phase="started"))
         record,path=self._case(job,arm,spec)
         result=summarize(spec,record,job.events,self.plan)
@@ -297,25 +308,25 @@ class Runtime:
         from src.benchmark.judge_transport import observe_native_attempt
         from src.benchmark.review import review_harness,compact_observations
         from src.demo_ui.review import build,VERSION,INSTRUCTIONS
-        model=POLICY["gemini_model"];results=[]
+        model="gemini:/gemini-2.5-flash";results=[]
         def settle(entries,result):
-            for entry in entries:self.budget.settle(entry["sequence"],accounted_cost_usd=result.get("cost_usd"),usage_verified=False)
+            for entry in entries:self.usage.settle(entry["sequence"],accounted_cost_usd=result.get("cost_usd"),usage_verified=False)
         with observing(lambda e:job.emit("review",e)):
             for record in records:
-                spec=next(c for c in self.plan["cases"] if c["case_id"]==record["case_id"])
+                spec=next(c for c in slot["cases"] if c["case_id"]==record["case_id"])
                 if not spec.get("gemini_task_judge"):continue
                 for criterion,judge in build_judges(model).items():
                     entries=[]
                     def invocation(span):
-                        def reserve(**kw):entries.append(self.budget.reserve(role="gemini_task_judge",case_id=spec["case_id"],trace_id=kw["trace_id"],request=dict(criterion=criterion),model=model))
+                        def reserve(**kw):entries.append(self.usage.reserve(role="gemini_task_judge",case_id=spec["case_id"],trace_id=kw["trace_id"],request=dict(criterion=criterion),model=model))
                         return observe_native_attempt(span=span,mask=self.mask,model_uri=model,reserve=reserve)
                     job.emit("review",dict(stage="gemini",phase="started"))
                     result=review(judge,criterion,record,invocation_context=invocation)
                     settle(entries,result);results.append(result)
                     private(job.directory/"reviews.json",results)
                     job.emit("review",dict(stage="gemini",phase="finished",error=result.get("error")))
-            case_id=slot["slot"]+"-review";claim_case(self.budget,case_id,self.plan)
-            scoped=dict(self.plan,cases=[c for c in self.plan["cases"] if c["case_id"] in {r["case_id"] for r in self.setup+records}])
+            case_id=slot["slot"]+"-review";claim_case(self.usage,case_id,self.plan)
+            scoped=dict(self.plan,cases=[c for c in self.plan["cases"]+slot["cases"] if c["case_id"] in {r["case_id"] for r in self.setup+records}])
             with mlflow.start_span(name="live_pair_persisted_evidence",span_type="CHAIN") as suite:
                 observations=compact_observations(scoped,self.setup+records)
                 observations["live_ui"]=dict(card=slot["card"],arm_order=slot["order"],execution="sequential",
@@ -327,7 +338,7 @@ class Runtime:
             persisted=mlflow.get_trace(suite.trace_id)
             if persisted is None:raise RuntimeError("live_review_target_not_persisted")
             entries=[]
-            def reserve(**kw):entries.append(self.budget.reserve(role="gemini_harness_judge",case_id=case_id,trace_id=kw["trace_id"],request=dict(slot=slot["slot"]),model=model))
+            def reserve(**kw):entries.append(self.usage.reserve(role="gemini_harness_judge",case_id=case_id,trace_id=kw["trace_id"],request=dict(slot=slot["slot"]),model=model))
             result=review_harness(build(model),observations=observations,target_trace_id=suite.trace_id,
                 reserve=reserve,scope="sequential-live-five-card-demo-pair",required_cases=[r["case_id"] for r in self.setup+records],rubric_version=VERSION)
             settle(entries,result);results.append(result);private(job.directory/"reviews.json",results)

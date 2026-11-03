@@ -7,11 +7,11 @@ from pathlib import Path
 import re
 import threading
 from time import perf_counter_ns
+from uuid import uuid4
 
-from src.benchmark.campaign_budget import LOCAL, EXTERNAL
 from src.benchmark.deployment import private
 from src.integrations.agentdojo.inventory import digest
-from src.demo_ui.allocation import CARDS
+from src.demo_ui.protocol import CARDS,UsageLog,make_pair
 
 TERMINAL = {"completed", "failed", "interrupted"}
 EVENT_FIELDS = {"stage", "phase", "tool", "tools", "role", "attempt", "status", "utility", "decision", "discarded",
@@ -61,37 +61,43 @@ class Job:
     def page(self, after):
         with self.lock: return list(self.events[after:after+200])
 
+    @classmethod
+    def load(cls,directory):
+        job=cls.__new__(cls);job.directory=Path(directory);job.lock=threading.RLock()
+        job.data=json.loads((job.directory/"public.json").read_text());job.origin=perf_counter_ns()
+        path=job.directory/"events.jsonl"
+        job.events=[json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+        return job
+
 
 class Controller:
     """One worker owns global hook/bridge configuration. Each arm runs in order."""
-    def __init__(self, budget, directory, runtime_factory):
-        self.budget=budget; self.plan=budget.plan(current_source=True)
+    def __init__(self, plan, directory, runtime_factory):
+        self.plan=plan
         self.directory=Path(directory); self.directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.owner_lock=(self.directory/"operator.lock").open("a")
         try:fcntl.flock(self.owner_lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
         except BlockingIOError:
-            self.owner_lock.close();raise RuntimeError("campaign_already_open_in_another_ui") from None
+            self.owner_lock.close();raise RuntimeError("demo_already_open_in_another_ui") from None
+        self.jobs_directory=self.directory/"runs";self.jobs_directory.mkdir(exist_ok=True,mode=0o700)
+        self.session_directory=self.directory/"sessions"/uuid4().hex
+        self.usage=UsageLog(self.session_directory/"usage")
         self.runtime_factory=runtime_factory; self.runtime=None
         self.lock=threading.RLock(); self.worker=ThreadPoolExecutor(max_workers=1,thread_name_prefix="live-demo")
         self.jobs={}; self.active=None; self.halted=False; self.closing=False
-        # An old interrupted campaign must never silently reissue its startup/model calls.
-        for path in self.directory.glob("*/public.json"):
+        self.repeats=dict.fromkeys(CARDS,0)
+        # Old jobs remain readable; a restart NEVER reissues their work. Runtime
+        # quiescence/readiness checks must pass before a new explicit click runs.
+        for path in self.jobs_directory.glob("*/public.json"):
             data=json.loads(path.read_text())
-            if data["phase"] not in TERMINAL: self.halted=True
-        if (self.budget.directory/("live-session-"+self.plan["namespace"]+".json")).exists():self.halted=True
+            self.repeats[data["card"]]+=1
+            if data["phase"] not in TERMINAL:
+                job=Job.load(path.parent);job.update(phase="interrupted",error="server_interrupted_no_automatic_rerun")
 
     def status(self):
         with self.lock:
-            remaining={card:sum(s["card"]==card and not (self.budget.directory/("live-slot-"+s["slot"]+".json")).exists()
-                                for s in self.plan["slots"]) for card in CARDS}
-            return dict(mode="live_sequential", campaign=self.plan["namespace"], active=self.active, halted=self.halted,
-                remaining=remaining, cards=list(CARDS), opening_page_runs_models=False,
-                setup_local_cap=sum(c.get(r,0) for c in self.plan["cases"] if c["kind"] in {"startup","canary"} for r in LOCAL),
-                priming_forwards=2*len(self.plan.get("startup_inputs",[])),
-                per_click_caps={card:dict(local=sum(c.get(r,0) for c in self.plan["cases"] if c.get("slot")==next(s["slot"] for s in self.plan["slots"] if s["card"]==card) for r in LOCAL),
-                    external=sum(c.get(r,0) for c in self.plan["cases"] if c.get("slot")==next(s["slot"] for s in self.plan["slots"] if s["card"]==card) for r in EXTERNAL)) for card in CARDS},
-                local_cap=sum(c.get(r,0) for c in self.plan["cases"] for r in LOCAL),
-                external_cap=sum(c.get(r,0) for c in self.plan["cases"] for r in EXTERNAL))
+            return dict(mode="live_sequential",active=self.active,halted=self.halted,
+                cards=list(CARDS),opening_page_runs_models=False,budget_enforced=False,repeatable=True)
 
     def start(self, card, request_id):
         if card not in CARDS or not re.fullmatch(r"[0-9a-f]{32}",request_id): raise ValueError("invalid_card_or_request_id")
@@ -100,19 +106,15 @@ class Controller:
             if existing:
                 if existing.data["card"]!=card: raise ValueError("idempotency_key_conflict")
                 return existing
-            saved=self.directory/request_id/"public.json"
-            if saved.exists(): raise RuntimeError("request_already_recorded_reconnect_without_rerunning")
+            saved=self.jobs_directory/request_id/"public.json"
+            if saved.exists():
+                existing=Job.load(saved.parent)
+                if existing.data["card"]!=card:raise ValueError("idempotency_key_conflict")
+                return existing
             if self.closing or self.halted or self.active: raise RuntimeError("live_session_busy_halted_or_closing")
-            self.budget.plan(current_source=True)
-            with self.budget.locked():
-                slot=next((s for s in self.plan["slots"] if s["card"]==card and not (self.budget.directory/("live-slot-"+s["slot"]+".json")).exists()),None)
-                if slot is None: raise RuntimeError("no_fresh_allocation_for_card")
-                self.budget._exclusive(self.budget.directory/("live-slot-"+slot["slot"]+".json"),dict(slot=slot,request_id=request_id,matrix_sha256=digest(self.plan)))
-                # Both lanes spend their slot even if setup later fails; no retry-until-green.
-                for case in self.plan["cases"]:
-                    if case.get("slot")==slot["slot"] and case["kind"]!="external_review":
-                        self.budget._exclusive(self.budget.directory/("native-case-"+case["case_id"]+".json"),dict(case_id=case["case_id"],matrix_sha256=digest(self.plan),state="started",automatic_rerun=False))
-            job=Job(self.directory/request_id,slot,request_id)
+            slot=make_pair(card,request_id,self.repeats[card]);self.repeats[card]+=1
+            job=Job(self.jobs_directory/request_id,slot,request_id)
+            private(job.directory/"protocol.json",dict(protocol_sha256=digest(self.plan),pair=slot,budget_enforced=False))
             self.jobs[request_id]=job; self.active=request_id
             self.worker.submit(self._execute,job,slot)
             return job
@@ -121,13 +123,13 @@ class Controller:
         try:
             if self.runtime is None:
                 job.update(phase="startup")
-                self.runtime=self.runtime_factory(self.plan,self.budget,self.directory)
+                self.runtime=self.runtime_factory(self.plan,self.usage,self.session_directory)
                 self.runtime.open(job)
             job.update(phase="running")
             records=[]
             for arm in slot["order"]:
                 job.lane(arm,phase="running")
-                spec=next(c for c in self.plan["cases"] if c.get("slot")==slot["slot"] and c.get("arm")==arm)
+                spec=next(c for c in slot["cases"] if c.get("arm")==arm)
                 record,summary=self.runtime.run_lane(job,arm,spec)
                 records.append(record)
                 job.lane(arm,phase="completed",summary=summary)
@@ -139,12 +141,16 @@ class Controller:
             job.update(phase="failed",error=type(exc).__name__)
             job.emit("system",dict(stage="run",phase="failed",error=type(exc).__name__))
         finally:
-            with self.lock: self.active=None
+            with self.lock:
+                self.active=None
+                self.jobs.pop(job.data["id"],None)  # Completed history is read from disk, not held forever.
 
     def get(self, request_id):
         if not re.fullmatch(r"[0-9a-f]{32}",request_id): raise KeyError("unknown_run")
-        if request_id not in self.jobs: raise KeyError("unknown_run")
-        return self.jobs[request_id]
+        if request_id in self.jobs:return self.jobs[request_id]
+        path=self.jobs_directory/request_id
+        if not (path/"public.json").exists():raise KeyError("unknown_run")
+        return Job.load(path)
 
     def close(self):
         with self.lock: self.closing=True

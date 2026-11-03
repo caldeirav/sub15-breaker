@@ -138,3 +138,13 @@ def test_authority_renewal_changes_credentials_only_and_does_not_invoke_a_model(
     assert runtime.mcp.token=="new-private-driver-token" and models[0]["model"]=="unchanged-model"
     assert models[0]["temperature"]==0 and models[0]["max_retries"]==0
     assert "new-private-driver-token" in runtime.mask.secrets
+
+
+def test_repeatable_registry_releases_old_observers_but_not_active_reviews():
+    registry=ObservedRegistry()
+    registry.register("a"*32,ReviewInput("goal","policy","policy","get_balance",{}),object())
+    entry=registry.entries["a"*32];entry.attempted=True
+    with pytest.raises(RuntimeError,match="still_active"):registry.release_completed()
+    assert registry.entries and registry.contexts
+    entry.done.set();registry.release_completed()
+    assert registry.entries=={} and registry.contexts=={}

@@ -6,7 +6,7 @@ import secrets
 
 import uvicorn
 
-from src.demo_ui.allocation import LiveBudget,BASE,ROOT
+from src.demo_ui.protocol import BASE,ROOT,make_plan
 from src.demo_ui.app import create_app
 from src.demo_ui.runtime import Runtime
 from src.demo_ui.state import Controller
@@ -16,8 +16,6 @@ def main():
     from dotenv import load_dotenv
     load_dotenv(ROOT/".env")
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--campaign",required=True)
-    parser.add_argument("--budget",type=Path,default=BASE/"combined-budget")
     parser.add_argument("--artifact",type=Path,default=BASE/"modernbert-training-v1/model")
     parser.add_argument("--port",type=int,default=8091)
     args=parser.parse_args()
@@ -31,11 +29,10 @@ def main():
         with os.fdopen(fd,"w") as stream:stream.write(secrets.token_urlsafe(32))
     if token_path.is_symlink() or token_path.stat().st_uid!=os.getuid() or token_path.stat().st_mode&0o077:
         raise ValueError("ui_token_must_be_a_private_owned_file")
-    budget=LiveBudget(args.budget,args.campaign)
-    controller=Controller(budget,directory/args.campaign,
-        lambda plan,budget,path:Runtime(plan,budget,path,args.artifact))
+    controller=Controller(make_plan(args.artifact),directory,
+        lambda plan,usage,path:Runtime(plan,usage,path,args.artifact))
     print(f"Live demo: http://127.0.0.1:{args.port}; enter the separate UI run token from {token_path}",flush=True)
-    print("No inference on startup/page load. Run consumes a fresh allocation. Ctrl-C waits for active work and restores the native hook.",flush=True)
+    print("Repeatable demo: no allocations or budgets. Explicit Run clicks execute fresh pairs; Gemini charges still apply. Ctrl-C waits for active work and restores the native hook.",flush=True)
     uvicorn.run(create_app(controller,token_path.read_text().strip(),port=args.port),host="127.0.0.1",port=args.port,
                 access_log=False,timeout_graceful_shutdown=8100)
 

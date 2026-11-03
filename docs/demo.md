@@ -18,8 +18,10 @@ evidence. It is curated architecture evidence, not general model accuracy.
 | D05 `cancel-late-allow` |Declared cancellation fault control |Late allow discarded, trial fenced, zero later target mutation |
 
 Six native controls and two complete-prefix real-reviewer canaries are prerequisite
-gates. The live UI allocates ten fresh lanes (two per card, including independent
-fault controls): **18 native cases** in a one-run-per-card campaign. The older CLI
+gates. The live UI creates two fresh lanes per click, including independent
+fault controls. First-session setup has eight native cases; running all five cards
+once produces **18 native cases**. Cards can then be repeated without allocations.
+The older CLI
 qualification/rehearsal protocol below has14 cases because it reuses the shared
 error/cancel control records for D04/D05. Neither count is a model-accuracy
 denominator. D01–D03 real guards review every prefix action. Rent remains outside
@@ -30,8 +32,9 @@ these cards but in the full test and known quality limitation #55.
 The primary UI is **live execution, not saved replay**. Choose a card on the left
 and click **Run both routes**. The classifier and LLM lanes appear side by side,
 but run **sequentially** because both acting agents and the LLM reviewer share one
-Qwen server. The immutable allocation declares/displays the arm order and alternates
-which arm runs first across cards. Only one pair may run at a time.
+Qwen server. The order is fixed/displayed for each run and counterbalanced across
+cards and repeats. Only one pair may run at a time. There is **no campaign,
+allocation, spending budget or per-card run count** in the live UI.
 
 ### Prerequisites and first-time setup
 
@@ -42,11 +45,11 @@ which arm runs first across cards. Only one pair may run at a time.
    Podman VM, owned Kind/Cilium/Substrate/gVisor installation, enforcement Gateway,
    digest-bound banking store/Actor image, `native-measure-v2` profile and explicit
    retained-trial limits. A manifest or controller install alone is not readiness.
-3. Obtain the **compatible frozen classifier export and cumulative v4 ledger**
-   from the operator, under `.infra/benchmark-guard-harness/`. Weights/credentials
-   and the ledger are not published or generated automatically from a checkout.
-   The real UI cannot run without that handoff; base/random weights and a new empty
-   ledger are not substitutes. For a genuinely new release/profile, initialization
+3. Obtain the **compatible frozen classifier export** from the operator, under
+   `.infra/benchmark-guard-harness/modernbert-training-v1/model`. Weights/credentials
+   are not published or generated automatically from a checkout. The demo does
+   not require a benchmark ledger. Base/random weights are not substitutes for
+   the trained artifact. For a genuinely new release/profile, initialization
    and artifact distribution still require explicit operator provenance (#10).
 4. Create `.env` from `.env.example` only if absent. Set the exact approved
    `LM_STUDIO_MODEL=qwen/qwen3-30b-a3b-2507`, local provider port1234, HTTP MLflow
@@ -67,46 +70,35 @@ generation and renews scoped driver credentials. It does not start a live case,
 prime the classifier or run Gemini. It will not download/build a missing stack or
 replace old data. Use the setup guide, not `destroy`, to resolve prerequisites.
 
-### Allocate a fresh UI campaign before serving
+### One-time upgrade of the existing banking store
 
-The browser cannot choose budgets, model/artifact paths, infrastructure endpoints
-or arbitrary commands. Each click consumes one **preallocated pair of fresh IDs**;
-failed/interrupted runs and duplicate clicks cannot reset them. Choose an approved
-unused namespace `uiN` and freeze the current source/model/image/data bindings:
+The old banking image enforced retained-trial/action limits as well as reserved
+campaign slots. Rebuild and enable **repeatable demo mode** once on the existing
+installation, with the UI stopped and no Actors or unresolved actions:
 
 ```bash
-# Read-only proposal: builds fixture inputs but makes no model requests.
-uv run --locked --env-file .env python -m src.demo_ui.allocation --campaign uiN
-
-# Only after actual operator approval; retain the existing cumulative budget.
-uv run --locked --env-file .env python -m src.demo_ui.allocation --campaign uiN \
-  --freeze --owner-reason "DESCRIPTION OF THE ACTUAL APPROVED CAMPAIGN"
-
-# Authenticate/read capacity and reserve this campaign without pruning history.
-uv run --locked --env-file .env python -m src.demo_ui.allocation --campaign uiN \
-  --reserve-capacity
+bash scripts/build_banking_image.sh
+uv run --locked --env-file .env python -m src.banking_service.deploy \
+  --image "$(cat .infra/banking-service-03b/image.reference)" \
+  --deadline-profile native-measure-v2 --repeatable-demo
 ```
 
-Replace `uiN` with a real numeric namespace. If another capacity campaign is active,
-inspect it first. Once no Actors, native listeners or unresolved actions remain,
-explicitly add `--release-prior-campaign EXACT_PRIOR_ID` to the capacity command.
-This retains the prior reservation's used counts and the same state/key/PVC.
-Never edit/reset the database, ledger, spent markers or allowance files.
+This reuses the owned store key/PVC and all prior trials/actions/receipts. Previous
+capacity reservations are marked released with used counts retained; no history
+or budget files are deleted or reset. The mode removes retained trial/action caps
+and does not create any new reservation. The ordinary benchmark/store default is
+still bounded; its historical policies/ledgers are independent of this demo.
 
-The default one-run-per-card allocation has maxima **63 local actor/guard requests,
-21 Gemini operations**, **10 classifier priming forwards** and **18 fresh trials**.
-This includes six native controls, two identical-prefix real canaries and two
-startup model probes. Each D01/D03 click reserves up to28 local/9 external calls;
-D02 up to3 local/1 external; D04/D05 zero real case-model calls/1 external each.
-Startup/canaries are a separately declared once-per-session allocation. Globals
-2048 local/512 external/$100 and all historical holds remain cumulative. A larger
-`--repetitions` needs explicit new approval and still fails if the global envelope
-cannot cover its worst-case holds; it is not permission to resample for green.
+The demo has no artificial run-count or spending limit. Physical disk capacity,
+provider quotas, per-episode model/tool/time limits and unexported-evidence outbox
+backpressure still apply. Gemini is **not free**: every new run performs real
+post-run external reviews with normal provider charges. Usage observations are
+recorded for transparency but never debit or enforce a demo budget.
 
 ### Start the UI and run a selected card
 
 ```bash
-uv run --locked --env-file .env python -m src.demo_ui --campaign uiN
+uv run --locked --env-file .env python -m src.demo_ui
 ```
 
 Open **`http://127.0.0.1:8091`**. Read the separate local **UI run capability** from
@@ -116,10 +108,10 @@ held server-side after sign-in through an HttpOnly/SameSite=Strict session cooki
 Run POSTs additionally require same-origin and a per-session CSRF value.
 
 Opening, signing in, selecting cards, reconnecting or paging events never starts
-inference. An explicit Run click claims both lane slots before any work. On the
+inference. Each explicit Run click creates fresh unique IDs for both lanes. On the
 first click, the backend verifies actual gVisor/Actor identity, performs the
-allocated functional model probes and two fixed unlabelled classifier priming
-passes, then runs the predeclared native controls/canaries. It keeps the classifier
+functional model probes and two fixed unlabelled classifier priming passes, then
+runs the native controls/canaries. It keeps the classifier
 resident on the measured worker and installs one native hook/bridge for the UI
 session. The same compiled agent/native store path is reused, not a second loop.
 
@@ -127,11 +119,15 @@ One arm runs, is fenced/cleaned up/reconciled, then the other runs on equivalent
 fresh state. Scoped driver authority is renewed before each arm so an idle pause
 does not blindly reuse expired credentials; renewal never runs a model or replays
 an action. There is no concurrent acting-model/reviewer load from the two lanes,
-backend substitution, response repair, preferred-outcome retry or shared-model
-reload. A browser disconnect does not cancel or rerun a payment; reconnect reads
-the existing active job. Restarting an already started campaign does not reissue
-startup/case calls: interrupted/spent sessions fail closed and need a fresh approved
-allocation, not deletion of their markers.
+backend substitution, response repair or automatic retry. A browser disconnect
+does not cancel or rerun a payment; reconnect reads the existing active job.
+After completion, click Run again for a **new recorded run**, as often as needed.
+Earlier failures/results remain separate and unchanged. Duplicate requests reuse
+the same job, including after a server restart. Interrupted jobs are marked as
+such and never automatically rerun. After a runtime/cleanup failure the server
+halts further dispatch: inspect evidence, shut down gracefully and restart after
+fixing the underlying problem. Fresh startup then checks real quiescence/readiness
+before creating any work; it cannot ignore leftover Actors or unresolved actions.
 
 ### Interpret the display
 
@@ -173,15 +169,17 @@ hook/routes to restore. Do not force-kill during a mutation. Then use
 `bash scripts/demo_stack.sh stop` if needed; it refuses active native work and
 leaves borrowed services, LM Studio/model, shared VM and data untouched.
 
-Private UI evidence lives in `.infra/live-demo-ui/uiN/`: per-job `public.json`,
-append-only `events.jsonl`, source-record hashes and raw review records. Runtime
-records/startup/controls are in its `runtime/` directory and linked MLflow runs.
+Private UI evidence lives in `.infra/live-demo-ui/runs/RUN_ID/`: per-job `public.json`,
+append-only `events.jsonl`, source-record hashes and raw review records. Session
+startup/controls/source records and observation-only usage logs live under
+`.infra/live-demo-ui/sessions/SESSION_ID/` and linked MLflow runs. IDs are automatic
+evidence identifiers, not allocations or limits.
 All failed/partial attempts remain. Public events omit credentials, complete bank
 state, raw prompts and ticket capabilities; tool arguments shown in final panels
 are bounded canonical/redacted synthetic values rendered as text, never HTML.
 
-The new loopback API under `/api/live/` has authenticated status, explicit Run POST,
-run results and resumable SSE observations. It never accepts paths/prompts/commands
+The loopback API under `/api/live/` has authenticated status, explicit Run POST,
+repeatable run results and resumable SSE observations. It never accepts paths/prompts/commands
 or browser infrastructure credentials. A single worker and operator lock serialize
 the global hook/bridge and both arms. There is no arbitrary live cancel endpoint;
 D05 is the declared cancellation scenario. API reads cannot issue inference. The
@@ -190,27 +188,30 @@ older [saved-review API](#read-only-backend-contract) stays separate and read-on
 ### UI validation without spend
 
 Default `bash scripts/test.sh` includes fixture-backed API, auth/CSRF/Host/body,
-idempotency, sequential scheduling, events, failure and allocation tests. The
+idempotency across restarts, repeated runs, sequential scheduling, events, failure,
+usage-journal isolation and repeatable-store tests. The
 explicit `validation.live_ui_fixture_server` and `validation.run_ui_browser` are
 **offline UI test fixtures**, never the real demo or a fallback runtime. Browser
 checks use externally installed Playwright via `PLAYWRIGHT_MODULE` and optional
 `PLAYWRIGHT_BROWSERS_PATH`; no Node application dependency is required. Live browser
-validation requires the separate `--execute-authorized-live-campaign` flag, an
-explicit campaign and its frozen one-shot allowance. No automatic live test is
+validation requires the separate `--execute-live` flag to avoid accidentally
+spending on models/reviews. No automatic live test is
 part of the default suite.
 
 ### Verified implementation disposition
 
-The first real UI campaign, **ui1**, passed all18 native cases and all10 lane
+The historical first real UI campaign, **ui1**, passed all18 native cases and all10 lane
 golden/effect expectations. Actual Chromium verified five explicit Run clicks,
 sequential lanes, read-only navigation/reload, responsive/keyboard behavior and no
 JavaScript errors. All16 task reviews agreed and all5 scoped harness reviews were
 supported. [Versioned results, actual timings and source evidence](results/demo-ui1.md).
 The UI was shut down gracefully and global hook/routes, old history, key/PVC and
 ledger prefix were verified preserved. No additional inference was used to
-regenerate the report. The ui1 slots are spent; a new demonstration needs a fresh
-approved allocation. Delivery is on PR#67, not an inferred final owner acceptance
-or permission to merge (#17).
+regenerate the report. That versioned report describes the earlier allocated
+implementation, not verification of today's repeatable mode. Old allocations and
+costs remain historical records only: the current live UI never reads/enforces
+them. Delivery is on PR#67, not an inferred final owner acceptance or permission
+to merge (#17).
 
 ## Inspect or replay without inference
 

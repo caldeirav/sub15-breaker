@@ -146,9 +146,10 @@ from status/receipt without repeating the write. This is not distributed exactly
 tool invocation, HA, backup or VM/node/disk-loss recovery.
 
 Reset uses fresh synthetic state and a new Actor/generation; old tickets are
-invalidated, while receipts/history remain. Capacity limits and an exclusive
-durable campaign reservation fail closed rather than deleting old trials to make
-room. Outbox exhaustion/persistence failure blocks new work; export failure stays
+invalidated, while receipts/history remain. The default benchmark store has
+capacity limits and exclusive durable campaign reservations. Repeatable-demo mode
+removes retained trial/action caps and releases prior reservations without deleting
+history or changing used counts. Outbox exhaustion/persistence failure blocks new work; export failure stays
 pending and prevents complete-evidence acceptance.
 
 ## Failure and observability design
@@ -171,11 +172,13 @@ No real payments, generic shell executor, multi-agent hierarchy, production HA,
 new IAM or rollback engine is implemented. The optional two-hour soak remains
 incomplete (#39); functional readiness is not a sustained-uptime qualification.
 The saved-review API remains read-only. The separate [live demo UI](demo.md#live-web-interface--end-to-end)
-uses an authenticated loopback Run endpoint, frozen fresh allocations and one
+uses an authenticated loopback Run endpoint, fresh automatic IDs on every click and one
 worker owning the shared hook/bridge. Two lanes are displayed side by side but
 execute sequentially on the single Qwen server. Opening/selecting/reconnecting
 does not dispatch; only an explicit idempotent Run POST can do so. No generic
 command/path input or browser infrastructure/provider credentials are accepted.
+Cards can be repeated without allocations or budgets; each result/failure remains
+separate and read-only, and Gemini provider charges still apply.
 
 Historical `LocalBankingPipeline`, `ActorBankingTrial`, `src.agent.graph`, the
 command-only sidecar/dataset/raw-SDK grader/Streamlit dashboard and placeholder

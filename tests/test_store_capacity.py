@@ -94,3 +94,36 @@ def test_capacity_reflects_action_outbox_and_pending_commit_headroom(store):
     assert view["available"]["events"]==3996
     store.release_capacity("driver","campaign")
     assert store.capacity()["campaign"] is None
+
+
+def test_repeatable_demo_has_no_retained_trial_or_action_cap(tmp_path):
+    store=StateStore(tmp_path/"demo",b"k"*32,max_trials=1,max_actions=1,repeatable_demo=True)
+    for index in range(5):
+        name="repeat-"+str(index)
+        store.create(context(name),"uid-"+name,initial_state())
+        store.prepare(name,"driver",proposal());store.fence(name,"driver")
+    view=store.capacity()
+    assert view["repeatable_demo"] and view["used"]["trials"]==view["used"]["actions"]==5
+    assert view["limits"]["trials"] is view["limits"]["actions"] is None
+    assert view["limits"]["events"]==4000  # Backpressure is not a spending budget.
+    with pytest.raises(ContractError,match="demo_has_no_capacity_campaigns"):reserve(store)
+
+
+def test_repeatable_mode_preserves_history_key_and_old_campaign_used_counts(store):
+    reserve(store);store.create(context("prior"),"prior-uid",initial_state(),campaign_id="campaign")
+    before=store.snapshot("prior","driver");used=store.capacity()["campaign"]["used"]
+    demo=StateStore(store.path,b"k"*32,repeatable_demo=True)
+    assert demo.snapshot("prior","driver")==before and demo.capacity()["campaign"] is None
+    with demo.transaction() as db:
+        row=db.execute("SELECT status,used FROM capacity_campaigns WHERE id='campaign'").fetchone()
+        assert row["status"]=="released" and json.loads(row["used"])==used
+
+
+def test_repeatable_mode_refuses_unresolved_actions_and_keeps_evidence_backpressure(store,tmp_path):
+    store.create(context("pending"),"pending-uid",initial_state());store.prepare("pending","driver",proposal())
+    with pytest.raises(ContractError,match="demo_actions_inflight"):
+        StateStore(store.path,b"k"*32,repeatable_demo=True)
+    demo=StateStore(tmp_path/"full",b"k"*32,max_events=1,repeatable_demo=True)
+    demo.create(context("one"),"uid-one",initial_state())
+    with pytest.raises(ContractError,match="evidence_outbox_full"):
+        demo.create(context("two"),"uid-two",initial_state())
