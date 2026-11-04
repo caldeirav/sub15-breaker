@@ -14,6 +14,15 @@ def test_current_documentation_is_consolidated_and_has_one_versioned_result():
     assert all(path in index for path in pages if path != "README.md")
 
 
+def test_ui_owner_acceptance_is_scoped_and_separate_from_historical_results():
+    text=(ROOT/"docs/demo.md").read_text()
+    acceptance=text.split("### Owner-reported acceptance — 2026-11-04",1)[1].split("\n## ",1)[0]
+    for required in ("@caldeirav", "D01–D05 UI scope", "5e88991218cb0b21d6233bc965967f6216645c0b",
+                     "not an agent-inferred sign-off", "does not", "#55", "#56", "#17", "independent"):
+        assert required in acceptance
+    assert "--prepare" in acceptance and "historical costs remain unchanged" in acceptance
+
+
 def test_archived_protocols_and_acceptance_records_are_byte_preserved():
     archive = ROOT / "validation/archive/docs-2026-11-02"
     checksums = dict(line.split(None, 1)[::-1] for line in (archive / "SHA256SUMS").read_text().splitlines())

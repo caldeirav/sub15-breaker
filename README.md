@@ -160,7 +160,9 @@ agreements and 5 supported scoped harness reviews**. These include scripted/faul
 controls and do not establish general model accuracy. All5 cards were run once
 through the actual browser. This historical report predates repeatable-demo mode;
 the current live UI needs no allocations and lets you repeat any card.
-Owner/process acceptance remains separate in [#17](https://github.com/caldeirav/sub15-breaker/issues/17).
+The owner-reported acceptance of all five UI use-cases is recorded in the
+[demo guide](docs/demo.md#owner-reported-acceptance--2026-11-04). Broader process and
+independent-review requirements remain separate in [#17](https://github.com/caldeirav/sub15-breaker/issues/17).
 
 ## Run locally
 

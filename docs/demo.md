@@ -38,7 +38,7 @@ allocation, spending budget or per-card run count** in the live UI.
 
 ### Prerequisites and first-time setup
 
-1. Clone the repository/feature branch, install Git, uv and Python3.11–3.13, then
+1. Clone the repository, install Git, uv and Python3.11–3.13, then
    `uv python install` and `uv sync --locked`. No Node/npm build is needed for the
    application; FastAPI/uvicorn serve local HTML/CSS/JavaScript with no CDN assets.
 2. Follow the [complete local infrastructure guide](infra.md): a reviewed rootful
@@ -147,8 +147,8 @@ held server-side after sign-in through an HttpOnly/SameSite=Strict session cooki
 Run POSTs additionally require same-origin and a per-session CSRF value.
 
 Opening, signing in, selecting cards, reconnecting or paging events never starts
-inference. Each explicit Run click creates fresh unique IDs for both lanes. On the
-first click, the backend verifies actual gVisor/Actor identity, performs the
+inference. Each explicit Run click creates fresh unique IDs for both lanes. Without
+`--prepare`, the first click verifies actual gVisor/Actor identity and performs the
 functional model probes and two fixed unlabelled classifier priming passes, then
 runs the native controls/canaries. It keeps the classifier
 resident on the measured worker and installs one native hook/bridge for the UI
@@ -268,8 +268,37 @@ ledger prefix were verified preserved. No additional inference was used to
 regenerate the report. That versioned report describes the earlier allocated
 implementation, not verification of today's repeatable mode. Old allocations and
 costs remain historical records only: the current live UI never reads/enforces
-them. Delivery is on PR#67, not an inferred final owner acceptance or permission
-to merge (#17).
+them. [PR#67](https://github.com/caldeirav/sub15-breaker/pull/67) delivers the current
+repeatable UI, startup preparation and progress/error fixes. Its owner-reported
+acceptance is recorded below, separately from this historical campaign's results.
+
+### Owner-reported acceptance — 2026-11-04
+
+Repository owner **@caldeirav** reported: **“The UI demo has been tested thoroughly
+for all use-cases”**, and explicitly requested documentation updates and merging
+the branch into `main` through a PR. This records manual acceptance of the live
+**D01–D05 UI scope**, not an agent-inferred sign-off or an automated test result.
+Accepted implementation: `5e88991218cb0b21d6233bc965967f6216645c0b` on PR#67;
+the acceptance/documentation follow-up does not change runtime code.
+
+The delivered scope is repeatable paired execution without allocation/budget
+gates, sequential lanes on the shared Qwen server, actual progress and golden/effect
+panels, separate guard/component timers, post-run Gemini reviews, safe errors and
+the optional `--prepare` startup workflow. D04/D05 remain controlled faults.
+
+Automated evidence is separate: the implementation CI passed Python3.11–3.13;
+the offline suite has743 tests, and both prepared and ordinary Chromium fixtures
+passed six explicit runs including a repeat, sequential events, no navigation/reload
+dispatch, desktop/mobile/keyboard checks and zero JavaScript errors. These fixture
+checks are not relabelled as the owner's live tests. The owner statement does not
+provide a new numerical latency/accuracy matrix; the versioned ui1 report and all
+earlier failures, reviews, source records and historical costs remain unchanged.
+
+This scoped UI acceptance does not resolve the rent false block (#55), broader
+held-out evaluation (#56), full admission/load-tail metrology (#11), optional
+acceleration (#13), soak (#39), artifact distribution/SBOM work (#10), or unrecorded
+independent source-code/configuration reviews. #17 retains those distinct process
+requirements; Gemini harness support is not an independent code-review sign-off.
 
 ## Inspect or replay without inference
 
