@@ -14,6 +14,7 @@ from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.runtime import Runtime
 
 from src.agent_runtime.contracts import Limits, RunResult, TaskInput, ToolCall, ToolOutcome
+from src.agent_runtime.observability import emit
 
 
 class State(MessagesState):
@@ -51,6 +52,7 @@ def model_node(state: State, runtime: Runtime[Services]):
     try:services.reserve_model()
     except Exception as exc:return dict(status="budget_exhausted",error=type(exc).__name__)
     attempts=state["model_attempts"]+1
+    emit("agent", "thinking", attempt=attempts)
     try:
         message=services.model.invoke(state["messages"])
     except Exception as exc:return dict(status="error",model_attempts=attempts,error=type(exc).__name__)
@@ -69,6 +71,7 @@ def model_node(state: State, runtime: Runtime[Services]):
         ids.append(call["id"])
     if not calls and not message.text.strip():
         return dict(status="protocol_error",model_attempts=attempts,error="empty_final_response")
+    emit("agent", "proposed" if calls else "completed", tools=[call["name"] for call in calls])
     return dict(messages=[message],status="running" if calls else "completed",model_attempts=attempts)
 
 

@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import secrets
 import threading
+from time import perf_counter_ns
 from uuid import uuid4
 
 import mlflow
@@ -23,6 +24,7 @@ from langchain_openai import ChatOpenAI
 
 from src.agent_runtime.contracts import Limits
 from src.agent_runtime.runner import run
+from src.agent_runtime.observability import emit
 from src.banking_service.deploy import Deployment,DIRECTORY,SPACE,STORE_HOST
 from src.banking_service.http import RuntimeClient
 from src.banking_service.deadlines import profile
@@ -45,8 +47,9 @@ SOURCE=mlflow.entities.AssessmentSource(source_type="CODE",source_id="benchmark-
 
 class ModelTransport(httpx.BaseTransport):
     """Trace exactly the gateway HTTP dispatch; no SDK retries or direct route."""
-    def __init__(self,base,*,before_dispatch=lambda:None,on_request=None):
+    def __init__(self,base,*,before_dispatch=lambda:None,on_request=None,role="actor"):
         self.base=base;self.transport=httpx.HTTPTransport(retries=0);self.before_dispatch=before_dispatch;self.on_request=on_request
+        self.role=role
     def handle_request(self,request):
         if str(request.url)!=self.base+"/v1/responses":raise RuntimeError("unexpected_model_route")
         with mlflow.start_span(name="managed_responses_http",span_type="CLIENT") as span:
@@ -54,14 +57,20 @@ class ModelTransport(httpx.BaseTransport):
             from mlflow.tracing.distributed import get_tracing_context_headers_for_http_request
             request.headers.update(get_tracing_context_headers_for_http_request())
             dispatched=0
+            started=perf_counter_ns()
+            emit("model_gateway", "started", role=self.role, trace_id=span.trace_id, span_id=span.span_id)
             try:
                 if self.on_request:self.on_request(json.loads(request.content))
                 else:self.before_dispatch()
                 dispatched=1
                 response=self.transport.handle_request(request)
+                response.read()  # Include the complete non-streaming HTTP response, not headers alone.
             except Exception as exc:
+                emit("model_gateway", "error", role=self.role, duration_ns=perf_counter_ns()-started, error=type(exc).__name__)
                 span.set_outputs(dict(status=None,physical_attempts=dispatched,error=type(exc).__name__));raise
             span.set_outputs(dict(status=response.status_code,physical_attempts=1))
+            emit("model_gateway", "finished", duration_ns=perf_counter_ns()-started,
+                 role=self.role, status=response.status_code, trace_id=span.trace_id, span_id=span.span_id)
             return response
     def close(self):self.transport.close()
 
@@ -160,6 +169,9 @@ def run_case(*,deployment,store,authorization,adapter,bridge,mcp,budget,mask,tas
     actor=None;record=None;cleanup=[];cancellation_thread=None;cancellation_errors=[];trial_created=False;setup_error=None;deleted=False;allocation_started=False;readiness_report=None
     with mlflow.start_run(run_name=case_id,nested=True) as child:
         with mlflow.start_span(name="benchmark_episode",span_type="AGENT") as root:
+            # The hosted UI runs episodes in a worker; bind ownership explicitly.
+            mlflow.update_current_trace(metadata={"mlflow.sourceRun":child.info.run_id})
+            emit("episode", "started", trace_id=root.trace_id, run_id=child.info.run_id)
             scripted=control is not None or scripted_calls is not None
             root.set_inputs(dict(case_id=case_id,task_id=task_id,live=not scripted,
                 guard=selected_guard.guard_id if selected_guard else "deterministic-native-"+(control or "allow")))
@@ -169,9 +181,11 @@ def run_case(*,deployment,store,authorization,adapter,bridge,mcp,budget,mask,tas
                     active=capacity.get("campaign") or {}
                     if active.get("id")!=capacity_campaign or active["used"]["trials"]>=active["limits"]["trials"]:raise RuntimeError("trial_capacity_not_ready")
                 with mlflow.start_span(name="allocate_substrate_actor",span_type="CHAIN") as allocation:
+                    emit("actor", "allocating")
                     allocation_started=True
                     actor=deployment.create_actor();allocation.set_outputs(actor)
                 proof=runtime_proof(deployment,actor)
+                emit("actor", "ready")
                 episode=adapter.episode(task_id,trial_id)
                 snapshot=store.call("/create",dict(trial_id=trial_id,actor_id=actor["metadata"]["name"],
                     actor_uid=actor["metadata"]["uid"],user_request=episode.public.prompt,**(dict(campaign_id=capacity_campaign) if capacity_campaign else {})))
@@ -194,6 +208,7 @@ def run_case(*,deployment,store,authorization,adapter,bridge,mcp,budget,mask,tas
                                 ready=actor_client.call("/admission-readiness",{});readiness_span.set_outputs(ready)
                                 if ((ready.get("actor_id"),ready.get("actor_uid"),ready.get("ticket_lifetime_seconds"))!=
                                         (actor["metadata"]["name"],actor["metadata"]["uid"],deadlines.ticket)):raise RuntimeError("actor_store_identity_or_profile_not_ready")
+                        emit("readiness", "ready")
                     bridge.configure(store,actor_client,trial_id,selected_guard or ControlGuard(control or "allow"),review_builder=review_builder)
                     if cancel_on_review_start:
                         def cancel_started():
@@ -235,6 +250,7 @@ def run_case(*,deployment,store,authorization,adapter,bridge,mcp,budget,mask,tas
                     if bridge.fence_errors:raise RuntimeError("episode_fence_failed")
                     final=store.call("/snapshot",dict(trial_id=trial_id))
                     measured=adapter.evaluate(episode,result,final["state"])
+                    emit("golden", "checked", status=result.status, utility=measured["utility"])
                     observed=evidence(episode,result,final["state"],bridge.actions,mask)
                     normalized=normalized_outcomes(dict(evidence=observed,inputs=dict(task_id=task_id),expectations=dict(reference_id=task_id)))
                     events=store.call("/trial-events",dict(trial_id=trial_id))["events"]
@@ -261,6 +277,7 @@ def run_case(*,deployment,store,authorization,adapter,bridge,mcp,budget,mask,tas
                     if cancellation_thread.is_alive():cleanup.append(dict(stage="cancel_thread",error="drain_deadline"))
                 actor=actor or (deployment.last_actor if allocation_started else None)
                 if actor:
+                    emit("cleanup", "started")
                     with mlflow.start_span(name="cleanup_substrate_actor",span_type="CHAIN") as span:
                         span.set_inputs(dict(trial_id=trial_id,actor=actor["metadata"]["name"]))
                         if trial_created:
@@ -270,6 +287,7 @@ def run_case(*,deployment,store,authorization,adapter,bridge,mcp,budget,mask,tas
                         try:deployment.delete_actor(actor["metadata"]["name"]);deleted=True
                         except Exception as exc:cleanup.append(dict(stage="delete",error=type(exc).__name__))
                         span.set_outputs(dict(errors=cleanup,deleted=deleted,trial_created=trial_created,fence_required=trial_created))
+                    emit("cleanup", "finished", deleted=deleted, errors=len(cleanup))
                 if setup_error is not None:
                     setup_error.partial_record.update(actor_deleted=deleted,cleanup_errors=cleanup)
                     root.set_outputs(setup_error.partial_record)
@@ -329,7 +347,9 @@ def run_case(*,deployment,store,authorization,adapter,bridge,mcp,budget,mask,tas
                     raise
             mlflow.log_dict(record,"wiring/episode.json")
             mlflow.log_dict(record["trace_audit"],"wiring/trace-audit.json")
-        if cleanup:raise RuntimeError("benchmark_cleanup_incomplete")
+        if cleanup:
+            error=RuntimeError("benchmark_cleanup_incomplete");error.partial_record=record
+            raise error
         return record
 
 

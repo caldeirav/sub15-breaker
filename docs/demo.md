@@ -1,7 +1,7 @@
-# Five-card demo: runbook and read-only review API
+# Five-card live demo UI and operator runbook
 
 [Local setup](infra.md) · [Agent flow](agent-flow.md)
-· [Validation](validation.md) · [Latest versioned results](results/demo-nd11-nd12.md)
+· [Validation](validation.md) · [Latest versioned results](results/demo-ui1.md)
 
 ## What is demonstrated
 
@@ -18,11 +18,287 @@ evidence. It is curated architecture evidence, not general model accuracy.
 | D05 `cancel-late-allow` |Declared cancellation fault control |Late allow discarded, trial fenced, zero later target mutation |
 
 Six native controls and two complete-prefix real-reviewer canaries are prerequisite
-gates. D04/D05 reuse their error/cancel control records rather than executing a
-second duplicate card. Thus a complete native phase has **14 cases**, not five
-tasks or14 model-accuracy points. D01–D03 real guards review every prefix action;
-fault controls are clearly labelled. Rent is outside these cards but remains in
-the full test and known quality limitation #55.
+gates. The live UI creates two fresh lanes per click, including independent
+fault controls. First-session setup has eight native cases; running all five cards
+once produces **18 native cases**. Cards can then be repeated without allocations.
+The older CLI
+qualification/rehearsal protocol below has14 cases because it reuses the shared
+error/cancel control records for D04/D05. Neither count is a model-accuracy
+denominator. D01–D03 real guards review every prefix action. Rent remains outside
+these cards but in the full test and known quality limitation #55.
+
+## Live web interface — end to end
+
+The primary UI is **live execution, not saved replay**. Choose a card on the left
+and click **Run both routes**. The classifier and LLM lanes appear side by side,
+but run **sequentially** because both acting agents and the LLM reviewer share one
+Qwen server. The order is fixed/displayed for each run and counterbalanced across
+cards and repeats. Only one pair may run at a time. There is **no campaign,
+allocation, spending budget or per-card run count** in the live UI.
+
+### Prerequisites and first-time setup
+
+1. Clone the repository, install Git, uv and Python3.11–3.13, then
+   `uv python install` and `uv sync --locked`. No Node/npm build is needed for the
+   application; FastAPI/uvicorn serve local HTML/CSS/JavaScript with no CDN assets.
+2. Follow the [complete local infrastructure guide](infra.md): a reviewed rootful
+   Podman VM, owned Kind/Cilium/Substrate/gVisor installation, enforcement Gateway,
+   digest-bound banking store/Actor image, `native-measure-v2` profile and explicit
+   retained-trial limits. A manifest or controller install alone is not readiness.
+3. Obtain the **compatible frozen classifier export** from the operator, under
+   `.infra/benchmark-guard-harness/modernbert-training-v1/model`. Weights/credentials
+   are not published or generated automatically from a checkout. The demo does
+   not require a benchmark ledger. Base/random weights are not substitutes for
+   the trained artifact. For a genuinely new release/profile, initialization
+   and artifact distribution still require explicit operator provenance (#10).
+4. Create `.env` from `.env.example` only if absent. Set the exact approved
+   `LM_STUDIO_MODEL=qwen/qwen3-30b-a3b-2507`, local provider port1234, HTTP MLflow
+   port5001, and the authorized Gemini2.5Flash credentials/profile. This live UI
+   includes paid external review and sends projected synthetic evidence externally.
+   Never connect real banks, real payment credentials or a shell executor.
+5. Manually start LM Studio and load the approved cached model with context8192.
+   Start MLflow once with the [documented backend/artifact paths](../README.md#run-locally)
+   if this installation has no tracking database yet. On the existing installation:
+
+```bash
+bash scripts/demo_stack.sh start
+bash scripts/demo_stack.sh status --json
+```
+
+The service manager resumes only owned installed services, checks the model without
+generation and renews scoped driver credentials. It does not start a live case,
+prime the classifier or run Gemini. It will not download/build a missing stack or
+replace old data. Use the setup guide, not `destroy`, to resolve prerequisites.
+
+### One-time upgrade of the existing banking store
+
+The old banking image enforced retained-trial/action limits as well as reserved
+campaign slots. Rebuild and enable **repeatable demo mode** once on the existing
+installation, with the UI stopped and no Actors or unresolved actions:
+
+```bash
+bash scripts/build_banking_image.sh
+uv run --locked --env-file .env python -m src.banking_service.deploy \
+  --image "$(cat .infra/banking-service-03b/image.reference)" \
+  --deadline-profile native-measure-v2 --repeatable-demo
+```
+
+This reuses the owned store key/PVC and all prior trials/actions/receipts. Previous
+capacity reservations are marked released with used counts retained; no history
+or budget files are deleted or reset. The mode removes retained trial/action caps
+and does not create any new reservation. The ordinary benchmark/store default is
+still bounded; its historical policies/ledgers are independent of this demo.
+
+If image building fails with `dns error` / `failed to lookup address` while
+downloading a wheel, the failure is Podman build-network DNS, not a missing
+package or a model error. Retry the build when connectivity recovers; downloads
+use reduced concurrency and bounded transport retries with the lock/TLS intact.
+For a persistent VM/VPN resolver problem, supply a reachable DNS server permitted
+by your network with `BANKING_BUILD_DNS=DNS_SERVER_IP bash scripts/build_banking_image.sh`.
+`UV_CONCURRENT_DOWNLOADS=1` can further reduce concurrent download pressure. No
+global resolver changes, public-DNS substitution or cluster/Actor egress changes
+are made automatically. Do not delete the database, lockfile, VM or cluster.
+
+The demo has no artificial run-count or spending limit. Physical disk capacity,
+provider quotas, per-episode model/tool/time limits and unexported-evidence outbox
+backpressure still apply. Gemini is **not free**: every new run performs real
+post-run external reviews with normal provider charges. Usage observations are
+recorded for transparency but never debit or enforce a demo budget.
+
+### Start the UI and run a selected card
+
+```bash
+uv run --locked --env-file .env python -m src.demo_ui
+```
+
+### Prepare before the audience arrives (recommended)
+
+Stop any existing UI gracefully, then launch the same server with `--prepare`:
+
+```bash
+uv run --locked --env-file .env python -m src.demo_ui --prepare
+```
+
+This explicitly runs service/model probes, resident classifier loading/priming,
+the six native controls and two learned-reviewer canaries **before the web UI
+starts accepting requests**. It can take several minutes. Wait for the terminal
+message **`Demo ready — startup checks complete; presentation cards have not been run.`**
+and the server URL, then open the browser. The UI also reports **Demo ready**.
+
+Preparation uses the same persistent worker/classifier/native hook and the same
+checks as first-click startup; it does not bypass them, run D01–D05, consume a
+presentation run ID, change arm order or invoke Gemini. It does make real local
+Qwen probe/canary requests and creates the normal synthetic setup trials/receipts.
+Its separate events/status are saved under the session's `preparation/` directory;
+native source/startup records remain in `runtime/`. On failure the UI is not
+served, failed evidence remains, owned cleanup/restoration runs, and no automatic
+retry or card execution is performed.
+
+**Keep this server and LM Studio running.** Every later Run click reuses readiness
+and skips the startup gate; browser refresh is fine. Stopping/restarting the server
+requires preparing again. This moves setup before the presentation, not ordinary
+agent/tool/Gemini latency out of each card, and it does not guarantee latency after
+long idle periods. Without the flag, existing first-click preparation is unchanged.
+
+Open **`http://127.0.0.1:8091`**. Read the separate local **UI run capability** from
+`.infra/live-demo-ui/ui.token` and enter it in the unlock form. This is not the
+saved-replay token and never a provider/platform credential. It is private0600,
+held server-side after sign-in through an HttpOnly/SameSite=Strict session cookie;
+Run POSTs additionally require same-origin and a per-session CSRF value.
+
+Opening, signing in, selecting cards, reconnecting or paging events never starts
+inference. Each explicit Run click creates fresh unique IDs for both lanes. Without
+`--prepare`, the first click verifies actual gVisor/Actor identity and performs the
+functional model probes and two fixed unlabelled classifier priming passes, then
+runs the native controls/canaries. It keeps the classifier
+resident on the measured worker and installs one native hook/bridge for the UI
+session. The same compiled agent/native store path is reused, not a second loop.
+
+During this first-run gate, both lanes show **Startup**, including the latest
+observed step and native-check count, and the startup-observations panel opens
+automatically. This gate can take several minutes before either measured route
+starts. A startup failure is shown as a failed/not-completed run, not perpetual
+waiting. Once a route starts, its panel shows Running until final evidence is
+reconciled; the other route explains that it is waiting for sequential execution.
+
+One arm runs, is fenced/cleaned up/reconciled, then the other runs on equivalent
+fresh state. Scoped driver authority is renewed before each arm so an idle pause
+does not blindly reuse expired credentials; renewal never runs a model or replays
+an action. There is no concurrent acting-model/reviewer load from the two lanes,
+backend substitution, response repair or automatic retry. A browser disconnect
+does not cancel or rerun a payment; reconnect reads the existing active job.
+After completion, click Run again for a **new recorded run**, as often as needed.
+Earlier failures/results remain separate and unchanged. Duplicate requests reuse
+the same job, including after a server restart. Interrupted jobs are marked as
+such and never automatically rerun. After a runtime/cleanup failure the server
+halts further dispatch: inspect evidence, shut down gracefully and restart after
+fixing the underlying problem. Fresh startup then checks real quiescence/readiness
+before creating any work; it cannot ignore leftover Actors or unresolved actions.
+
+Execution-code changes require a graceful server restart before a new run;
+runtime source integrity is checked between arms. Browser-only HTML/CSS/JavaScript
+updates remain recorded in the protocol but do not abort native execution. If a
+run fails between arms, the finished lane stays completed, the interrupted lane
+is marked failed, and a safe known reason (such as restart required) is displayed
+instead of leaving the lane looking active. Unknown raw exception text is never
+exported to the browser.
+
+### Interpret the display
+
+- **Timeline:** actual observed agent proposals, managed model HTTP, MCP, native
+  review, Actor/result, original golden check and cleanup events. Host observation
+  times are not fabricated remote wall clocks. Exported gateway span durations
+  become available after persisted readback; they are labelled as observations,
+  not made-up live gateway internals. Complete source traces remain in MLflow.
+- **Golden outcome:** original pinned utility plus target execution/receipt/state
+  invariants. Matching frozen action digests can show their independent action
+  label; a novel agent action is explicitly not assigned that label from utility.
+  D02 is scripted released attack-proposal evidence, not agent attack-win rate.
+- **Guardrail emphasis:** classifier decision core and both whole guard-review
+  columns, then other component boundaries with exact n/median. Core is inside
+  whole review, inside native claim, inside tool/MCP roundtrip. Do not add nested
+  bars, claim a pure gateway/network/queue cost from inclusive spans or calculate
+  model speedup on unmatched action sequences. Event/tracing overhead is real;
+  it is outside classifier core but can occur inside inclusive adapter/admission
+  boundaries. Slow after-readiness samples remain. Whole-guard medians use completed
+  allow/block reviews; errors/timeouts remain in the event/source records and are
+  not treated as successful speed samples.
+- **Faults:** D04/D05 are independently executed controls for both labelled routes.
+  They do not invoke real reviewers in their case path and show model-inference
+  latency/risk as not applicable, not zero. Expected errors and discarded late
+  allows are distinct from learned policy blocks.
+- **Gemini:** after both arms, four task-criterion reviews per genuine episode and
+  one scoped pair/harness review. D02/D04/D05 use the scoped harness review only.
+  Review time/cost is outside guard performance. Errors, disagreement and negative
+  verdicts stay visible and never overwrite CODE or human acceptance.
+
+Both arms can be displayed together without being statistically identical: agents
+may propose different calls, and shared-device idle/cache conditions still vary.
+These are curated live observations, not a held-out safety or p99/SLO claim.
+
+### Shutdown, evidence and API boundary
+
+First Ctrl-C the UI and allow the active pair/review to finish and owned native
+hook/routes to restore. Do not force-kill during a mutation. Then use
+`bash scripts/demo_stack.sh stop` if needed; it refuses active native work and
+leaves borrowed services, LM Studio/model, shared VM and data untouched.
+
+Private UI evidence lives in `.infra/live-demo-ui/runs/RUN_ID/`: per-job `public.json`,
+append-only `events.jsonl`, source-record hashes and raw review records. Session
+startup/controls/source records and observation-only usage logs live under
+`.infra/live-demo-ui/sessions/SESSION_ID/` and linked MLflow runs. IDs are automatic
+evidence identifiers, not allocations or limits.
+All failed/partial attempts remain. Public events omit credentials, complete bank
+state, raw prompts and ticket capabilities; tool arguments shown in final panels
+are bounded canonical/redacted synthetic values rendered as text, never HTML.
+
+The loopback API under `/api/live/` has authenticated status, explicit Run POST,
+repeatable run results and resumable SSE observations. It never accepts paths/prompts/commands
+or browser infrastructure credentials. A single worker and operator lock serialize
+the global hook/bridge and both arms. There is no arbitrary live cancel endpoint;
+D05 is the declared cancellation scenario. API reads cannot issue inference. The
+older [saved-review API](#read-only-backend-contract) stays separate and read-only.
+
+### UI validation without spend
+
+Default `bash scripts/test.sh` includes fixture-backed API, auth/CSRF/Host/body,
+idempotency across restarts, repeated runs, sequential scheduling, events, failure,
+usage-journal isolation and repeatable-store tests. The
+explicit `validation.live_ui_fixture_server` and `validation.run_ui_browser` are
+**offline UI test fixtures**, never the real demo or a fallback runtime. Browser
+checks use externally installed Playwright via `PLAYWRIGHT_MODULE` and optional
+`PLAYWRIGHT_BROWSERS_PATH`; no Node application dependency is required. Live browser
+validation requires the separate `--execute-live` flag to avoid accidentally
+spending on models/reviews. No automatic live test is
+part of the default suite.
+
+`uv run --locked python -m validation.run_ui_browser --prepare` verifies the
+prepared path using the explicit offline fixture: ready before the first click,
+no presentation run from preparing, and no repeated startup events in card runs.
+
+### Verified implementation disposition
+
+The historical first real UI campaign, **ui1**, passed all18 native cases and all10 lane
+golden/effect expectations. Actual Chromium verified five explicit Run clicks,
+sequential lanes, read-only navigation/reload, responsive/keyboard behavior and no
+JavaScript errors. All16 task reviews agreed and all5 scoped harness reviews were
+supported. [Versioned results, actual timings and source evidence](results/demo-ui1.md).
+The UI was shut down gracefully and global hook/routes, old history, key/PVC and
+ledger prefix were verified preserved. No additional inference was used to
+regenerate the report. That versioned report describes the earlier allocated
+implementation, not verification of today's repeatable mode. Old allocations and
+costs remain historical records only: the current live UI never reads/enforces
+them. [PR#67](https://github.com/caldeirav/sub15-breaker/pull/67) delivers the current
+repeatable UI, startup preparation and progress/error fixes. Its owner-reported
+acceptance is recorded below, separately from this historical campaign's results.
+
+### Owner-reported acceptance — 2026-11-04
+
+Repository owner **@caldeirav** reported: **“The UI demo has been tested thoroughly
+for all use-cases”**, and explicitly requested documentation updates and merging
+the branch into `main` through a PR. This records manual acceptance of the live
+**D01–D05 UI scope**, not an agent-inferred sign-off or an automated test result.
+Accepted implementation: `5e88991218cb0b21d6233bc965967f6216645c0b` on PR#67;
+the acceptance/documentation follow-up does not change runtime code.
+
+The delivered scope is repeatable paired execution without allocation/budget
+gates, sequential lanes on the shared Qwen server, actual progress and golden/effect
+panels, separate guard/component timers, post-run Gemini reviews, safe errors and
+the optional `--prepare` startup workflow. D04/D05 remain controlled faults.
+
+Automated evidence is separate: the implementation CI passed Python3.11–3.13;
+the offline suite has743 tests, and both prepared and ordinary Chromium fixtures
+passed six explicit runs including a repeat, sequential events, no navigation/reload
+dispatch, desktop/mobile/keyboard checks and zero JavaScript errors. These fixture
+checks are not relabelled as the owner's live tests. The owner statement does not
+provide a new numerical latency/accuracy matrix; the versioned ui1 report and all
+earlier failures, reviews, source records and historical costs remain unchanged.
+
+This scoped UI acceptance does not resolve the rent false block (#55), broader
+held-out evaluation (#56), full admission/load-tail metrology (#11), optional
+acceleration (#13), soak (#39), artifact distribution/SBOM work (#10), or unrecorded
+independent source-code/configuration reviews. #17 retains those distinct process
+requirements; Gemini harness support is not an independent code-review sign-off.
 
 ## Inspect or replay without inference
 
@@ -272,7 +548,7 @@ own observations, never model/action retries. Capacity is a recorded snapshot,
 not current health. Public state changes expose numeric/boolean differences;
 other values are redacted digests. Source manifests stay operator-private.
 
-Opening, paging or replaying issues **zero model/tool/judge calls**. The planned
-frontend (#60) must preserve that property, missing-data/failure labels, same-boundary
-performance columns and limitations; no frontend or live start/cancel controls are
-implemented by this backend.
+Opening, paging or replaying this saved backend issues **zero model/tool/judge
+calls**. The live UI above is a different authenticated execution surface; it does
+not turn this replay adapter into a runner or mix historical snapshots with new
+execution. Current delivery/acceptance is tracked in #60/#17.

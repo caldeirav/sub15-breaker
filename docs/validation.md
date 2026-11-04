@@ -1,7 +1,7 @@
 # Testing, data and validation
 
 [Overview](../README.md) · [Architecture](architecture.md) · [Model](model.md)
-· [Demo procedure](demo.md) · [Latest demo results](results/demo-nd11-nd12.md)
+· [Demo procedure](demo.md) · [Latest demo results](results/demo-ui1.md)
 
 ## AgentDojo environment and data
 
@@ -247,13 +247,17 @@ expected statuses; utility=false may be correct on a denial/fault control.
 Known limitations remain actionable: unfixed rent false block (#55), v2 failed
 transfer (not promoted), native after-readiness performance variability (#13/#11),
 unrun larger held-out evaluation (#56), uncompleted soak (#39), distribution/SBOM
-gaps (#10) and planning-only frontend (#60). Historical nd4 negative review, nd2
+gaps (#10). The D01–D05 UI has [owner-reported manual acceptance](demo.md#owner-reported-acceptance--2026-11-04)
+and explicit PR#67 merge authorization; #60 tracks that scoped delivery, not these
+remaining quality/performance gates. Historical nd4 negative review, nd2
 unknown claim failure and nd6/nd8 incomplete rehearsals stay unchanged in raw
 artifacts/Git history. Passing later tests does not establish old fault causes.
 
 Independent agent/code review, external model review, automated evidence and
-actual human/manual acceptance are distinct. Outstanding final owner/process
-review is [#17](https://github.com/caldeirav/sub15-breaker/issues/17); no historical
-block sign-off is reused. Frozen attestations/protocols moved byte-for-byte to the
+actual human/manual acceptance are distinct. The repository owner's 2026-11-04
+statement accepts the UI's all-use-case testing and authorizes this merge; it does
+not certify independent code/configuration reviews or all other blocks. Remaining
+process requirements stay in [#17](https://github.com/caldeirav/sub15-breaker/issues/17);
+no historical block sign-off is reused. Frozen attestations/protocols moved byte-for-byte to the
 [validation archive](../validation/archive/README.md). This guide grants no new
 inference, paid review, merge or deployment authorization.

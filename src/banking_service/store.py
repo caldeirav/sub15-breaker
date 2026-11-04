@@ -32,7 +32,7 @@ def fail(code):
 
 
 class StateStore:
-    def __init__(self, path, key, *, catalog=None, max_trials=100,max_actions=1000, max_events=4000,ticket_lifetime=30):
+    def __init__(self, path, key, *, catalog=None, max_trials=100,max_actions=1000, max_events=4000,ticket_lifetime=30,repeatable_demo=False):
         if not isinstance(key, bytes) or len(key) < 32: fail("invalid_runtime_key")
         if type(max_actions) is not int or type(max_events) is not int or min(max_actions, max_events) < 1:
             fail("invalid_store_capacity")
@@ -41,6 +41,8 @@ class StateStore:
         self.catalog = catalog or ToolCatalog.from_pinned_agentdojo()
         self.max_actions, self.max_events = max_actions, max_events
         self.max_trials=max_trials
+        if type(repeatable_demo) is not bool:fail("invalid_demo_mode")
+        self.repeatable_demo=repeatable_demo
         if type(ticket_lifetime) is not int or not 1<=ticket_lifetime<=900:fail("invalid_ticket_lifetime")
         self.ticket_lifetime=ticket_lifetime
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -71,6 +73,12 @@ class StateStore:
             check = self.fingerprint({"domain": "store-key-check-v1"})
             if existing and not hmac.compare_digest(existing[0], check): fail("runtime_key_changed")
             db.execute("INSERT OR IGNORE INTO metadata VALUES ('key_check', ?)", (check,))
+            if repeatable_demo:
+                # Switching modes preserves every row/used count. Never release a
+                # reservation while a prepared or effectful action is unresolved.
+                if db.execute("SELECT count(*) FROM actions WHERE status IN ('prepared','executing')").fetchone()[0]:
+                    fail("demo_actions_inflight")
+                db.execute("UPDATE capacity_campaigns SET status='released' WHERE status='active'")
         self.path.chmod(0o600)
 
     @contextmanager
@@ -102,11 +110,13 @@ class StateStore:
             actions=db.execute("SELECT count(*) FROM actions").fetchone()[0],
             events=db.execute("SELECT count(*) FROM outbox WHERE exported=0").fetchone()[0])
         pending=db.execute("SELECT count(*) FROM actions WHERE status IN ('prepared','executing')").fetchone()[0]*2
-        limits=dict(trials=self.max_trials,actions=self.max_actions,events=self.max_events)
+        limits=dict(trials=None if self.repeatable_demo else self.max_trials,
+            actions=None if self.repeatable_demo else self.max_actions,events=self.max_events)
         active=db.execute("SELECT id,binding,limits,used FROM capacity_campaigns WHERE status='active'").fetchone()
         campaign=dict(id=active[0],binding=active[1],limits=json.loads(active[2]),used=json.loads(active[3])) if active else None
         return dict(schema_version="banking-capacity-v1",limits=limits,used=counts,pending_event_slots=pending,
-            available={k:max(0,limits[k]-counts[k]-(pending if k=="events" else 0)) for k in limits},campaign=campaign)
+            available={k:None if limits[k] is None else max(0,limits[k]-counts[k]-(pending if k=="events" else 0)) for k in limits},
+            campaign=campaign,repeatable_demo=self.repeatable_demo)
 
     def capacity(self):
         # A readiness GET-equivalent must not BEGIN IMMEDIATE, checkpoint or set WAL pragmas.
@@ -117,6 +127,7 @@ class StateStore:
         except sqlite3.Error:fail("capacity_unavailable")
 
     def reserve_capacity(self,principal,campaign_id,binding,requirements):
+        if self.repeatable_demo:fail("demo_has_no_capacity_campaigns")
         if (not isinstance(campaign_id,str) or not re.fullmatch(r"[a-z0-9-]{1,64}",campaign_id) or
                 not isinstance(binding,str) or not re.fullmatch(r"[0-9a-f]{64}",binding) or
                 not isinstance(requirements,dict) or set(requirements)!={"trials","actions","events"} or
@@ -179,7 +190,7 @@ class StateStore:
         state = packed(state)
         with self.transaction() as db:
             self._capacity(db)
-            if db.execute("SELECT count(*) FROM trials").fetchone()[0] >= self.max_trials: fail("trial_capacity")
+            if not self.repeatable_demo and db.execute("SELECT count(*) FROM trials").fetchone()[0] >= self.max_trials: fail("trial_capacity")
             if db.execute("SELECT 1 FROM trials WHERE id=?", (context.trial_id,)).fetchone(): fail("trial_exists")
             self._charge_campaign(db,"trials",context.trial_id,campaign_id=campaign_id,principal=context.principal_id)
             db.execute("INSERT INTO trials VALUES (?,?,?,?,?,?,?,?,?,?)", (context.trial_id, context.principal_id,
@@ -210,7 +221,7 @@ class StateStore:
             if old:
                 if len(old) != 1 or old[0]["proposal"] != encoded: fail("action_id_conflict")
                 return self._status(old[0], replayed=True)
-            if db.execute("SELECT count(*) FROM actions").fetchone()[0] >= self.max_actions: fail("action_capacity")
+            if not self.repeatable_demo and db.execute("SELECT count(*) FROM actions").fetchone()[0] >= self.max_actions: fail("action_capacity")
             if db.execute("SELECT 1 FROM actions WHERE trial=? AND generation=? AND status IN ('prepared','executing')", (trial_id,t["generation"])).fetchone():
                 fail("trial_action_pending")
             self._capacity(db, slots=3)

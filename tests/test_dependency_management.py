@@ -39,7 +39,7 @@ def test_third_party_imports_are_declared_dependencies(directory):
                 continue
             for module in modules:
                 name = module.split(".")[0]
-                if name in sys.stdlib_module_names or name == "src":
+                if name in sys.stdlib_module_names or name in {"src", "validation"}:
                     continue
                 owners = {normalize(owner) for owner in distributions.get(name, [])}
                 if not owners.intersection(declared):
