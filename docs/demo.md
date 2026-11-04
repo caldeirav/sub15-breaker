@@ -111,6 +111,35 @@ recorded for transparency but never debit or enforce a demo budget.
 uv run --locked --env-file .env python -m src.demo_ui
 ```
 
+### Prepare before the audience arrives (recommended)
+
+Stop any existing UI gracefully, then launch the same server with `--prepare`:
+
+```bash
+uv run --locked --env-file .env python -m src.demo_ui --prepare
+```
+
+This explicitly runs service/model probes, resident classifier loading/priming,
+the six native controls and two learned-reviewer canaries **before the web UI
+starts accepting requests**. It can take several minutes. Wait for the terminal
+message **`Demo ready — startup checks complete; presentation cards have not been run.`**
+and the server URL, then open the browser. The UI also reports **Demo ready**.
+
+Preparation uses the same persistent worker/classifier/native hook and the same
+checks as first-click startup; it does not bypass them, run D01–D05, consume a
+presentation run ID, change arm order or invoke Gemini. It does make real local
+Qwen probe/canary requests and creates the normal synthetic setup trials/receipts.
+Its separate events/status are saved under the session's `preparation/` directory;
+native source/startup records remain in `runtime/`. On failure the UI is not
+served, failed evidence remains, owned cleanup/restoration runs, and no automatic
+retry or card execution is performed.
+
+**Keep this server and LM Studio running.** Every later Run click reuses readiness
+and skips the startup gate; browser refresh is fine. Stopping/restarting the server
+requires preparing again. This moves setup before the presentation, not ordinary
+agent/tool/Gemini latency out of each card, and it does not guarantee latency after
+long idle periods. Without the flag, existing first-click preparation is unchanged.
+
 Open **`http://127.0.0.1:8091`**. Read the separate local **UI run capability** from
 `.infra/live-demo-ui/ui.token` and enter it in the unlock form. This is not the
 saved-replay token and never a provider/platform credential. It is private0600,
@@ -222,6 +251,10 @@ checks use externally installed Playwright via `PLAYWRIGHT_MODULE` and optional
 validation requires the separate `--execute-live` flag to avoid accidentally
 spending on models/reviews. No automatic live test is
 part of the default suite.
+
+`uv run --locked python -m validation.run_ui_browser --prepare` verifies the
+prepared path using the explicit offline fixture: ready before the first click,
+no presentation run from preparing, and no repeated startup events in card runs.
 
 ### Verified implementation disposition
 

@@ -48,10 +48,14 @@ class FixtureController(Controller):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument("--directory",type=Path,required=True);parser.add_argument("--port",type=int,default=8092)
+    parser.add_argument("--prepare",action="store_true",help="Prepare only the offline fixture before serving")
     args=parser.parse_args()
     args.directory.mkdir(parents=True,exist_ok=False)
     controller=FixtureController(plan(),args.directory/"jobs",lambda *values:FixtureRuntime(*values,startup_delay=2))
-    uvicorn.run(create_app(controller,TOKEN,port=args.port),host="127.0.0.1",port=args.port,access_log=False)
+    try:
+        if args.prepare:controller.prepare().result()
+        uvicorn.run(create_app(controller,TOKEN,port=args.port),host="127.0.0.1",port=args.port,access_log=False)
+    finally:controller.close()
 
 
 if __name__=="__main__":main()

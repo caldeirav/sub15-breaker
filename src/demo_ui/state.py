@@ -89,6 +89,7 @@ class Controller:
         self.runtime_factory=runtime_factory; self.runtime=None
         self.lock=threading.RLock(); self.worker=ThreadPoolExecutor(max_workers=1,thread_name_prefix="live-demo")
         self.jobs={}; self.active=None; self.halted=False; self.closing=False
+        self.prepared=False;self.preparation_phase="not_started";self.preparation_job=None;self.preparation_future=None
         self.repeats=dict.fromkeys(CARDS,0)
         # Old jobs remain readable; a restart NEVER reissues their work. Runtime
         # quiescence/readiness checks must pass before a new explicit click runs.
@@ -101,7 +102,39 @@ class Controller:
     def status(self):
         with self.lock:
             return dict(mode="live_sequential",active=self.active,halted=self.halted,
-                cards=list(CARDS),opening_page_runs_models=False,budget_enforced=False,repeatable=True)
+                cards=list(CARDS),opening_page_runs_models=False,budget_enforced=False,repeatable=True,
+                ready=self.prepared and not self.halted and not self.closing,
+                preparation=dict(phase=self.preparation_phase))
+
+    def prepare(self):
+        """Operator opt-in; no presentation card, pair, counter or external review."""
+        with self.lock:
+            if self.closing or self.halted or self.active:raise RuntimeError("live_session_busy_halted_or_closing")
+            if self.preparation_future is None:
+                if not self.prepared:self.preparation_phase="queued"
+                self.preparation_future=self.worker.submit(self._prepare)
+            return self.preparation_future
+
+    def _prepare(self, job=None):
+        # Called only on the same worker that owns every later measured lane.
+        if self.prepared:return
+        standalone=job is None
+        if standalone:
+            job=Job(self.session_directory/"preparation",dict(slot="preparation",card=None,order=[]),uuid4().hex)
+            job.update(kind="preparation",lanes={},metrics_note="Startup checks only; outside presentation-card timing.")
+        self.preparation_job=job
+        with self.lock:self.preparation_phase="preparing"
+        job.update(phase="startup")
+        try:
+            self.runtime=self.runtime_factory(self.plan,self.usage,self.session_directory)
+            self.runtime.open(job)
+            with self.lock:
+                self.prepared=True;self.preparation_phase="ready"
+            if standalone:job.update(phase="completed")
+        except Exception as exc:
+            with self.lock:self.preparation_phase="failed";self.halted=True
+            if standalone:self._fail(job,exc,stage="preparation")
+            raise
 
     def start(self, card, request_id):
         if card not in CARDS or not re.fullmatch(r"[0-9a-f]{32}",request_id): raise ValueError("invalid_card_or_request_id")
@@ -116,6 +149,8 @@ class Controller:
                 if existing.data["card"]!=card:raise ValueError("idempotency_key_conflict")
                 return existing
             if self.closing or self.halted or self.active: raise RuntimeError("live_session_busy_halted_or_closing")
+            if self.preparation_future is not None and not self.preparation_future.done():
+                raise RuntimeError("demo_preparation_in_progress")
             slot=make_pair(card,request_id,self.repeats[card]);self.repeats[card]+=1
             job=Job(self.jobs_directory/request_id,slot,request_id)
             private(job.directory/"protocol.json",dict(protocol_sha256=digest(self.plan),pair=slot,budget_enforced=False))
@@ -125,10 +160,7 @@ class Controller:
 
     def _execute(self,job,slot):
         try:
-            if self.runtime is None:
-                job.update(phase="startup")
-                self.runtime=self.runtime_factory(self.plan,self.usage,self.session_directory)
-                self.runtime.open(job)
+            if not self.prepared:self._prepare(job)
             job.update(phase="running")
             records=[]
             for arm in slot["order"]:
@@ -140,19 +172,22 @@ class Controller:
             job.update(phase="external_review")
             job.update(external_review=self.runtime.review(job,slot,records),phase="completed")
         except Exception as exc:
-            self.halted=True
-            code=str(exc) if str(exc) in ERROR_MESSAGES else None
-            message=ERROR_MESSAGES.get(code,"The run stopped after a runtime error. Inspect server logs and retained evidence before restarting.")
-            for arm,data in job.snapshot()["lanes"].items():
-                if data["phase"]=="running":job.lane(arm,phase="failed")
-            private(job.directory/"failure.json",dict(error=type(exc).__name__,error_code=code,
-                error_message=message,partial_lanes=job.snapshot()["lanes"]))
-            job.update(phase="failed",error=type(exc).__name__,error_code=code,error_message=message)
-            job.emit("system",dict(stage="run",phase="failed",error=type(exc).__name__))
+            self._fail(job,exc)
         finally:
             with self.lock:
                 self.active=None
                 self.jobs.pop(job.data["id"],None)  # Completed history is read from disk, not held forever.
+
+    def _fail(self,job,exc,*,stage="run"):
+        with self.lock:self.halted=True
+        code=str(exc) if str(exc) in ERROR_MESSAGES else None
+        message=ERROR_MESSAGES.get(code,"The run stopped after a runtime error. Inspect server logs and retained evidence before restarting.")
+        for arm,data in job.snapshot()["lanes"].items():
+            if data["phase"]=="running":job.lane(arm,phase="failed")
+        private(job.directory/"failure.json",dict(error=type(exc).__name__,error_code=code,
+            error_message=message,partial_lanes=job.snapshot()["lanes"]))
+        job.update(phase="failed",error=type(exc).__name__,error_code=code,error_message=message)
+        job.emit("system",dict(stage=stage,phase="failed",error=type(exc).__name__))
 
     def get(self, request_id):
         if not re.fullmatch(r"[0-9a-f]{32}",request_id): raise KeyError("unknown_run")
@@ -162,7 +197,9 @@ class Controller:
         return Job.load(path)
 
     def close(self):
-        with self.lock: self.closing=True
+        with self.lock:
+            if self.closing:return
+            self.closing=True
         # Do not kill effectful work because a browser disconnects/server closes.
         def cleanup():
             if self.runtime is not None: self.runtime.close()
@@ -170,3 +207,4 @@ class Controller:
         finally:
             self.worker.shutdown(wait=True)
             self.owner_lock.close()
+            self.preparation_phase="closed"

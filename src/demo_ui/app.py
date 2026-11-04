@@ -1,4 +1,4 @@
-"""Authenticated loopback UI. Only an explicit, idempotent Run POST dispatches work."""
+"""Authenticated loopback UI. Presentation cards require an explicit idempotent Run POST."""
 import asyncio
 from contextlib import asynccontextmanager
 import hmac

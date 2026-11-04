@@ -212,6 +212,9 @@ Then follow the appropriate guide:
   real-time observations, golden checks and guardrail/component timings. Live clicks
   are repeatable without allocations or spending budgets. Gemini provider charges
   still apply; enable the store's repeatable-demo mode once as documented.
+  Start with `uv run --locked --env-file .env python -m src.demo_ui --prepare`
+  before the audience arrives and wait for **Demo ready** to move startup checks
+  ahead of the first presentation card.
 - **[Run the full test](docs/validation.md#run-the-full-live-comparison):** larger
   three-workflow A/B protocol, separate from the complete offline test suite.
 

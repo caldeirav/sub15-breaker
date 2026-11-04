@@ -24,6 +24,9 @@ try{
   if(!live&&!status.fixture)throw new Error("Fixture verification refuses a live backend");
   if(live&&status.fixture)throw new Error("Live verification refuses fixture evidence");
   if(!status.repeatable||status.budget_enforced)throw new Error("Expected repeatable demo without budget gates");
+  const preparedBeforeFirstRun=status.ready===true;
+  if(args.includes("--expect-prepared")&&!preparedBeforeFirstRun)throw new Error("UI was not prepared before serving");
+  if(preparedBeforeFirstRun&&!(await page.locator("#run-note").textContent()).includes("Demo ready"))throw new Error("Prepared UI did not report ready");
   for(const card of ["D01","D02","D03","D04","D05"]){
     await page.locator(`button[data-card="${card}"]`).click();
   }
@@ -38,7 +41,7 @@ try{
     ]);
     if(response.status()!==202)throw new Error(`Run rejected: ${response.status()}`);
     const initial=await response.json();
-    if(!live&&results.length===0){
+    if(!live&&!preparedBeforeFirstRun&&results.length===0){
       for(const arm of ["classifier","llm"]){
         await page.locator(`#${arm} .result`).filter({hasText:"Latest startup observation:"}).waitFor();
         if(await page.locator(`#${arm} .lane-status`).textContent()!=="Startup")throw new Error("Startup lane is still labelled waiting");
@@ -61,6 +64,7 @@ try{
       const text=await fetch(`/api/live/runs/${id}/events`).then(r=>r.text());
       return text.split("\n").filter(line=>line.startsWith("data: ")).map(line=>JSON.parse(line.slice(6))).filter(row=>row.sequence);
     },initial.id);
+    if(preparedBeforeFirstRun&&events.some(e=>["startup","setup"].includes(e.lane)))throw new Error("Prepared card repeated startup checks");
     if(events.some((e,i)=>e.sequence!==i+1))throw new Error("Event sequence gap/duplication");
     const first=events.map((e,i)=>[e,i]).filter(([e])=>e.lane===result.order[0]).map(([,i])=>i);
     const second=events.map((e,i)=>[e,i]).filter(([e])=>e.lane===result.order[1]).map(([,i])=>i);
@@ -88,7 +92,7 @@ try{
   if(!await page.evaluate(()=>["A","BUTTON","INPUT","SUMMARY"].includes(document.activeElement.tagName)))throw new Error("Keyboard navigation unavailable");
   if(errors.length)throw new Error(`Browser script errors: ${errors.join("; ")}`);
   writeFileSync(`${output}/proof.json`,JSON.stringify({passed:true,mode:live?"live":"explicit_offline_fixture",noRunBeforeClick,
-    explicitRunPosts:before,repeatVerified:true,armsSequential:true,responsiveKeyboardChecks:true,pageErrors:errors,
+    explicitRunPosts:before,preparedBeforeFirstRun,repeatVerified:true,armsSequential:true,responsiveKeyboardChecks:true,pageErrors:errors,
     runIds:results.map(r=>r.id),script_sha256:createHash("sha256").update(readFileSync(new URL(import.meta.url))).digest("hex")},null,2));
   console.log(`Browser checks passed (${live?"live":"offline fixture"}): six explicit runs including a repeat, sequential lanes, no auto execution, desktop/mobile, keyboard, no JS errors. ${output}`);
 }finally{await browser.close();}
