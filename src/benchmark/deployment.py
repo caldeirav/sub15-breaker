@@ -206,8 +206,9 @@ def native_hook(cluster,directory,host_ip,port,*,timeout_seconds=25):
 def gateway_forward(cluster,directory,*,admin=False):
     with socket.socket() as sock:sock.bind(("127.0.0.1",0));port=sock.getsockname()[1]
     log=(Path(directory)/"gateway-forward.log").open("w")
+    Path(log.name).chmod(0o600)
     process=subprocess.Popen(["kubectl","--kubeconfig",str(cluster.kubeconfig),"--context",cluster.context,
-        "port-forward","-n",NAMESPACE,("deployment/" if admin else "service/")+GATEWAY,f"{port}:{15000 if admin else 8080}","--address=127.0.0.1"],env=environment(),stdout=log,stderr=subprocess.STDOUT)
+        "port-forward","-n",NAMESPACE,("deployment/" if admin else "service/")+GATEWAY,f"{port}:{15000 if admin else 8080}","--address=127.0.0.1"],env=environment(),stdout=log,stderr=subprocess.STDOUT,start_new_session=True)
     try:
         deadline=time.monotonic()+20
         while True:

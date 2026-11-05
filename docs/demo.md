@@ -58,7 +58,8 @@ allocation, spending budget or per-card run count** in the live UI.
    Never connect real banks, real payment credentials or a shell executor.
 5. Manually start LM Studio and load the approved cached model with context8192.
    Start MLflow once with the [documented backend/artifact paths](../README.md#run-locally)
-   if this installation has no tracking database yet. On the existing installation:
+   if this installation has no tracking database yet. Use the restart launcher
+   below on the existing installation. For **service-only/manual** management:
 
 ```bash
 bash scripts/demo_stack.sh start
@@ -69,6 +70,117 @@ The service manager resumes only owned installed services, checks the model with
 generation and renews scoped driver credentials. It does not start a live case,
 prime the classifier or run Gemini. It will not download/build a missing stack or
 replace old data. Use the setup guide, not `destroy`, to resolve prerequisites.
+
+### Restart after a reboot — one command
+
+**Setup once, restart many times.** The launcher uses the existing installation;
+it is not an installer and never builds images, creates a VM/cluster, downloads
+models, resets a store or replays historical work. A new installation still needs
+steps1–5 above, including banking deployment **before** managed route setup. An
+older installation needs the explicit [store upgrade below](#one-time-upgrade-of-the-existing-banking-store)
+only if repeatable-demo mode is not already installed.
+
+Enroll the installed configuration once (metadata verification only):
+
+```bash
+# Preserve the existing file/credentials; make it private if needed.
+chmod 600 .env
+bash scripts/run_demo.sh --setup --provider-config user \
+  --machine podman-machine-default
+```
+
+`--provider-config user` explicitly records `~/.config` and `~/.local/share` for
+the stack's tool environment. Use `current` instead for an intentionally
+customized XDG installation. This resolves inherited alternate-XDG discovery
+without changing your shell, global configuration or default Podman connection.
+The selected connection must already match the owned cluster fingerprint. An
+empty machine/connection list is **not** permission to recreate the installation.
+
+The private `.infra/demo-stack/installation.json` records the approved existing
+machine identity, provider roots, versions, metadata/artifact hashes, local
+endpoints and retained tracking-storage identity. It authorizes starting that
+existing VM only; **LM Studio and its model remain check-only**. No secret values
+are stored in the profile. A changed image/model/version/storage/profile fails
+closed. After an intentional reviewed upgrade, archive the old installation
+profile (do not remove lifecycle `state.json`) and explicitly enroll again.
+The current serving pin is MLX **1.14.0**, owner-approved for issue68; older
+1.13.1 results remain historical, not automatically requalified.
+
+After a reboot:
+
+1. Start LM Studio and its HTTP server yourself; load the exact cached Qwen
+   MLX4-bit model with context8192. The launcher checks the app **and mapped
+   runtime**, loaded model, context and idle status; it never starts, unloads,
+   reloads or changes shared model settings. Busy/unobserved state is a blocker.
+2. Run **one command** from this checkout:
+
+```bash
+bash scripts/run_demo.sh             # serve UI; no startup inference
+# OR, explicitly do real local preparation before serving:
+bash scripts/run_demo.sh --prepare
+```
+
+Both modes validate the existing locked Python environment without syncing or
+installing. Independent configuration/model/provider/port/asset blockers are
+reported before starting services. The launcher starts the recorded stopped
+rootful VM, resumes immutable owned registry/Kind containers, starts or borrows
+compatible MLflow, waits for installed Kubernetes/service rollouts, renews driver
+JWTs, verifies repeatable mode/routes/host-forwarding address and quiescence,
+then serves **http://127.0.0.1:8091**. No saved replay service is required.
+Progress is printed while rollouts wait; the per-stage timeout defaults to180s
+and is recorded at enrollment. There are no automatic inference retries.
+
+**Readiness is deliberately distinct:** enrollment means installed/configured;
+service readiness means dependencies only; UI-listening means the page is
+available; **Demo ready** means actual local preparation succeeded. Without
+`--prepare`, the first explicit Run click performs preparation. With it, the
+existing probes/priming, six native controls and two canaries create synthetic
+setup evidence, but no D01–D05 card and **no Gemini call**. Gemini2.5Flash is
+pinned by the live runtime, not overridden by `MLFLOW_GENAI_JUDGE_DEFAULT_MODEL`;
+its credential is checked for presence only, not validated through a paid call.
+`LITELLM_LOCAL_MODEL_COST_MAP=True` defaults before runtime imports.
+
+Unlock using the separate private `.infra/live-demo-ui/ui.token` file; the
+launcher prints its location, never the capability. Private service logs are in
+`.infra/demo-stack/logs/`, launcher phase in `.infra/demo-stack/launcher-status.json`,
+and UI/preparation evidence in `.infra/live-demo-ui/sessions/`. The terminal
+remains the UI supervisor. Navigation/unlock/status never run a card.
+
+```bash
+bash scripts/run_demo.sh --status    # read-only JSON; no inference or renewal
+```
+
+A stopped VM blocks downstream checks explicitly rather than producing unrelated
+Kubernetes failures. Status does not equate a listening UI with prepared readiness.
+While the UI owns its session, status reports `ui_listening` or
+`startup_or_cleanup` and defers independent checks: temporary UI-owned templates
+and a legitimately busy model are not misdiagnosed as installation drift. Check
+the UI's own preparation panel for **Demo ready**.
+The launcher holds lifecycle and UI locks for its entire session: a second
+launcher/service start/stop cannot mutate routes underneath it, and a direct UI
+cannot race startup. Stop the UI with **Ctrl-C**, allow active work/reconciliation
+and native-hook restoration to finish. Services are retained for quick reuse.
+Only afterwards, optionally run `bash scripts/demo_stack.sh stop`; it stops only
+manager-owned resources and always preserves borrowed services, VM, LM Studio,
+database/PVC/receipts/artifacts/history. The VM is never automatically stopped.
+VM helpers, in-flight infrastructure commands and owned port-forwards use
+separate process sessions so terminal Ctrl-C cannot kill dependencies before
+final evidence readback/restoration. A cleanup error is retained in the private
+session's `cleanup-failure.json` and propagates as a launcher failure, not success.
+
+Host boot identities distinguish a real reboot from PID reuse. After a proven
+reboot, prior ownership records are archived in `.infra/demo-stack/recovery/`;
+immutable container IDs are reverified, externally auto-restarted containers are
+**borrowed**, not claimed for shutdown. Legacy process records are upgraded only
+after their live PID/start/command matches. Same-boot external restarts, ambiguous
+interrupted starts, replaced IDs and legacy reused PIDs still fail closed: inspect
+the retained private records, do not delete state or broadly adopt/kill resources.
+A failed/partial startup retains ownership/logs for inspection and safe service
+stop; it does not blindly roll back data or fence Actors. A changed host-forwarding
+address requires reviewed route reconfiguration and re-enrollment, not automatic
+route replacement. Functional startup is not the two-hour reliability claim (#39).
+See [issue68 startup/shutdown validation](../validation/demo-restart-68.md) for actual
+test outcomes and the remaining physical-reboot acceptance check.
 
 ### One-time upgrade of the existing banking store
 

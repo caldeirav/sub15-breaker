@@ -49,23 +49,33 @@ def require_owned_resources(cluster):
                 raise RuntimeError("Refusing to overwrite an unowned banking resource")
 
 
+class StoreNotReady(RuntimeError):
+    """Transient observed readiness, distinct from ownership/image/config drift."""
+
+
 def verify_store_rollout(deployment,pods,image):
     status=deployment.get("status",{})
-    if (deployment["spec"].get("replicas")!=1 or status.get("observedGeneration")!=deployment["metadata"]["generation"] or
+    if deployment["spec"].get("replicas")!=1:
+        raise RuntimeError("Store must retain exactly one configured replica")
+    if (status.get("observedGeneration")!=deployment["metadata"]["generation"] or
             any(status.get(key)!=1 for key in ("replicas","updatedReplicas","readyReplicas","availableReplicas"))):
-        raise RuntimeError("Store rollout is incomplete or unobserved")
+        raise StoreNotReady("Store rollout is incomplete or unobserved")
     if len(pods)!=1:raise RuntimeError("Store selector does not identify exactly one serving pod")
     pod=pods[0]
-    if (pod["metadata"].get("deletionTimestamp") or not pod["metadata"].get("uid") or
-            any(pod["metadata"].get("labels",{}).get(k)!=v for k,v in LABELS.items()) or
+    if (not pod["metadata"].get("uid") or
+            any(pod["metadata"].get("labels",{}).get(k)!=v for k,v in LABELS.items())):
+        raise RuntimeError("Observed store pod is not owned")
+    if (pod["metadata"].get("deletionTimestamp") or
             pod.get("status",{}).get("phase")!="Running" or
             not any(c.get("type")=="Ready" and c.get("status")=="True" for c in pod["status"].get("conditions",[]))):
-        raise RuntimeError("Observed store pod is not owned and ready")
+        raise StoreNotReady("Observed store pod is not ready")
     statuses=[s for s in pod["status"].get("containerStatuses",[]) if s["name"]=="store"]
     containers=[c for c in pod["spec"]["containers"] if c["name"]=="store"]
-    if (len(statuses)!=1 or len(containers)!=1 or statuses[0].get("ready") is not True or
+    if (len(statuses)!=1 or len(containers)!=1 or
             containers[0]["image"]!=image or statuses[0].get("imageID","").split("@")[-1]!=image.split("@")[-1]):
         raise RuntimeError("Observed serving store image differs from validated image")
+    if statuses[0].get("ready") is not True:
+        raise StoreNotReady("Observed store container is not ready")
     return pod
 
 
@@ -275,7 +285,8 @@ class Deployment:
             if actor else ["kubectl","--kubeconfig",str(self.cluster.kubeconfig),"--context",self.cluster.context,
                 "port-forward","-n",NAMESPACE,target,f"{port}:{remote_port}","--address=127.0.0.1"])
         log=(DIRECTORY/f"forward-{port}.log").open("w")
-        process=subprocess.Popen(argv,env=environment(),stdout=log,stderr=subprocess.STDOUT)
+        Path(log.name).chmod(0o600)
+        process=subprocess.Popen(argv,env=environment(),stdout=log,stderr=subprocess.STDOUT,start_new_session=True)
         try:
             deadline=time.monotonic()+30
             while True:

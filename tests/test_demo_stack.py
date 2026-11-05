@@ -10,7 +10,7 @@ import sys
 
 import pytest
 
-from src.infra.demo_stack import Config, HostProcesses, Manager, System, local_endpoint, private_json, validate_model_backend
+from src.infra.demo_stack import Config, HostProcesses, Manager, System, canonical_boot, local_endpoint, operator_lease, private_json, validate_model_backend
 
 
 class FakeSystem:
@@ -40,6 +40,9 @@ class FakeSystem:
 
     def owner(self):
         return dict(project="sub15-breaker")
+
+    def provider_ready(self):
+        return dict(ready=True)
 
     def containers(self):
         return deepcopy(list(self.rows.values()))
@@ -84,7 +87,7 @@ class FakeProcesses:
         actual = self.live.get(record["pid"])
         if actual is None:
             return False
-        if actual != record:
+        if {k: v for k, v in actual.items() if k != "boot_id"} != {k: v for k, v in record.items() if k != "boot_id"}:
             raise RuntimeError("PID reused; refusing to signal.")
         return True
 
@@ -436,3 +439,158 @@ def test_shell_entry_point_checks_existing_environment_and_never_installs(tmp_pa
     assert result.returncode == 0
     assert log.read_text().splitlines() == ["lock --check", "sync --locked --check",
         "run --locked --no-sync python -m src.infra.demo_stack status --json"]
+
+
+def test_proven_reboot_retires_old_ownership_but_never_adopts_running_containers(stack, monkeypatch):
+    manager, system, processes = stack
+    monkeypatch.setattr("src.infra.demo_stack.boot_id", lambda: "old-boot")
+    node = system.rows["breaker-substrate-control-plane"]
+    node["State"]["Running"] = False
+    manager.start()
+    previous = manager.path.read_bytes()
+    monkeypatch.setattr("src.infra.demo_stack.boot_id", lambda: "new-boot")
+    node["State"]["StartedAt"] = "provider-autostart"
+    assert manager.start()["ready"]
+    assert manager.state()["containers"] == {}
+    assert next((manager.config.directory / "recovery").glob("*.json")).read_bytes() == previous
+    manager.stop()
+    assert node["State"]["Running"]  # Restarted externally, now borrowed.
+    assert not processes.stopped
+
+
+def test_reboot_does_not_bypass_replaced_container_identity(stack, monkeypatch):
+    manager, system, _ = stack
+    monkeypatch.setattr("src.infra.demo_stack.boot_id", lambda: "old-boot")
+    system.rows["kind-registry"]["State"]["Running"] = False
+    manager.start()
+    before = manager.path.read_bytes()
+    monkeypatch.setattr("src.infra.demo_stack.boot_id", lambda: "new-boot")
+    system.rows["kind-registry"]["Id"] = "replacement"
+    with pytest.raises(RuntimeError, match="replaced across reboot"):
+        manager.start()
+    assert manager.path.read_bytes() == before
+
+
+def test_process_from_prior_boot_is_not_inspected_or_signalled(monkeypatch):
+    processes = HostProcesses()
+    monkeypatch.setattr("src.infra.demo_stack.boot_id", lambda: "new-boot")
+    monkeypatch.setattr(processes, "identity", lambda pid: pytest.fail("must not inspect a reused post-reboot PID"))
+    monkeypatch.setattr(os, "killpg", lambda *a: pytest.fail("must not signal a post-reboot PID"))
+    processes.stop(dict(pid=123, boot_id="old-boot"))
+
+
+def test_status_explains_blocked_provider_dependency_chain(stack, monkeypatch):
+    manager, system, processes = stack
+    monkeypatch.setattr(system, "provider_ready", lambda: (_ for _ in ()).throw(RuntimeError("Recorded VM stopped")))
+    monkeypatch.setattr(system, "containers", lambda: pytest.fail("downstream check should be blocked"))
+    monkeypatch.setattr(system, "services", lambda **kw: pytest.fail("downstream check should be blocked"))
+    result = manager.status()
+    assert not result["ready"]
+    assert result["services"]["containers"]["blocked_by"] == "provider"
+    assert result["services"]["cluster_services"]["blocked_by"] == "containers"
+    assert result["services"]["model"]["ready"] and result["services"]["artifact"]["ready"]
+    assert not processes.launched
+
+
+def test_vm_helpers_do_not_inherit_the_ui_ctrl_c_process_group(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    calls = []
+    def run(argv, **kwargs):
+        calls.append((argv, kwargs))
+        return SimpleNamespace(stdout="{}")
+    monkeypatch.setattr(subprocess, "run", run)
+    system = System(Config(root=tmp_path))
+    system.command("podman", "machine", "start", "retained")
+    system.command("podman", "info", "--format", "json")
+    assert calls[0][1]["start_new_session"] is True
+    assert calls[1][1]["start_new_session"] is False
+
+
+def test_resumed_store_waits_for_actual_readiness_without_retrying_ownership_errors(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from src.banking_service.deploy import StoreNotReady
+    system = System(Config(root=tmp_path, timeout=1))
+    observations = [StoreNotReady("resuming"), None]
+    def verify(manifest):
+        result = observations.pop(0)
+        if result: raise result
+    deployment = SimpleNamespace(verify_deployment=verify)
+    monkeypatch.setattr("src.infra.demo_stack.time.sleep", lambda seconds: None)
+    system.verify_banking(deployment, {}, wait=True)
+    assert observations == []
+    observations[:] = [RuntimeError("foreign store"), None]
+    with pytest.raises(RuntimeError, match="foreign store"):
+        system.verify_banking(deployment, {}, wait=True)
+    assert observations == [None]
+    observations[:] = [StoreNotReady("resuming"), None]
+    with pytest.raises(RuntimeError, match="not ready after restart"):
+        system.verify_banking(deployment, {}, wait=False)
+    assert observations == [None]
+
+
+def test_old_boot_process_records_are_archived_without_claiming_new_listener(stack, monkeypatch):
+    manager, system, processes = stack
+    state = manager.state()
+    state["boot_id"] = "old-boot"
+    state["processes"]["mlflow"] = dict(pid=1000, pgid=1000, started="old", command_sha256="old",
+                                        boot_id="old-boot", endpoint_port=5001)
+    manager.save(state)
+    processes.live[1000] = dict(pid=1000, started="unrelated-new-boot-process")
+    monkeypatch.setattr("src.infra.demo_stack.boot_id", lambda: "new-boot")
+    assert manager.start()["ready"]
+    assert manager.state()["processes"] == {}
+    assert not processes.launched and not processes.stopped
+    assert len(list((manager.config.directory / "recovery").glob("*.json"))) == 1
+
+
+def test_timezone_changes_do_not_authorize_false_reboot_recovery():
+    first = "{ sec = 1790000000, usec = 123 } Mon Sep 21 12:00:00 2026"
+    second = "{ sec = 1790000000, usec = 123 } Mon Sep 21 20:00:00 2026"
+    assert canonical_boot(first) == canonical_boot(second) == "darwin:1790000000:123"
+
+
+def test_service_only_start_and_stop_cannot_race_even_a_deferred_direct_ui(stack):
+    manager, system, processes = stack
+    with operator_lease(manager.config.root):
+        with pytest.raises(RuntimeError, match="already running"):
+            manager.start()
+        with pytest.raises(RuntimeError, match="already running"):
+            manager.stop()
+    assert not system.calls and not processes.launched and not processes.stopped
+
+
+def test_runtime_forwarders_survive_ctrl_c_until_owned_cleanup(tmp_path, monkeypatch):
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+    from src.banking_service import deploy
+    from src.benchmark.deployment import gateway_forward
+    calls = []
+    class Child:
+        def poll(self): return None
+        def terminate(self): calls.append("terminate")
+        def wait(self, **kwargs): return 0
+    def popen(argv, **kwargs):
+        assert kwargs["start_new_session"] is True
+        calls.append(argv)
+        return Child()
+    monkeypatch.setattr(subprocess, "Popen", popen)
+    monkeypatch.setattr(deploy, "DIRECTORY", tmp_path)
+    monkeypatch.setattr(deploy.httpx, "Client", lambda **kwargs: nullcontext(SimpleNamespace(get=lambda url: SimpleNamespace(status_code=200))))
+    monkeypatch.setattr("src.benchmark.deployment.socket.create_connection", lambda *a, **kw: nullcontext())
+    deployment = object.__new__(deploy.Deployment)
+    deployment.cluster = SimpleNamespace(kubeconfig=tmp_path / "kubeconfig", context="fixture")
+    with deployment.forward("service/banking-store"):
+        assert "terminate" not in calls
+    assert calls[-1] == "terminate"
+    with gateway_forward(deployment.cluster, tmp_path):
+        assert len(calls) == 3
+    assert calls[-1] == "terminate"
+
+
+def test_inflight_infra_commands_are_not_signalled_by_ui_ctrl_c(monkeypatch):
+    from types import SimpleNamespace
+    from src.infra.common import run
+    calls = []
+    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: calls.append(kw) or SimpleNamespace(stdout=""))
+    run(["kubectl", "fixture"], capture=True)
+    assert calls[0]["start_new_session"] is True
