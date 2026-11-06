@@ -20,7 +20,7 @@
   "manual_release_checks": [
     "Go: https://go.dev/dl/?mode=json; reviewed go1.27.3",
     "LM Studio: official stable changelog; reviewed app 0.4.28+2",
-    "MLX: stable listing plus LM Studio process mapping of the versioned libllm_engine.dylib; reviewed mapped runtime 1.13.1",
+    "MLX: owner-approved profile evolution to 1.14.0 on 2026-11-05 (#68); verify mapped libllm_engine.dylib and live preparation separately. Historical 1.13.1 evidence is not requalified by this pin change.",
     "Bundled Substrate runtime/storage/telemetry images: release source and actual digests; do not upgrade components independently without compatibility tests",
     "MLflow: actual configured /version and historical-run readback; reviewed 3.17.2"
   ]

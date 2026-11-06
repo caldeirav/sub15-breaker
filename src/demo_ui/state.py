@@ -76,10 +76,10 @@ class Job:
 
 class Controller:
     """One worker owns global hook/bridge configuration. Each arm runs in order."""
-    def __init__(self, plan, directory, runtime_factory):
+    def __init__(self, plan, directory, runtime_factory, *, owner_lock=None):
         self.plan=plan
         self.directory=Path(directory); self.directory.mkdir(parents=True, exist_ok=True, mode=0o700)
-        self.owner_lock=(self.directory/"operator.lock").open("a")
+        self.owner_lock=owner_lock or (self.directory/"operator.lock").open("a")
         try:fcntl.flock(self.owner_lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
         except BlockingIOError:
             self.owner_lock.close();raise RuntimeError("demo_already_open_in_another_ui") from None
@@ -88,7 +88,7 @@ class Controller:
         self.usage=UsageLog(self.session_directory/"usage")
         self.runtime_factory=runtime_factory; self.runtime=None
         self.lock=threading.RLock(); self.worker=ThreadPoolExecutor(max_workers=1,thread_name_prefix="live-demo")
-        self.jobs={}; self.active=None; self.halted=False; self.closing=False
+        self.jobs={}; self.active=None; self.halted=False; self.closing=False; self.close_error=None
         self.prepared=False;self.preparation_phase="not_started";self.preparation_job=None;self.preparation_future=None
         self.repeats=dict.fromkeys(CARDS,0)
         # Old jobs remain readable; a restart NEVER reissues their work. Runtime
@@ -198,12 +198,19 @@ class Controller:
 
     def close(self):
         with self.lock:
-            if self.closing:return
+            if self.closing:
+                if self.close_error:raise RuntimeError("live_cleanup_failed_inspect_private_evidence")
+                return
             self.closing=True
         # Do not kill effectful work because a browser disconnects/server closes.
         def cleanup():
             if self.runtime is not None: self.runtime.close()
         try:self.worker.submit(cleanup).result()
+        except Exception as exc:
+            self.close_error=type(exc).__name__
+            private(self.session_directory/"cleanup-failure.json",dict(error=self.close_error,
+                message="Cleanup failed; inspect retained evidence before restarting. No automatic work replay."))
+            raise RuntimeError("live_cleanup_failed_inspect_private_evidence") from None
         finally:
             self.worker.shutdown(wait=True)
             self.owner_lock.close()

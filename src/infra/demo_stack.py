@@ -29,6 +29,38 @@ CLUSTER = "breaker-substrate"
 RUNTIME_PORTS = (8172, 8173)
 
 
+def boot_id():
+    """Host boot identity, not wall time or a PID that can be reused after reboot."""
+    if sys.platform == "darwin":
+        return canonical_boot(subprocess.check_output(["sysctl", "-n", "kern.boottime"], text=True, timeout=5).strip())
+    return Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+
+
+def canonical_boot(value):
+    # sysctl appends a timezone/locale-dependent human date. It is NOT part of
+    # kernel identity; changing timezone must never authorize ownership recovery.
+    match = re.search(r"\bsec\s*=\s*(\d+),\s*usec\s*=\s*(\d+)", value)
+    return f"darwin:{match[1]}:{match[2]}" if match else value
+
+
+@contextmanager
+def operator_lease(root):
+    directory = root / ".infra/live-demo-ui"
+    require(not directory.is_symlink(), "Refusing a symlinked demo directory.")
+    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    require(directory.stat().st_uid == os.getuid() and not directory.stat().st_mode & 0o077,
+            "UI directory must be private (0700) and owned by this user.")
+    path = directory / "operator.lock"
+    require(not path.is_symlink(), "Refusing a symlinked UI lock.")
+    with path.open("a") as stream:
+        path.chmod(0o600)
+        try:
+            fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise RuntimeError("Live UI already running; use http://127.0.0.1:8091. No dependencies changed.") from None
+        yield stream
+
+
 def require(condition, message):
     if not condition:
         raise RuntimeError(message)
@@ -133,6 +165,8 @@ class HostProcesses:
                     command_sha256=hashlib.sha256(fields[6].encode()).hexdigest())
 
     def check(self, record):
+        if record.get("boot_id") and canonical_boot(record["boot_id"]) != boot_id():
+            return False
         actual = self.identity(record.get("pid"))
         if actual is None:
             return False
@@ -154,7 +188,7 @@ class HostProcesses:
             child.terminate()
             child.wait(timeout=5)
             raise RuntimeError("Could not establish owned server process identity; inspect its private log.")
-        return dict(record, log=str(log))
+        return dict(record, log=str(log), boot_id=boot_id())
 
     def stop(self, record):
         if not self.check(record):
@@ -179,7 +213,10 @@ class System:
         # Do not echo inspection payloads, raw errors, environment or credentials.
         try:
             result = subprocess.run(list(map(str, args)), cwd=self.config.root, env=environment(),
-                                    text=True, capture_output=True, check=True, timeout=timeout)
+                                    text=True, capture_output=True, check=True, timeout=timeout,
+                                    # krunkit/gvproxy inherit this group. A later UI
+                                    # Ctrl-C must not signal the shared VM helpers.
+                                    start_new_session=args[:3] == ("podman", "machine", "start"))
         except (OSError, subprocess.SubprocessError) as exc:
             raise RuntimeError(f"{args[0]} operation failed ({type(exc).__name__}); inspect the existing service, not its secret payloads.") from None
         return result.stdout
@@ -213,7 +250,8 @@ class System:
             "model_id", "policy_id", "calibration_set_id", "temperature", "threshold", "input_version")})
         require(bound.model_id == value["model_id"] and bound.policy_id == POLICY_ID,
                 "Classifier calibration does not match the verified model/policy.")
-        return dict(ready=True, model_id=value["model_id"], weights_loaded=False, priming_forwards=0)
+        return dict(ready=True, model_id=value["model_id"], weights_loaded=False, priming_forwards=0,
+                    manifest_sha256=hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest())
 
     def owner(self):
         path = self.config.root / ".infra/clusters" / CLUSTER / "owner.json"
@@ -224,8 +262,10 @@ class System:
         connections = json.loads(self.command("podman", "system", "connection", "list", "--format", "json"))
         provider = dict(default=[c["URI"] for c in connections if c.get("Default")],
                         host=os.getenv("CONTAINER_HOST", ""), connection=os.getenv("CONTAINER_CONNECTION", ""))
+        require(bool(connections),
+                "No Podman connections discovered. Check XDG_CONFIG_HOME/XDG_DATA_HOME; use the saved run_demo profile, not machine creation.")
         require(hashlib.sha256(json.dumps(provider, sort_keys=True).encode()).hexdigest() == owner["identity"]["provider_sha256"],
-                "Selected Podman connection differs from the recorded cluster provider.")
+                "Selected Podman connection differs from the recorded cluster provider. Check configuration roots; do not switch/adopt providers.")
         return owner
 
     def ensure_provider(self):
@@ -253,6 +293,18 @@ class System:
                 and info["host"].get("security", {}).get("rootless") is False,
                 "The installed demo requires its reviewed rootful cgroup-v2 provider.")
         return owner
+
+    def provider_ready(self):
+        self.owner()
+        if self.config.machine:
+            rows = json.loads(self.command("podman", "machine", "inspect", self.config.machine))
+            require(len(rows) == 1 and rows[0].get("State") == "running",
+                    "Recorded Podman VM is stopped; run bash scripts/run_demo.sh to start the retained machine.")
+        info = json.loads(self.command("podman", "info", "--format", "json"))
+        require(info.get("host", {}).get("cgroupVersion") == "v2"
+                and info["host"].get("security", {}).get("rootless") is False,
+                "Selected provider is unreachable or not the owned rootful cgroup-v2 runtime.")
+        return dict(ready=True)
 
     def container(self, name):
         rows = json.loads(self.command("podman", "container", "inspect", name))
@@ -381,7 +433,7 @@ class System:
             if refresh:
                 deployment.refresh_credentials()
             self.check_driver_tokens()
-            deployment.verify_deployment(manifest)
+            self.verify_banking(deployment, manifest, wait=wait)
             require(cluster.get("persistentvolumeclaim", "banking-data", "-n", "breaker-banking")["status"]["phase"] == "Bound",
                     "Retained banking PVC is not bound; no storage replacement is performed.")
             profile = json.loads((self.config.root / ".infra/target-stack/profile.json").read_text())
@@ -403,6 +455,20 @@ class System:
         return dict(ready=True, scope="installed_services_only", credentials="renewed" if refresh else "checked",
                     per_run_bridge="created_by_demo", native_hook="installed_by_demo", classifier="deferred_until_authorized_demo")
 
+    def verify_banking(self, deployment, manifest, *, wait=False):
+        from src.banking_service.deploy import StoreNotReady
+        deadline = time.monotonic() + self.config.timeout
+        while True:
+            try:
+                deployment.verify_deployment(manifest)
+                return
+            except StoreNotReady:
+                # A resumed kubelet can invalidate stale rollout success after
+                # API startup. Poll observations only, never redeploy/retry work.
+                require(wait and time.monotonic() < deadline,
+                        "Banking store is not ready after restart; inspect pod readiness/events. No redeployment or data reset attempted.")
+                time.sleep(0.5)
+
     def quiescent(self):
         require(not any(port_open(port) for port in RUNTIME_PORTS), "A per-run bridge/native listener is active; stop the demo normally before stopping services.")
         from src.banking_service.deploy import Deployment
@@ -419,11 +485,12 @@ class System:
 
 
 class Manager:
-    def __init__(self, config, *, system=None, processes=None):
+    def __init__(self, config, *, system=None, processes=None, progress=None):
         config.validate()
         self.config = config
         self.system = system or System(config)
         self.processes = processes or HostProcesses()
+        self.progress = progress or (lambda phase: None)
         self.path = config.directory / "state.json"
 
     def state(self):
@@ -485,55 +552,91 @@ class Manager:
         return "started"
 
     def start(self):
-        with self.locked():
-            state = self.state()
-            # Catch missing model/artifact before starting anything else.
-            self.system.check_model()
-            self.system.check_artifact()
-            if self.config.review:
-                from src.benchmark.review_backend import ReviewStore
-                ReviewStore(self.config.bundle)
-            self.system.ensure_provider()
-            rows = self.system.containers()  # Verify ALL IDs before starting any node.
-            for row in rows:
-                name = row["Name"].lstrip("/")
-                previous = state["containers"].get(name)
-                if previous:
-                    require(previous["id"] == row["Id"], "Managed container was replaced; refusing adoption.")
-                    if row["State"]["Running"]:
-                        require(previous.get("started_at") == row["State"].get("StartedAt"),
-                                "Container restarted outside this manager; inspect its ownership before continuing.")
-                if not row["State"]["Running"]:
-                    state["containers"][name] = dict(id=row["Id"], status="starting")
-                    self.save(state)
-                    self.system.command("podman", "start", row["Id"], timeout=self.config.timeout)
-                    current = self.system.container(row["Id"])
-                    require(current["State"]["Running"], "Owned container did not start.")
-                    state["containers"][name] = dict(id=row["Id"], status="running", started_at=current["State"]["StartedAt"])
-                    self.save(state)
-            tracking_port = local_endpoint(self.config.tracking).port
-            if not self.system.tracking_ready():
-                require((self.config.root / "mlflow.db").is_file(), "Existing mlflow.db missing; refusing to create a new empty tracking store.")
-                require((self.config.root / ".infra/mlflow-artifacts").is_dir(),
-                        "Existing .infra/mlflow-artifacts missing; refusing to serve a new empty artifact history.")
-            tracking = self.server("mlflow", tracking_port, self.system.tracking_ready,
-                [sys.executable, "-m", "mlflow", "server", "--host", "127.0.0.1", "--port", str(tracking_port),
-                 "--backend-store-uri", "sqlite:///" + str((self.config.root / "mlflow.db").resolve()),
-                 "--artifacts-destination", str(self.config.root / ".infra/mlflow-artifacts")], state)
-            self.system.wait_api()
-            self.system.services(wait=True, refresh=True)
-            if self.config.review:
-                # Only generate the separate limited replay token, never model/platform secrets.
-                if not self.config.read_token.exists():
-                    import secrets
-                    fd = os.open(self.config.read_token, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-                    with os.fdopen(fd, "w") as stream:
-                        stream.write(secrets.token_urlsafe(32))
-                self.server("review-api", self.config.review_port, lambda: self.safe_review(),
-                    [sys.executable, "-m", "src.benchmark.review_backend", "--serve", str(self.config.bundle),
-                     "--port", str(self.config.review_port), "--token-file", str(self.config.read_token)], state)
-            state["last_start"] = dict(tracking=tracking, review_requested=self.config.review)
-            self.save(state)
+        with self.locked(), operator_lease(self.config.root):
+            return self.start_locked()
+
+    def recover_reboot(self, state):
+        """Retire ownership after a proven host reboot; never adopt restarted resources.
+
+        Immutable container identities are reverified before this is called. Running
+        containers become borrowed, so a later stop cannot claim their restart.
+        Legacy records without a boot identity remain fail-closed.
+        """
+        current = boot_id()
+        if state.get("boot_id") and canonical_boot(state["boot_id"]) != current:
+            for record in state["processes"].values():
+                require(record.get("boot_id") and canonical_boot(record["boot_id"]) == canonical_boot(state["boot_id"]),
+                        "Legacy process has no matching boot identity; inspect lifecycle state before recovery.")
+            rows = {row["Name"].lstrip("/"): row for row in self.system.containers()}
+            for name, record in state["containers"].items():
+                require(name in rows and rows[name]["Id"] == record["id"],
+                        "Container replaced across reboot; refusing recovery.")
+            private_json(self.config.directory / "recovery" / f"{uuid4().hex}.json", state)
+            state["processes"] = {}
+            state["containers"] = {}
+        elif not state.get("boot_id"):
+            # Upgrade old records only after matching the live PID/start/command.
+            # A reused PID is still an error, never evidence of a reboot.
+            for record in state["processes"].values():
+                if self.processes.check(record):
+                    record["boot_id"] = current
+        state["boot_id"] = current
+
+    def start_locked(self):
+        """Caller holds locked(), including throughout a supervised live UI session."""
+        state = self.state()
+        # Catch missing model/artifact before starting anything else.
+        self.system.check_model()
+        self.system.check_artifact()
+        if self.config.review:
+            from src.benchmark.review_backend import ReviewStore
+            ReviewStore(self.config.bundle)
+        self.progress("Starting/checking the recorded Podman VM")
+        self.system.ensure_provider()
+        rows = self.system.containers()  # Verify ALL IDs before starting any node.
+        self.recover_reboot(state)
+        self.progress("Resuming the owned registry and Kind node containers")
+        for row in rows:
+            name = row["Name"].lstrip("/")
+            previous = state["containers"].get(name)
+            if previous:
+                require(previous["id"] == row["Id"], "Managed container was replaced; refusing adoption.")
+                if row["State"]["Running"]:
+                    require(previous.get("started_at") == row["State"].get("StartedAt"),
+                            "Container restarted outside this manager; inspect its ownership before continuing.")
+            if not row["State"]["Running"]:
+                state["containers"][name] = dict(id=row["Id"], status="starting")
+                self.save(state)
+                self.system.command("podman", "start", row["Id"], timeout=self.config.timeout)
+                current = self.system.container(row["Id"])
+                require(current["State"]["Running"], "Owned container did not start.")
+                state["containers"][name] = dict(id=row["Id"], status="running", started_at=current["State"]["StartedAt"])
+                self.save(state)
+        self.progress("Starting/checking MLflow against retained storage")
+        tracking_port = local_endpoint(self.config.tracking).port
+        if not self.system.tracking_ready():
+            require((self.config.root / "mlflow.db").is_file(), "Existing mlflow.db missing; refusing to create a new empty tracking store.")
+            require((self.config.root / ".infra/mlflow-artifacts").is_dir(),
+                    "Existing .infra/mlflow-artifacts missing; refusing to serve a new empty artifact history.")
+        tracking = self.server("mlflow", tracking_port, self.system.tracking_ready,
+            [sys.executable, "-m", "mlflow", "server", "--host", "127.0.0.1", "--port", str(tracking_port),
+             "--backend-store-uri", "sqlite:///" + str((self.config.root / "mlflow.db").resolve()),
+             "--artifacts-destination", str(self.config.root / ".infra/mlflow-artifacts")], state)
+        self.progress("Waiting for Kubernetes API and installed service rollouts; renewing driver credentials")
+        self.system.wait_api()
+        self.system.services(wait=True, refresh=True)
+        if self.config.review:
+            # Only generate the separate limited replay token, never model/platform secrets.
+            if not self.config.read_token.exists():
+                import secrets
+                fd = os.open(self.config.read_token, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                with os.fdopen(fd, "w") as stream:
+                    stream.write(secrets.token_urlsafe(32))
+            self.server("review-api", self.config.review_port, lambda: self.safe_review(),
+                [sys.executable, "-m", "src.benchmark.review_backend", "--serve", str(self.config.bundle),
+                 "--port", str(self.config.review_port), "--token-file", str(self.config.read_token)], state)
+        state["last_start"] = dict(tracking=tracking, review_requested=self.config.review)
+        self.save(state)
         return self.status()
 
     def safe_review(self):
@@ -553,9 +656,16 @@ class Manager:
                 rows[name] = dict(ready=False, error_type=type(exc).__name__, message=str(exc) if isinstance(exc, RuntimeError) else "Read-only check failed; inspect local configuration/service.")
         check("model", self.system.check_model)
         check("artifact", self.system.check_artifact)
-        check("containers", lambda: self.running_containers())
+        check("provider", self.system.provider_ready)
+        if rows["provider"]["ready"]:
+            check("containers", lambda: self.running_containers())
+        else:
+            rows["containers"] = dict(ready=False, blocked_by="provider", message="Blocked by unavailable provider; no container checks attempted.")
         check("mlflow", self.system.tracking_ready)
-        check("cluster_services", self.system.services)
+        if rows["containers"]["ready"]:
+            check("cluster_services", self.system.services)
+        else:
+            rows["cluster_services"] = dict(ready=False, blocked_by="containers", message="Blocked by stopped/unavailable containers; no Kubernetes checks attempted.")
         check("lifecycle", self.lifecycle_ready)
         if self.config.review:
             check("review_api", self.system.review_ready)
@@ -576,7 +686,7 @@ class Manager:
         return dict(ready=True, count=len(rows))
 
     def stop(self):
-        with self.locked():
+        with self.locked(), operator_lease(self.config.root):
             state = self.state()
             if not state["processes"] and not state["containers"]:
                 return dict(stopped=True, message="Nothing was started by this manager; pre-existing/shared services preserved.")

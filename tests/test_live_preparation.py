@@ -126,3 +126,15 @@ def test_cli_does_not_serve_after_failed_preparation(tmp_path,monkeypatch,capsys
     assert error.value.code==1 and runtime.closed
     output=capsys.readouterr()
     assert "Demo ready —" not in output.out and "preparation failed" in output.err
+def test_cleanup_failure_is_retained_and_not_swallowed_by_second_close(tmp_path):
+    runtime=FixtureRuntime()
+    def fail():raise RuntimeError("private upstream details must not be exposed")
+    runtime.close=fail
+    controller=Controller(plan(),tmp_path,lambda *args:runtime)
+    controller.prepare().result()
+    with pytest.raises(RuntimeError,match="live_cleanup_failed_inspect_private_evidence"):
+        controller.close()
+    with pytest.raises(RuntimeError,match="live_cleanup_failed_inspect_private_evidence"):
+        controller.close()
+    evidence=(controller.session_directory/"cleanup-failure.json").read_text()
+    assert "RuntimeError" in evidence and "upstream details" not in evidence

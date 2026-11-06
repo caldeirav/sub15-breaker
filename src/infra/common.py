@@ -21,7 +21,8 @@ def run(args, *, capture=False, cwd=ROOT, env=None, timeout=1200):
     print("+ " + " ".join(display), flush=True)
     try:
         return subprocess.run(list(map(str, args)), cwd=cwd, env=env or environment(),
-                              check=True, text=True, capture_output=capture, timeout=timeout)
+                              check=True, text=True, capture_output=capture, timeout=timeout,
+                              start_new_session=True)
     except subprocess.CalledProcessError as exc:
         if capture and exc.stderr:
             print(exc.stderr[-4000:], file=sys.stderr)

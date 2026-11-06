@@ -197,7 +197,9 @@ For live configuration, copy `.env.example` to `.env` **only if absent**, set
 `LM_STUDIO_MODEL=qwen/qwen3-30b-a3b-2507`, the configured
 `LM_STUDIO_BASE_URL`, `MLFLOW_TRACKING_URI` and authorized Gemini settings. Never
 overwrite credentials or change a shared model's serving settings silently.
-Start MLflow in a separate terminal if it is not already running:
+The enrolled UI launcher starts MLflow against retained storage automatically.
+For manual CLI workflows or first-time tracking-store initialization, run it in
+a separate terminal if it is not already running:
 
 ```bash
 uv run --locked mlflow server --host 127.0.0.1 --port 5001 \
@@ -214,9 +216,12 @@ Then follow the appropriate guide:
   real-time observations, golden checks and guardrail/component timings. Live clicks
   are repeatable without allocations or spending budgets. Gemini provider charges
   still apply; enable the store's repeatable-demo mode once as documented.
-  Start with `uv run --locked --env-file .env python -m src.demo_ui --prepare`
-  before the audience arrives and wait for **Demo ready** to move startup checks
-  ahead of the first presentation card.
+   After the [one-time installed-stack enrollment](docs/demo.md#restart-after-a-reboot--one-command),
+   start LM Studio/server and the approved cached model, then run
+   **`bash scripts/run_demo.sh --prepare`**. The launcher starts the retained
+   Podman/Kind/services and the actual UI; wait for **Demo ready**. Omit
+   `--prepare` for zero-inference startup (first Run click prepares instead).
+   LM Studio/model are always check-only; nothing is installed or downloaded.
 - **[Run the full test](docs/validation.md#run-the-full-live-comparison):** larger
   three-workflow A/B protocol, separate from the complete offline test suite.
 

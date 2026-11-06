@@ -27,7 +27,7 @@ review exceptions: [`infra/version-policy.json`](../infra/version-policy.json).
 | kubectl; Helm; Go |1.37.0;3.22.1;1.27.3 |
 | Cilium; Gateway API; agentgateway |1.20.4;1.7.0;1.7.0 |
 | Substrate / kubectl-ate |1.0.0-rc.1, checkout `f86fde9dfb5424c8d16f613de80469bdbef06541` |
-| LM Studio; MLX engine |0.4.28+2;1.13.1 |
+| LM Studio; MLX engine |0.4.28+2;1.14.0 |
 | Acting/reviewer model |Qwen3-30B-A3B-Instruct-2507 MLX4-bit, identifier `qwen/qwen3-30b-a3b-2507`, loaded context8192 |
 
 Pins describe a tested baseline, not latest-release recommendations or proof of
