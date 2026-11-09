@@ -21,9 +21,9 @@ and the same native pre-execution boundary. Only the reviewer changes.
 
 ## Live demo
 
-<a href="docs/assets/sub15-breaker-ui.mp4"><img src="docs/assets/sub15-breaker-ui-poster.jpg" alt="BreakerSubstrate live demo: the Classifier and LLM reviewer lanes running the pay-a-bill scenario, with per-route component flow, verdicts and receipts" width="960"></a>
+<a href="https://raw.githubusercontent.com/caldeirav/sub15-breaker/main/docs/assets/sub15-breaker-ui.mp4"><img src="docs/assets/sub15-breaker-ui-poster.jpg" alt="BreakerSubstrate live demo: the Classifier and LLM reviewer lanes running the pay-a-bill scenario, with per-route component flow, verdicts and receipts" width="960"></a>
 
-▶ **[Watch the 4 min 38 s walkthrough](docs/assets/sub15-breaker-ui.mp4)** — MP4 (H.264,
+▶ **[Watch / download the 4 min 38 s walkthrough](https://raw.githubusercontent.com/caldeirav/sub15-breaker/main/docs/assets/sub15-breaker-ui.mp4)** — MP4 (H.264,
 1920×1066, 30 fps, 12 MB, no audio). Click the preview or the link; if your browser
 downloads the file instead of playing it, open it locally.
 
