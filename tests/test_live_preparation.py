@@ -95,8 +95,8 @@ def test_pending_prepare_blocks_new_runs_and_shutdown_drains_it(tmp_path):
 def test_cli_serves_only_after_requested_preparation_and_always_closes(tmp_path,monkeypatch,capsys,prepare):
     from src.demo_ui import __main__ as cli
     runtime=FixtureRuntime();controllers=[]
-    def controller(*args):
-        value=Controller(*args);controllers.append(value);return value
+    def controller(*args,**kwargs):
+        value=Controller(*args,**kwargs);controllers.append(value);return value
     monkeypatch.setattr(cli,"ROOT",tmp_path)
     monkeypatch.setattr(cli,"make_plan",lambda artifact:plan())
     monkeypatch.setattr(cli,"Controller",controller)

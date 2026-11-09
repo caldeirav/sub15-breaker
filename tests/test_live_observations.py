@@ -7,6 +7,7 @@ import pytest
 
 from src.agent_runtime.observability import observing,emit
 from src.benchmark.guards import ReviewInput,Verdict
+from src.benchmark.native import ControlGuard,Registry
 from src.demo_ui.runtime import ObservedRegistry,ObservedBridge,Runtime,summarize,validate_case_evidence
 
 
@@ -55,11 +56,16 @@ def test_bridge_http_worker_attaches_the_selected_observer(monkeypatch):
 
 def record(fault=False):
     gate=dict(decision="error" if fault else "allow",ticket="ticket",input_digest="digest",span_id="guard",
-              review_latency_ns=20_000_000,classifier_decision_core_ns=10_000_000,error="fault" if fault else None)
+              review_latency_ns=20_000_000,classifier_decision_core_ns=10_000_000,error="fault" if fault else None,
+              prompt_version="v2" if not fault else None,raw_verdict='{"allow": true}' if not fault else None,
+              unsafe_logit=-3.2 if not fault else None,temperature=1.5 if not fault else None,threshold=0.7 if not fault else None)
     action=dict(tool="send_money",canonical_arguments=dict(amount="1",recipient="synthetic",password="private"),
         action_id="action",ticket="ticket",span_id="tool",native_admission_attempted=True,status="error" if fault else "executed",
         guard=gate,before_fingerprint="before",after_fingerprint="before" if fault else "after",
         snapshot_prepare_ns=3_000_000,review_materialization_ns=2_000_000,
+        review_input=None if fault else dict(goal="pay the bill",policy_id="unit-policy",policy="policy text",
+            tool="send_money",arguments=dict(amount="98.70",password="[WITHHELD]"),
+            observations=["untrusted observation row"],state=dict(balance=1810.0),input_tokens=42,input_issues=[]),
         actor_timings=dict(claim_roundtrip_ns=30_000_000,tool_evaluation_ns=4_000_000,commit_roundtrip_ns=5_000_000))
     if not fault:action["execution_receipt"]=dict(executed=True,action_id="action",trial_id="trial")
     return dict(case_id="unit",trial_id="trial",trace_id="trace",child_run_id="run",experiment_id="5",
@@ -90,6 +96,73 @@ def test_summary_uses_independent_golden_and_nested_timer_boundaries(monkeypatch
         assert result["timing"]["native_claim_roundtrip"]["median_ms"]==30
         assert result["timing"]["gateway_model_server"]["count"]==1
         assert result["timing"]["gateway_mcp_server"]["count"]==1
+
+
+@pytest.mark.parametrize("fault",[False,True])
+def test_summary_exposes_decision_model_input_output_and_join_digest(monkeypatch,fault):
+    monkeypatch.setattr("src.demo_ui.runtime.mlflow.get_trace",lambda trace_id:S(data=S(spans=[])))
+    spec=dict(kind="control" if fault else "card",mode="error" if fault else None,card_id="D04" if fault else "D01",arm="llm",producer="fault_control" if fault else "acting_model")
+    result=summarize(spec,record(fault),[],dict(accuracy=dict(rows=[dict(input_digest="digest",golden_decision="allow")])))
+    action=result["actions"][0]
+    # The paired comparison joins actions across routes on this digest.
+    assert action["input_digest"]=="digest"
+    if fault:
+        assert action["review_input"] is None and action["raw_verdict"] is None and action["unsafe_logit"] is None
+        assert action["guard_error"]=="fault" and action["prompt_version"] is None
+    else:
+        assert action["review_input"]["goal"]=="pay the bill"
+        assert action["review_input"]["arguments"]["password"]=="[WITHHELD]"
+        assert action["raw_verdict"]=='{"allow": true}' and action["prompt_version"]=="v2"
+        assert action["unsafe_logit"]==-3.2 and action["temperature"]==1.5 and action["threshold"]==0.7
+        assert action["guard_error"] is None
+
+
+def test_bridge_retains_masked_review_input_with_the_registered_projection(monkeypatch):
+    """The action record keeps the masked projection the reviewer receives."""
+    from src.benchmark.bridge import Bridge
+    from src.benchmark.privacy import Mask
+    from src.benchmark.projection import Projection
+
+    class Span:
+        trace_id="trace";span_id="span"
+        def set_inputs(self,value):pass
+        def set_outputs(self,value):pass
+        def end(self):pass
+    monkeypatch.setattr("src.benchmark.bridge.mlflow.start_span_no_context",lambda **kwargs:Span())
+    monkeypatch.setattr("src.benchmark.bridge.with_active_span",lambda span:nullcontext())
+    monkeypatch.setattr("mlflow.tracing.fluent.with_active_span",lambda span:nullcontext())
+
+    class Catalog:
+        def validate_arguments(self,name,value):return dict(value)
+    class Store:
+        def call(self,path,body):
+            if path=="/snapshot":return dict(fingerprint="fp",state=dict(balance=10.0),
+                context=dict(user_request="pay the bill",context_version=1),state_version=1,generation=1)
+            if path=="/prepare":return dict(status="prepared",ticket="a"*32)
+            if path=="/status":return dict(status="prepared")
+            raise AssertionError(path)
+    registry=Registry()
+    class Actor:
+        # The real Actor reaches the native claim gate through Substrate's
+        # Envoy hook; here the admission runs synchronously on the same path.
+        def call(self,path,body):
+            assert path=="/execute" and body==dict(ticket="a"*32)
+            assert registry.admit("a"*32)["decision"]=="block"
+            return dict(status="admission_failed",claim_error="denied",claim_error_code="benchmark_guard_block",
+                actor_timings=dict(claim_roundtrip_ns=1))
+    bridge=Bridge(Catalog(),registry,Mask(["private-secret"]))
+    bridge.configure(Store(),Actor(),"trial",ControlGuard("block"),review_builder=lambda snapshot,tool,args,actions:
+        Projection(ReviewInput("pay the bill","unit-policy","policy text",tool,args,
+            ("untrusted observation with private-secret",),state=dict(balance=10.0,password="private-secret")),
+            (),7,2048,"unit"))
+    outcome=bridge.dispatch(S(call_id="call",name="send_money",arguments=dict(recipient="synthetic",password="private-secret")),Span())
+    assert outcome.status=="blocked"
+    retained=bridge.actions[0]["review_input"]
+    assert retained["goal"]=="pay the bill" and retained["tool"]=="send_money"
+    assert retained["input_tokens"]==7 and retained["maximum_tokens"]==2048
+    assert retained["arguments"]=={"recipient":"synthetic","password":"[WITHHELD]"}
+    assert retained["state"]["password"]=="[WITHHELD]"
+    assert "private-secret" not in retained["observations"][0]
 
 
 def test_runtime_restoration_attempts_still_run_when_final_capacity_read_fails(tmp_path):

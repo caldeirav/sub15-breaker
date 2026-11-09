@@ -17,6 +17,14 @@ def Runtime(*args, **kwargs):
     return factory(*args, **kwargs)
 
 
+def _card_context(plan):
+    # Read-only pinned derivation: loads the suite adapter once on first use;
+    # performs no inference, trial creation or cluster access.
+    from src.demo_ui.context import build
+    from src.integrations.agentdojo.banking import BankingAdapter
+    return build(plan, BankingAdapter())
+
+
 def main(argv=None, *, owner_lock=None):
     from dotenv import load_dotenv
     load_dotenv(ROOT/".env")
@@ -38,6 +46,7 @@ def main(argv=None, *, owner_lock=None):
         raise ValueError("ui_token_must_be_a_private_owned_file")
     controller=Controller(make_plan(args.artifact),directory,
         lambda plan,usage,path:Runtime(plan,usage,path,args.artifact),
+        context_factory=_card_context,
         **({"owner_lock":owner_lock} if owner_lock is not None else {}))
     try:
         if args.prepare:

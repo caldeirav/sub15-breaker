@@ -27,16 +27,78 @@
     </section>
     <div id="notice" class="notice" role="status" aria-live="polite"></div>
     <section class="panel scenario">
-      <div><p id="scenario-kind" class="eyebrow"></p><h2 id="scenario-title"></h2><p id="scenario-description"></p><p id="scenario-golden" class="golden"></p></div>
+      <div>
+        <p id="scenario-kind" class="eyebrow"></p><h2 id="scenario-title"></h2><p id="scenario-description"></p><p id="scenario-golden" class="golden"></p>
+        <div id="scenario-context">
+          <details class="context-block"><summary>Use-case: what the user asks</summary><pre id="context-prompt" class="pre"></pre></details>
+          <details class="context-block"><summary>Starting synthetic state and documents (masked)</summary><div id="context-documents"></div><pre id="context-state" class="pre"></pre></details>
+          <details class="context-block"><summary>Tools available to the agent</summary><ul id="context-tools" class="tool-list"></ul></details>
+          <div class="context-block expectation">
+            <h3>Expected outcome</h3>
+            <p id="expectation-summary"></p>
+            <ul id="expectation-invariants"></ul>
+            <p id="expectation-violation" class="violation"></p>
+            <p id="context-attack" class="attack"></p>
+            <p id="context-fault" class="fault"></p>
+            <p id="context-source" class="small"></p>
+          </div>
+        </div>
+      </div>
       <div class="run-control"><button id="run" class="primary" disabled>Run both routes</button><p id="run-note" class="small">An explicit click is required. No automatic reruns.</p></div>
+    </section>
+    <section class="panel flow" aria-label="Execution flow">
+      <div class="section-heading"><div><p class="eyebrow">EXECUTION PATH · OBSERVED EVENTS</p><h2>Where each step runs</h2></div><span id="flow-active" class="badge">Idle</span></div>
+      <p class="muted">agentgateway carries model and tool traffic; Agent Substrate hosts the gVisor Actor sandbox and the native Envoy claim gate where the selected reviewer decides before any target computation. Highlights follow observed host events only—never fabricated remote internals.</p>
+      <div id="flow-strip" data-lane="none">
+        <div class="flow-route">
+          <span class="route-label">Model route</span>
+          <div class="component" data-component="agent"><strong>Agent + harness</strong><span>host LangGraph loop</span></div>
+          <span class="flow-arrow" aria-hidden="true">→</span>
+          <div class="component" data-component="gateway"><strong>agentgateway</strong><span>managed model + MCP routes</span></div>
+          <span class="flow-arrow" aria-hidden="true">⇄</span>
+          <div class="component" data-component="model"><strong>Qwen server</strong><span>LM Studio · local</span></div>
+        </div>
+        <div class="flow-route">
+          <span class="route-label">Tool route</span>
+          <div class="component" data-component="bridge"><strong>Banking bridge</strong><span>immutable ticket prepare</span></div>
+          <span class="flow-arrow" aria-hidden="true">→</span>
+          <div class="component" data-component="store"><strong>State store</strong><span>snapshot · atomic commit</span></div>
+          <span class="flow-arrow" aria-hidden="true">→</span>
+          <div class="component" data-component="actor"><strong>Substrate Actor</strong><span>gVisor sandbox</span></div>
+          <span class="flow-arrow" aria-hidden="true">→</span>
+          <div class="component" data-component="gate"><strong>Native claim gate</strong><span>Envoy egress hook</span></div>
+          <span class="flow-arrow" aria-hidden="true">→</span>
+          <div class="component" data-component="reviewer"><strong>Reviewer</strong><span>classifier / LLM</span></div>
+        </div>
+        <div class="flow-route">
+          <span class="route-label">Evidence</span>
+          <div class="component" data-component="evidence"><strong>MLflow</strong><span>traces · spans · readback</span></div>
+        </div>
+      </div>
+      <details class="roles"><summary>What each component is responsible for</summary>
+        <dl id="flow-roles">
+          <div><dt>agentgateway — transport</dt><dd>Managed connectivity: routes Responses/model traffic and MCP tool calls, applies transport and auth policies, and exports distributed telemetry. It carries requests; it is not the Actor sandbox and not the enforcement decision.</dd></div>
+          <div><dt>Agent Substrate — execution and enforcement</dt><dd>Creates disposable per-trial gVisor Actors with runtime identity and hosts the native Envoy egress hook on the Actor's store-claim path. That claim gate is the actual pre-execution boundary: enforcement happens outside the agent's cooperative loop.</dd></div>
+          <div><dt>Banking bridge and state store</dt><dd>The bridge validates each proposal and prepares it with the store, which binds the exact action and context to an immutable ticket and later commits state, receipts and evidence atomically outside disposable Actors.</dd></div>
+          <div><dt>Reviewers (one per route)</dt><dd>The classifier performs one encoder forward pass with frozen calibration in the host process; the LLM reviewer returns a generative verdict through the same shared gateway. Both receive the same contextual input at the same native boundary.</dd></div>
+          <div><dt>MLflow evidence</dt><dd>Persisted traces, spans and gateway exports, read back after reconciliation. Gateway span durations arrive from persisted readback and are labelled as observations, not live gateway internals.</dd></div>
+        </dl>
+      </details>
     </section>
     <div class="run-heading"><h2>Execution routes</h2><span id="run-phase" class="muted">No live run yet</span></div>
     <p id="order" class="small">The order is fixed when a run starts and alternates on repeats. Startup and priming are separate from measured requests.</p>
     <section class="lanes" aria-label="Live comparison">
-      <article class="panel lane classifier" id="classifier"><div class="lane-heading"><div><span class="eyebrow">ROUTE B</span><h2>Classifier</h2></div><span class="badge lane-status">Waiting</span></div><p class="muted">One encoder forward + frozen calibration</p><div class="hero-metric"><span class="metric-value">—</span><span class="small metric-label">Whole guard review median · ms</span></div><div class="result" aria-live="polite">Awaiting an explicit Run.</div><ol class="timeline" aria-label="Classifier live trace"></ol><div class="lane-footer"></div></article>
-      <article class="panel lane llm" id="llm"><div class="lane-heading"><div><span class="eyebrow">ROUTE A</span><h2>LLM reviewer</h2></div><span class="badge lane-status">Waiting</span></div><p class="muted">Generative verdict through the shared gateway</p><div class="hero-metric"><span class="metric-value">—</span><span class="small metric-label">Whole guard review median · ms</span></div><div class="result" aria-live="polite">Awaiting an explicit Run.</div><ol class="timeline" aria-label="LLM live trace"></ol><div class="lane-footer"></div></article>
+      <article class="panel lane classifier" id="classifier"><div class="lane-heading"><div><span class="eyebrow">ROUTE B</span><h2>Classifier</h2></div><span class="badge lane-status">Waiting</span></div><p class="muted lane-sub">One encoder forward + frozen calibration</p><div class="hero-metric"><span class="metric-value">—</span><span class="small metric-label">Whole guard review median · ms</span></div><div class="verdict" hidden><span class="verdict-chip"></span><span class="verdict-detail"></span></div><div class="result" aria-live="polite">Awaiting an explicit Run.</div><ol class="timeline" aria-label="Classifier live trace"></ol><div class="lane-footer"></div></article>
+      <article class="panel lane llm" id="llm"><div class="lane-heading"><div><span class="eyebrow">ROUTE A</span><h2>LLM reviewer</h2></div><span class="badge lane-status">Waiting</span></div><p class="muted lane-sub">Generative verdict through the shared gateway</p><div class="hero-metric"><span class="metric-value">—</span><span class="small metric-label">Whole guard review median · ms</span></div><div class="verdict" hidden><span class="verdict-chip"></span><span class="verdict-detail"></span></div><div class="result" aria-live="polite">Awaiting an explicit Run.</div><ol class="timeline" aria-label="LLM live trace"></ol><div class="lane-footer"></div></article>
     </section>
     <section class="panel breakdown"><div class="section-heading"><div><p class="eyebrow">WHAT WE ARE SHOWCASING</p><h2>The decision guardrail, in context</h2></div><span class="badge">Observed timings</span></div><p class="muted">Compare whole guard reviews at the same boundary. Classifier core is a subset—not a separate phase to add. Different agent proposals may produce different review counts.</p><div class="table-scroll"><table><thead><tr><th scope="col">Boundary</th><th scope="col">Classifier route · median ms / n</th><th scope="col">LLM route · median ms / n</th></tr></thead><tbody id="timings"></tbody></table></div><p class="small">Nested timers are not additive. Model HTTP includes gateway + provider; gateway spans also include backend time. No fabricated “pure gateway” or queue latency. Fault controls have no comparable model-inference timing.</p></section>
+    <section class="panel paired" id="paired">
+      <div class="section-heading"><div><p class="eyebrow">PAIRED OUTCOME</p><h2>Final outcome of the run</h2></div><span id="paired-status" class="badge">No comparison yet</span></div>
+      <div id="outcome-statement" class="outcome" hidden></div>
+      <p id="paired-note" class="muted">After both routes finish, actions reviewed with the same frozen input digest are compared side by side. Unmatched actions stay visible per route and never become a speedup or accuracy claim.</p>
+      <div class="table-scroll"><table><thead><tr><th scope="col">Reviewed action</th><th scope="col">Classifier route</th><th scope="col">LLM route</th><th scope="col">Golden label</th><th scope="col">Outcome per route</th></tr></thead><tbody id="paired-body"></tbody></table></div>
+      <p class="small">Rows join on the frozen input digest: classifier shows decision · core ms · calibrated risk; LLM shows decision · whole-review ms. Receipt presence is per route. D04/D05 are declared faults with no model decisions to compare. Golden labels appear only where a frozen action digest is actually covered.</p>
+    </section>
     <section class="panel"><div class="section-heading"><h2>Final evidence and external review</h2><span id="review-status" class="badge">Not started</span></div><p id="review">Original golden checkers, receipts and state effects determine the case outcome. Gemini reviews persisted evidence only after both arms; its time is outside the guardrail comparison.</p><details><summary>Startup, readiness and post-run observations</summary><ol id="system-events" class="timeline"></ol></details></section>
     <footer>Local synthetic banking research. Curated cases are not held-out safety evidence. Rent false block, native latency variability and historical negative results remain limitations. No real payments, universal latency promise or inferred human acceptance.</footer>
   </main>

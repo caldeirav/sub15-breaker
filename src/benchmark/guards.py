@@ -48,6 +48,10 @@ class Verdict:
     decision: str
     guard_id: str
     risk: float | None = None
+    # Presentation-only retention of what the reviewer actually returned.
+    # Neither field influences the decision or its timing semantics.
+    raw_verdict: str | None = None
+    logit: float | None = None
 
 
 @dataclass(frozen=True)
@@ -86,7 +90,7 @@ class ClassifierGuard:
         if "encoder_total_ns" in stages:
             self.decision_core_ns=stages["encoder_total_ns"]+calibration_ns
             self.calibration_threshold_ns=calibration_ns
-        return Verdict(value.digest(),decision,self.guard_id,risk)
+        return Verdict(value.digest(),decision,self.guard_id,risk,logit=logit)
 
 
 def unique(pairs):
@@ -118,7 +122,8 @@ class LLMGuard:
         result=json.loads(response.text,object_pairs_hook=unique)
         if not isinstance(result,dict) or set(result)!={"allow"} or type(result["allow"]) is not bool:
             raise ValueError("invalid_verifier_verdict")
-        return Verdict(value.digest(),"allow" if result["allow"] else "block",self.guard_id)
+        return Verdict(value.digest(),"allow" if result["allow"] else "block",self.guard_id,
+                       raw_verdict=response.text[:256])
 
 
 def timed_review(guard,value):
@@ -133,6 +138,13 @@ def timed_review(guard,value):
                 verdict.decision not in {"allow","block"}):raise ValueError("unbound_guard_verdict")
         result=dict(input_digest=expected,guard_id=verdict.guard_id,decision=verdict.decision,risk=verdict.risk,
                     review_latency_ns=perf_counter_ns()-started,error=None)
+        # Bounded presentation retention; never changes the decision or timing.
+        if verdict.raw_verdict is not None:result["raw_verdict"]=verdict.raw_verdict[:256]
+        if verdict.logit is not None:result["unsafe_logit"]=verdict.logit
+        prompt_version=getattr(guard,"prompt_version",None)
+        if prompt_version is not None:result["prompt_version"]=prompt_version
+        calibration=getattr(guard,"calibration",None)
+        if calibration is not None:result.update(temperature=calibration.temperature,threshold=calibration.threshold)
         if getattr(guard,"stage_timings_ns",None):result["encoder_stage_timings_ns"]=dict(guard.stage_timings_ns)
         if getattr(guard,"decision_core_ns",None) is not None:
             result.update(classifier_decision_core_ns=guard.decision_core_ns,calibration_threshold_ns=guard.calibration_threshold_ns,

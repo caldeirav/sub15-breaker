@@ -297,6 +297,42 @@ exported to the browser.
 
 ### Interpret the display
 
+- **Use-case context and expected outcome:** each card shows the actual pinned
+  task prompt, a masked view of the starting synthetic state and its untrusted
+  documents, the pinned tool inventory, the released attack proposal for D02
+  and the declared fault for D04/D05, plus the structured expected outcome
+  (expected effective decision, golden invariants and what would violate
+  them). Context is served read-only from the pinned adapter/plan data with
+  its digest recorded in the session evidence; if that derivation fails, a
+  labelled fallback shows only the curated short description and the static
+  browser strings. Opening or selecting a card still never dispatches work.
+- **Decision-model input/output:** after a lane finishes, each action's
+  "Decision review" expander shows the exact masked projection the reviewer
+  received (goal, policy, tool and arguments, untrusted observations, state
+  view, token count, input digest) and what it returned: the classifier's
+  decision, calibrated risk against the frozen threshold with the logit
+  difference and temperature, and core versus whole-review latency; the LLM
+  reviewer's decision, raw verdict JSON, prompt version and whole-review
+  latency. Both routes review the same input for a given action digest; live
+  SSE events stay terse and whitelisted, and these richer values appear only
+  in the post-run summary. Fault controls label their input as the
+  wiring-control projection with no model verdict.
+- **Component strip:** the execution path panel shows where each observed step
+  runs — the host agent loop, agentgateway's managed model and MCP routes, the
+  local Qwen server, the banking bridge and state store, the Substrate gVisor
+  Actor, and the native Envoy claim gate where the selected reviewer decides.
+  Components highlight from observed host events only (gateway spans appear
+  after persisted readback); nothing fabricates remote internals. The role
+  cards state the transport-versus-execution distinction: agentgateway carries
+  requests; Substrate's native gate decides whether the Actor may execute.
+- **Paired final outcome:** each route shows a verdict banner (expected versus
+  observed effective decision with executed/blocked/error counts), and the
+  paired table joins actions across routes on the frozen input digest where a
+  golden label exists — classifier decision, core ms and calibrated risk
+  against LLM decision and whole-review ms, with per-route outcome and
+  receipt. When the two agents proposed different actions, unmatched rows
+  remain visible per route and never become a same-input speedup or accuracy
+  claim. A deterministic card-level outcome statement summarizes the run.
 - **Timeline:** actual observed agent proposals, managed model HTTP, MCP, native
   review, Actor/result, original golden check and cleanup events. Host observation
   times are not fabricated remote wall clocks. Exported gateway span durations
@@ -344,7 +380,8 @@ All failed/partial attempts remain. Public events omit credentials, complete ban
 state, raw prompts and ticket capabilities; tool arguments shown in final panels
 are bounded canonical/redacted synthetic values rendered as text, never HTML.
 
-The loopback API under `/api/live/` has authenticated status, explicit Run POST,
+The loopback API under `/api/live/` has authenticated status, a read-only
+card-context endpoint derived from pinned data, explicit Run POST,
 repeatable run results and resumable SSE observations. It never accepts paths/prompts/commands
 or browser infrastructure credentials. A single worker and operator lock serialize
 the global hook/bridge and both arms. There is no arbitrary live cancel endpoint;

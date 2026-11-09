@@ -48,6 +48,70 @@ def test_open_select_status_reconnect_are_read_only(ui):
     assert not list(controller.jobs_directory.glob("*/public.json"))
 
 
+def test_cards_endpoint_serves_masked_context_and_never_dispatches(tmp_path):
+    from validation.live_ui_fixture_server import FixtureController,fixture_context
+    runtime=FixtureRuntime()
+    controller=FixtureController(plan(),tmp_path/"jobs",lambda *args:runtime,context_factory=fixture_context)
+    try:
+        with TestClient(create_app(controller,TOKEN),base_url=ORIGIN) as client:
+            assert client.get("/api/live/cards").status_code==401  # session required
+            headers=login(client)
+            response=client.get("/api/live/cards",headers={"Origin":ORIGIN})
+            assert response.status_code==200
+            value=response.json()
+            assert [card["id"] for card in value["cards"]]==["D01","D02","D03","D04","D05"]
+            by_id={card["id"]:card for card in value["cards"]}
+            for card in value["cards"]:
+                assert card["prompt"] and card["state"] is not None and card["tools"]
+                assert card["expected_decision"] in {"allow","block","error"}
+                assert card["invariants"] and card["expectation"] and card["violation"]
+                assert card["state"]["user_account"]["password"]=="[WITHHELD]"
+            assert by_id["D02"]["attack"] and by_id["D02"]["attack"][0]["tool"]=="send_money"
+            assert by_id["D04"]["fault"]["mode"]=="reviewer_error" and by_id["D05"]["fault"]["mode"]=="late_allow_cancellation"
+            assert by_id["D01"]["documents"] and "bill" in next(iter(by_id["D01"]["documents"]))
+            # Read-only: no runtime open, no run, no inference.
+            assert runtime.calls==[] and not runtime.opened
+            assert not list(controller.jobs_directory.glob("*/public.json"))
+            # Served context is digest-recorded in the private session evidence.
+            assert (controller.session_directory/"card-context.json").is_file()
+    finally:controller.close()
+
+
+def test_cards_derivation_failure_falls_back_and_records_private_error(tmp_path):
+    def broken(plan):raise RuntimeError("private adapter detail")
+    controller=Controller(plan(),tmp_path/"jobs",lambda *args:FixtureRuntime(),context_factory=broken)
+    try:
+        value=controller.cards()
+        assert value["source"]=="fallback"
+        assert all(card["prompt"] is None and card["tools"] is None for card in value["cards"])
+        assert all(card["invariants"] for card in value["cards"])  # curated metadata remains
+        failure=json.loads((controller.session_directory/"card-context-failure.json").read_text())
+        assert failure["error"]=="RuntimeError" and "detail" not in failure
+        assert controller.cards() is value  # cached, deterministic
+    finally:controller.close()
+
+
+def test_run_summary_exposes_decision_model_io_and_join_digest(ui):
+    client,controller,runtime=ui;headers=login(client)
+    response=run(client,headers,card="D01");finish(controller)
+    result=client.get("/api/live/runs/"+response.json()["id"]).json()
+    actions=result["lanes"]["llm"]["summary"]["actions"]
+    assert actions and actions[0]["input_digest"]
+    assert actions[0]["review_input"]["goal"] and actions[0]["review_input"]["arguments"]["file_path"]
+    assert actions[0]["raw_verdict"]=='{"allow": true}' and actions[0]["prompt_version"]=="v2"
+    classifier=result["lanes"]["classifier"]["summary"]["actions"][0]
+    assert classifier["unsafe_logit"] is not None and classifier["temperature"] and classifier["threshold"]
+    assert classifier["raw_verdict"] is None and classifier["prompt_version"] is None
+    # Both routes reviewed the same fixture digest: a joinable paired row.
+    assert result["lanes"]["llm"]["summary"]["actions"][0]["input_digest"]==classifier["input_digest"]
+    fault=run(client,headers,card="D04");finish(controller)
+    fault_actions=client.get("/api/live/runs/"+fault.json()["id"]).json()["lanes"]["classifier"]["summary"]["actions"]
+    # Fault controls retain their wiring-control input but never a model verdict.
+    assert fault_actions[0]["review_input"]["policy_id"]=="banking-wiring-v1"
+    assert fault_actions[0]["raw_verdict"] is None and fault_actions[0]["unsafe_logit"] is None
+    assert fault_actions[0]["guard_error"]
+
+
 def test_run_is_idempotent_and_arms_really_execute_sequentially(ui):
     client,controller,runtime=ui;headers=login(client);key=uuid4().hex
     response=run(client,headers,request_id=key);assert response.status_code==202
@@ -148,6 +212,19 @@ def test_static_ui_is_accessible_text_only_and_has_no_automatic_run_post():
     assert "Waiting for its frozen turn" not in script
     assert "Startup in progress:" in script and "Latest startup observation:" in script
     assert 'closest("details").open=true' in script and "This route did not complete" in script
+    # Issue #70: use-case context, expected outcome and decision-model I/O panels.
+    assert '"/api/live/cards"' in script and "Reviewer input" in script and "Reviewer output" in script
+    assert "context-prompt" in html and "expectation-invariants" in html and "context-attack" in html and "context-fault" in html
+    assert "Fallback context" in script  # labelled fallback when pinned derivation is unavailable
+    # Issue #71: component strip with event->component mapping and role cards.
+    assert 'data-component="gateway"' in html and 'data-component="actor"' in html and 'data-component="gate"' in html
+    assert "stageComponents" in script and "highlightFlow" in script
+    assert "agentgateway — transport" in html and "Agent Substrate — execution and enforcement" in html
+    assert "flow-roles" in html
+    # Issue #72: paired outcome summary joined on the frozen input digest.
+    assert "paired-body" in html and "outcome-statement" in html and "renderPaired" in script
+    assert "input digest" in script and "never become a speedup or accuracy claim" in script
+    assert "PASS" in script and "NOT COMPLETED" in script
 
 
 def test_repeated_runs_are_unlimited_and_do_not_modify_historical_allocations(tmp_path):

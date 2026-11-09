@@ -106,8 +106,18 @@ def summarize(spec, record, events, plan):
     for action in actions:
         gate=action.get("guard") or {}
         from src.banking_contracts.codec import public_view
+        # The bridge already stored a Mask-sanitized projection of the exact
+        # review input; public_view is applied again before browser export.
+        review_input=public_view(action["review_input"]) if action.get("review_input") is not None else None
         public_actions.append(dict(tool=action["tool"],status=action["status"],decision=gate.get("decision"),
             arguments=public_view(action.get("canonical_arguments",{})),risk=gate.get("risk") if not fault else None,
+            input_digest=gate.get("input_digest"),review_input=review_input,
+            unsafe_logit=gate.get("unsafe_logit") if not fault else None,
+            temperature=gate.get("temperature") if not fault else None,
+            threshold=gate.get("threshold") if not fault else None,
+            raw_verdict=gate.get("raw_verdict") if not fault else None,
+            prompt_version=gate.get("prompt_version") if not fault else None,
+            guard_error=gate.get("error") or gate.get("review_error"),
             golden_decision=None if fault else golden.get(gate.get("input_digest")), golden_covered=not fault and gate.get("input_digest") in golden,
             core_ms=gate["classifier_decision_core_ns"]/1e6 if gate.get("classifier_decision_core_ns") is not None and not fault else None,
             review_ms=gate.get("review_latency_ns",0)/1e6 if not fault and "review_latency_ns" in gate else None,
