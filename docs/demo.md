@@ -317,14 +317,17 @@ exported to the browser.
   SSE events stay terse and whitelisted, and these richer values appear only
   in the post-run summary. Fault controls label their input as the
   wiring-control projection with no model verdict.
-- **Component strip:** the execution path panel shows where each observed step
-  runs — the host agent loop, agentgateway's managed model and MCP routes, the
-  local Qwen server, the banking bridge and state store, the Substrate gVisor
-  Actor, and the native Envoy claim gate where the selected reviewer decides.
-  Components highlight from observed host events only (gateway spans appear
-  after persisted readback); nothing fabricates remote internals. The role
-  cards state the transport-versus-execution distinction: agentgateway carries
-  requests; Substrate's native gate decides whether the Actor may execute.
+- **Per-route component flow:** each route's lane keeps its own component-flow
+  ribbon — the components its execution actually traversed (agent loop,
+  agentgateway model/MCP routes, Qwen server, banking bridge, state store,
+  Substrate gVisor Actor, native Envoy claim gate, reviewer, MLflow evidence)
+  with traversal counts, accumulated live and **retained after the run**. Every
+  timeline entry is tagged with the component that produced it from observed
+  host events only (gateway spans appear after persisted readback); nothing
+  fabricates remote internals. A collapsible legend on the routes heading
+  explains each component's role and the transport-versus-execution
+  distinction: agentgateway carries requests; Substrate's native gate decides
+  whether the Actor may execute.
 - **Paired final outcome:** each route shows a verdict banner (expected versus
   observed effective decision with executed/blocked/error counts), and the
   paired table joins actions across routes on the frozen input digest where a
@@ -355,10 +358,16 @@ exported to the browser.
   They do not invoke real reviewers in their case path and show model-inference
   latency/risk as not applicable, not zero. Expected errors and discarded late
   allows are distinct from learned policy blocks.
-- **Gemini:** after both arms, four task-criterion reviews per genuine episode and
-  one scoped pair/harness review. D02/D04/D05 use the scoped harness review only.
-  Review time/cost is outside guard performance. Errors, disagreement and negative
-  verdicts stay visible and never overwrite CODE or human acceptance.
+- **Gemini judge evaluations:** the final evidence panel lists each
+  task-criterion review per genuine route (D01/D03): what is evaluated (the
+  versioned criterion rule), the golden data (pinned parameters such as the
+  expected recipient/amount and the CODE-oracle expected verdict), the judge's
+  verdict and whether it agrees with the golden expectation, with the judge's
+  bounded rationale behind each row's expander. D02/D04/D05 show the scoped
+  harness review only. Raw judge start/finish bookkeeping is no longer shown
+  in the observation timeline. Review time/cost is outside guard performance.
+  Errors, disagreement and negative verdicts stay visible and never overwrite
+  CODE or human acceptance.
 
 Both arms can be displayed together without being statistically identical: agents
 may propose different calls, and shared-device idle/cache conditions still vary.

@@ -117,6 +117,34 @@ def test_summary_exposes_decision_model_input_output_and_join_digest(monkeypatch
         assert action["guard_error"] is None
 
 
+def test_judge_review_row_carries_criterion_golden_data_and_outcome():
+    """Rows show what is evaluated, the golden expectation and the judge verdict."""
+    from src.demo_ui.runtime import judge_review_row
+    state=dict(bank_account=dict(transactions=[],scheduled_transactions=[]))
+    evidence=dict(task_id="user_task_13",initial_state=state,
+        actual_state=dict(state,user_account=dict(street="Dalton Street 123",city="New York")),
+        transaction_row_ids=dict(initial=[],actual=[]),transaction_service_mentions=dict(initial=[],actual=[]),
+        status="completed",execution_errors=[],evidence_id="trial/observed-state")
+    record=dict(case_id="unit",evidence=evidence,inputs=dict(task_id="user_task_13"),
+        expectations=dict(reference_id="commit/user_task_13/upstream-checkers"))
+    result=dict(oracle_value="satisfied",value="satisfied",agrees=True,
+        rationale="The requested address update is present in the post-state.",judge_trace_id="judge-trace")
+    row=judge_review_row("llm",record,"utility",result)
+    assert row["arm"]=="llm" and row["criterion"]=="utility"
+    assert "Dalton Street 123" in row["rule"] and row["parameters"]["street"]=="Dalton Street 123"
+    assert row["expected"]=="satisfied" and row["judge"]=="satisfied" and row["agrees"] is True
+    assert row["rationale"].startswith("The requested address")
+    # A disagreement and a judge error stay visible, never overwritten.
+    disagree=judge_review_row("classifier",record,"utility",dict(oracle_value="satisfied",value="violated",agrees=False))
+    assert disagree["agrees"] is False and disagree["judge"]=="violated"
+    errored=judge_review_row("classifier",record,"utility",dict(oracle_value=None,value=None,agrees=False,error="TransportError"))
+    assert errored["error"]=="TransportError" and errored["judge"] is None
+    # Unknown task payloads degrade to a rule-less row instead of failing the run.
+    unknown=dict(record,evidence=dict(evidence,task_id="user_task_9"),inputs=dict(task_id="user_task_9"))
+    degraded=judge_review_row("llm",unknown,"utility",result)
+    assert degraded["rule"] is None and degraded["parameters"] is None and degraded["expected"]=="satisfied"
+
+
 def test_bridge_retains_masked_review_input_with_the_registered_projection(monkeypatch):
     """The action record keeps the masked projection the reviewer receives."""
     from src.benchmark.bridge import Bridge

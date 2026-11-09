@@ -134,6 +134,24 @@ def summarize(spec, record, events, plan):
         boundaries="Core is inside whole review, inside native claim, inside tool roundtrip. Do not sum nested timers; no speedup for unmatched inputs.")
 
 
+def judge_review_row(arm, record, criterion, result):
+    """Presentation row for one judge evaluation: what is evaluated (criterion
+    rule and pinned golden parameters), the CODE-oracle expected verdict and
+    the judge outcome. Deterministic payload re-derivation only; no inference
+    and no verdict change. Payload problems degrade to rule-less rows."""
+    from src.feasibility.metrics_contract import review_payload
+    rule=parameters=None
+    try:
+        _,_,expectations=review_payload(record,criterion)
+        rule,parameters=expectations["rule"],expectations["parameters"]
+    except (KeyError,TypeError,ValueError):
+        pass
+    return dict(arm=arm,criterion=criterion,rule=rule,parameters=parameters,
+        expected=result.get("oracle_value"),judge=result.get("value"),
+        agrees=result.get("agrees") is True,error=result.get("error"),
+        rationale=(result.get("rationale") or "")[:400],judge_trace_id=result.get("judge_trace_id"))
+
+
 class Runtime:
     def __init__(self, plan, usage, directory, artifact):
         self.plan=plan; self.usage=usage; self.directory=Path(directory)/"runtime"; self.artifact=Path(artifact)
@@ -318,7 +336,7 @@ class Runtime:
         from src.benchmark.judge_transport import observe_native_attempt
         from src.benchmark.review import review_harness,compact_observations
         from src.demo_ui.review import build,VERSION,INSTRUCTIONS
-        model="gemini:/gemini-2.5-flash";results=[]
+        model="gemini:/gemini-2.5-flash";results=[];task_reviews=[]
         def settle(entries,result):
             for entry in entries:self.usage.settle(entry["sequence"],accounted_cost_usd=result.get("cost_usd"),usage_verified=False)
         with observing(lambda e:job.emit("review",e)):
@@ -333,6 +351,7 @@ class Runtime:
                     job.emit("review",dict(stage="gemini",phase="started"))
                     result=review(judge,criterion,record,invocation_context=invocation)
                     settle(entries,result);results.append(result)
+                    task_reviews.append(judge_review_row(spec["arm"],record,criterion,result))
                     private(job.directory/"reviews.json",results)
                     job.emit("review",dict(stage="gemini",phase="finished",error=result.get("error")))
             case_id=slot["slot"]+"-review";claim_case(self.usage,case_id,self.plan)
@@ -354,7 +373,9 @@ class Runtime:
             settle(entries,result);results.append(result);private(job.directory/"reviews.json",results)
         return dict(verdict=result.get("value"),error=result.get("error"),operations=len(results),
             task_agreements=sum(r.get("agrees") is True for r in results[:-1]),task_errors=sum(bool(r.get("error")) for r in results[:-1]),
-            judge_trace_id=result.get("judge_trace_id"),scope="Post-run external review, not guard timing or human acceptance")
+            judge_trace_id=result.get("judge_trace_id"),harness_rationale=(result.get("rationale") or "")[:400],
+            task_reviews=task_reviews,
+            scope="Post-run external review, not guard timing or human acceptance")
 
     def close(self):
         if self.closed:return

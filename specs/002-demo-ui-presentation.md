@@ -144,24 +144,34 @@ instead of model I/O. Live SSE events remain unchanged.
 
 ### 4. Component flow visualization (issue #71)
 
-- **Component strip**: a persistent inline-SVG/CSS strip of the execution
-  path — Agent (host LangGraph) → agentgateway (managed model + MCP routes) →
-  local Qwen server; agentgateway MCP route → banking bridge → state store
-  (immutable ticket) → Substrate gVisor Actor → native Envoy claim gate →
-  selected reviewer (classifier in host / LLM via gateway) → transactional
-  commit → result back to the agent.
-- **Live highlighting**: an explicit event-stage → component mapping drives
-  component states (idle / active / done) from the observed event stream of
-  the active lane, with lane colour coding. Highlights reflect host-observed
-  events and persisted gateway-span readback only; nothing fabricates remote
-  internals or wall clocks.
-- **Component role cards**: per component, a role summary with the transport
-  vs execution/enforcement taxonomy — agentgateway is managed connectivity
-  (routing, policies, telemetry), **not** the sandbox or the claim gate;
+- **Per-route flow, retained:** each lane panel keeps its own component-flow
+  ribbon — the components its execution traversed (agent loop, agentgateway
+  model/MCP routes, Qwen server, bridge, state store, Substrate gVisor Actor,
+  native Envoy claim gate, reviewer, MLflow) with traversal counts,
+  accumulated live from observed events and retained after the run. A single
+  shared chart is deliberately not used: it mixes routes and cannot retain
+  per-route information.
+- **Event tagging:** every timeline entry is tagged with the component that
+  produced it from the explicit event-stage → component mapping; unknown
+  stages are never assigned a component.
+- **Role legend:** a collapsible legend on the routes heading explains each
+  component's role with the transport vs execution/enforcement taxonomy —
+  agentgateway is managed connectivity, **not** the sandbox or the claim gate;
   Agent Substrate owns ephemeral gVisor Actors and the native Envoy egress
-  hook that gates the Actor's ticket claim — the actual pre-execution
-  boundary. Links to `docs/architecture.md`.
-- Pure static markup + client JS; no new endpoints.
+  hook that gates the Actor's ticket claim. Links to `docs/architecture.md`.
+- Highlights and tags reflect host-observed events and persisted gateway-span
+  readback only; nothing fabricates remote internals or wall clocks.
+
+### 5. Judge evaluations in the final evidence panel (issue #72 refinement)
+
+- The post-run external review is surfaced per criterion and per route: what
+  is evaluated (the versioned criterion rule), the golden data (pinned
+  parameters and the CODE-oracle expected verdict), the judge's verdict,
+  agreement with the golden expectation and a bounded judge rationale. D02
+  (scripted) and D04/D05 (fault) producers show the scoped harness review
+  only. Raw judge start/finish events are summarized by this table instead of
+  the observation timeline. Deterministic payload re-derivation only; no
+  extra inference, and the judge never overwrites CODE results.
 
 ## Acceptance (applies to each delivery block)
 

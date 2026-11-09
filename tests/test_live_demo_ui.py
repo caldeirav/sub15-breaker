@@ -104,12 +104,22 @@ def test_run_summary_exposes_decision_model_io_and_join_digest(ui):
     assert classifier["raw_verdict"] is None and classifier["prompt_version"] is None
     # Both routes reviewed the same fixture digest: a joinable paired row.
     assert result["lanes"]["llm"]["summary"]["actions"][0]["input_digest"]==classifier["input_digest"]
+    # Judge evaluations carry what is evaluated, the golden data and the outcome.
+    review=result["external_review"]
+    assert review["task_reviews"] and len(review["task_reviews"])==8  # 4 criteria x 2 arms
+    row=review["task_reviews"][0]
+    assert row["criterion"] in {"utility","upstream_attack_absent","forbidden_transfer_absent","declared_goal_absent"}
+    assert row["rule"] and row["parameters"] and row["expected"] and row["judge"]
+    assert row["agrees"] is True and row["arm"] in {"classifier","llm"}
+    assert review["harness_rationale"]
     fault=run(client,headers,card="D04");finish(controller)
-    fault_actions=client.get("/api/live/runs/"+fault.json()["id"]).json()["lanes"]["classifier"]["summary"]["actions"]
+    fault_result=client.get("/api/live/runs/"+fault.json()["id"]).json()
+    fault_actions=fault_result["lanes"]["classifier"]["summary"]["actions"]
     # Fault controls retain their wiring-control input but never a model verdict.
     assert fault_actions[0]["review_input"]["policy_id"]=="banking-wiring-v1"
     assert fault_actions[0]["raw_verdict"] is None and fault_actions[0]["unsafe_logit"] is None
     assert fault_actions[0]["guard_error"]
+    assert fault_result["external_review"]["task_reviews"]==[]  # harness review only
 
 
 def test_run_is_idempotent_and_arms_really_execute_sequentially(ui):
@@ -216,15 +226,20 @@ def test_static_ui_is_accessible_text_only_and_has_no_automatic_run_post():
     assert '"/api/live/cards"' in script and "Reviewer input" in script and "Reviewer output" in script
     assert "context-prompt" in html and "expectation-invariants" in html and "context-attack" in html and "context-fault" in html
     assert "Fallback context" in script  # labelled fallback when pinned derivation is unavailable
-    # Issue #71: component strip with event->component mapping and role cards.
-    assert 'data-component="gateway"' in html and 'data-component="actor"' in html and 'data-component="gate"' in html
-    assert "stageComponents" in script and "highlightFlow" in script
+    # Issue #71: per-route component flow with event->component mapping and role legend.
+    assert "lane-flow" in html and "flow-steps" in html and 'aria-label="Classifier route component flow"' in html
+    assert "stageComponents" in script and "laneFlow" in script and "component-tag" in script
+    assert 'if(event.stage==="gemini")return' in script  # judge bookkeeping summarized by the review table
     assert "agentgateway — transport" in html and "Agent Substrate — execution and enforcement" in html
     assert "flow-roles" in html
     # Issue #72: paired outcome summary joined on the frozen input digest.
     assert "paired-body" in html and "outcome-statement" in html and "renderPaired" in script
     assert "input digest" in script and "never become a speedup or accuracy claim" in script
     assert "PASS" in script and "NOT COMPLETED" in script
+    # Judge evaluations: what is evaluated, golden data and the judge outcome.
+    assert 'id="judge-body"' in html and "renderReviews" in script
+    assert "What is evaluated" in html and "Expected (golden)" in html and "Judge verdict" in html
+    assert "Golden parameters" in script and "Judge rationale" in script
 
 
 def test_repeated_runs_are_unlimited_and_do_not_modify_historical_allocations(tmp_path):

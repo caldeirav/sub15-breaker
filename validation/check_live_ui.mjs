@@ -39,7 +39,7 @@ try{
   if(!(await page.locator("#expectation-invariants li").count()))throw new Error("Expected-outcome invariants not rendered");
   if(await page.locator("#context-fault[hidden]").count())throw new Error("Fault declaration hidden on the selected fault card");
   if(!(await page.locator("#context-fault").textContent()).includes("Declared fault"))throw new Error("Fault declaration not rendered");
-  if(await page.locator("#flow-strip .component").count()!==9)throw new Error("Component strip does not show the nine components");
+  if(await page.locator(".lane-flow").count()!==2)throw new Error("Per-lane component flow ribbons missing");
   if(requests.some(r=>r.method==="POST"&&r.path==="/api/live/runs"))throw new Error("Loading/selecting dispatched a run");
   const noRunBeforeClick=true;
   for(const card of ["D01","D02","D03","D04","D05","D01"]){
@@ -103,9 +103,19 @@ try{
     const pairedRows=await page.locator("#paired-body tr").count();
     if(card==="D02"&&pairedRows<2)throw new Error("Paired comparison missing the blocked transfer row");
     if(["D04","D05"].includes(card)&&!await page.locator("#paired-body").textContent().then(t=>t.includes("Declared fault")))throw new Error("Fault run must not show a model-decision comparison");
-    // Issue #71: observed events highlighted components on the strip.
-    if(await page.locator("#flow-strip .component.seen").count()<2)throw new Error("No component highlighting observed");
-    if((await page.locator("#flow-active").textContent())==="Idle")throw new Error("Flow badge never left Idle");
+    // Issue #71: each route retains its own traversed component flow, and
+    // timeline entries are tagged with the component that produced them.
+    for(const arm of ["classifier","llm"]){
+      if(await page.locator(`#${arm} .flow-steps .flow-chip`).count()<3)throw new Error(`Component flow chips missing on ${arm} lane`);
+    }
+    if(await page.locator(".component-tag").count()<3)throw new Error("Timeline entries not tagged with components");
+    // Judge evaluations: what is evaluated, golden data and the judge outcome.
+    if(["D01","D03"].includes(card)){
+      if(await page.locator("#judge-body tr").count()!==8)throw new Error("Judge evaluation rows missing for a genuine card");
+      if(!await page.locator("#judge-body").textContent().then(t=>t.includes("Utility")))throw new Error("Judge criterion not rendered");
+    }else if(!await page.locator("#judge-body").textContent().then(t=>t.includes("harness review only"))){
+      throw new Error("Scripted/fault card must show the harness-only review note");
+    }
   }
   const before=requests.filter(r=>r.method==="POST"&&r.path==="/api/live/runs").length;
   if(!live){
@@ -128,7 +138,7 @@ try{
   if(errors.length)throw new Error(`Browser script errors: ${errors.join("; ")}`);
   writeFileSync(`${output}/proof.json`,JSON.stringify({passed:true,mode:live?"live":"explicit_offline_fixture",noRunBeforeClick,
     explicitRunPosts:before,preparedBeforeFirstRun,repeatVerified:true,armsSequential:true,responsiveKeyboardChecks:true,pageErrors:errors,
-    cardContextServed:cards.cards.length===5,decisionReviewsRendered:true,pairedOutcomeRendered:true,flowHighlightingObserved:true,
+    cardContextServed:cards.cards.length===5,decisionReviewsRendered:true,pairedOutcomeRendered:true,perLaneComponentFlow:true,judgeEvaluationsRendered:true,
     runIds:results.map(r=>r.id),script_sha256:createHash("sha256").update(readFileSync(new URL(import.meta.url))).digest("hex")},null,2));
-  console.log(`Browser checks passed (${live?"live":"offline fixture"}): six explicit runs including a repeat, sequential lanes, no auto execution, card context, decision reviews, paired outcome, flow highlighting, desktop/mobile, keyboard, no JS errors. ${output}`);
+  console.log(`Browser checks passed (${live?"live":"offline fixture"}): six explicit runs including a repeat, sequential lanes, no auto execution, card context, decision reviews, paired outcome, per-lane component flow, judge evaluations, desktop/mobile, keyboard, no JS errors. ${output}`);
 }finally{await browser.close();}
