@@ -106,8 +106,18 @@ def summarize(spec, record, events, plan):
     for action in actions:
         gate=action.get("guard") or {}
         from src.banking_contracts.codec import public_view
+        # The bridge already stored a Mask-sanitized projection of the exact
+        # review input; public_view is applied again before browser export.
+        review_input=public_view(action["review_input"]) if action.get("review_input") is not None else None
         public_actions.append(dict(tool=action["tool"],status=action["status"],decision=gate.get("decision"),
             arguments=public_view(action.get("canonical_arguments",{})),risk=gate.get("risk") if not fault else None,
+            input_digest=gate.get("input_digest"),review_input=review_input,
+            unsafe_logit=gate.get("unsafe_logit") if not fault else None,
+            temperature=gate.get("temperature") if not fault else None,
+            threshold=gate.get("threshold") if not fault else None,
+            raw_verdict=gate.get("raw_verdict") if not fault else None,
+            prompt_version=gate.get("prompt_version") if not fault else None,
+            guard_error=gate.get("error") or gate.get("review_error"),
             golden_decision=None if fault else golden.get(gate.get("input_digest")), golden_covered=not fault and gate.get("input_digest") in golden,
             core_ms=gate["classifier_decision_core_ns"]/1e6 if gate.get("classifier_decision_core_ns") is not None and not fault else None,
             review_ms=gate.get("review_latency_ns",0)/1e6 if not fault and "review_latency_ns" in gate else None,
@@ -122,6 +132,24 @@ def summarize(spec, record, events, plan):
         physical_counts={k:record["trace_audit"][k] for k in ("managed_responses_dispatches","guard_managed_responses_dispatches")},
         telemetry=record["telemetry_reconciliation"]["status"],cleanup_ok=not record["cleanup_errors"],
         boundaries="Core is inside whole review, inside native claim, inside tool roundtrip. Do not sum nested timers; no speedup for unmatched inputs.")
+
+
+def judge_review_row(arm, record, criterion, result):
+    """Presentation row for one judge evaluation: what is evaluated (criterion
+    rule and pinned golden parameters), the CODE-oracle expected verdict and
+    the judge outcome. Deterministic payload re-derivation only; no inference
+    and no verdict change. Payload problems degrade to rule-less rows."""
+    from src.feasibility.metrics_contract import review_payload
+    rule=parameters=None
+    try:
+        _,_,expectations=review_payload(record,criterion)
+        rule,parameters=expectations["rule"],expectations["parameters"]
+    except (KeyError,TypeError,ValueError):
+        pass
+    return dict(arm=arm,criterion=criterion,rule=rule,parameters=parameters,
+        expected=result.get("oracle_value"),judge=result.get("value"),
+        agrees=result.get("agrees") is True,error=result.get("error"),
+        rationale=(result.get("rationale") or "")[:400],judge_trace_id=result.get("judge_trace_id"))
 
 
 class Runtime:
@@ -308,7 +336,7 @@ class Runtime:
         from src.benchmark.judge_transport import observe_native_attempt
         from src.benchmark.review import review_harness,compact_observations
         from src.demo_ui.review import build,VERSION,INSTRUCTIONS
-        model="gemini:/gemini-2.5-flash";results=[]
+        model="gemini:/gemini-2.5-flash";results=[];task_reviews=[]
         def settle(entries,result):
             for entry in entries:self.usage.settle(entry["sequence"],accounted_cost_usd=result.get("cost_usd"),usage_verified=False)
         with observing(lambda e:job.emit("review",e)):
@@ -323,6 +351,7 @@ class Runtime:
                     job.emit("review",dict(stage="gemini",phase="started"))
                     result=review(judge,criterion,record,invocation_context=invocation)
                     settle(entries,result);results.append(result)
+                    task_reviews.append(judge_review_row(spec["arm"],record,criterion,result))
                     private(job.directory/"reviews.json",results)
                     job.emit("review",dict(stage="gemini",phase="finished",error=result.get("error")))
             case_id=slot["slot"]+"-review";claim_case(self.usage,case_id,self.plan)
@@ -344,7 +373,9 @@ class Runtime:
             settle(entries,result);results.append(result);private(job.directory/"reviews.json",results)
         return dict(verdict=result.get("value"),error=result.get("error"),operations=len(results),
             task_agreements=sum(r.get("agrees") is True for r in results[:-1]),task_errors=sum(bool(r.get("error")) for r in results[:-1]),
-            judge_trace_id=result.get("judge_trace_id"),scope="Post-run external review, not guard timing or human acceptance")
+            judge_trace_id=result.get("judge_trace_id"),harness_rationale=(result.get("rationale") or "")[:400],
+            task_reviews=task_reviews,
+            scope="Post-run external review, not guard timing or human acceptance")
 
     def close(self):
         if self.closed:return

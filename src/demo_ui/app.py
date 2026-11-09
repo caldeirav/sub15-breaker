@@ -96,6 +96,13 @@ def create_app(controller, token, *, port=8091):
         session=authorize(request)
         return dict(controller.status(),csrf=session["csrf"])
 
+    @app.get("/api/live/cards")
+    def cards(request: Request):
+        # Read-only presentation context derived from pinned data; never a
+        # card selector for execution and never an inference trigger.
+        authorize(request)
+        return controller.cards()
+
     @app.post("/api/live/runs")
     def run(body: RunRequest,request: Request):
         authorize(request,write=True)

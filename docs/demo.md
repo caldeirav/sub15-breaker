@@ -297,6 +297,45 @@ exported to the browser.
 
 ### Interpret the display
 
+- **Use-case context and expected outcome:** each card shows the actual pinned
+  task prompt, a masked view of the starting synthetic state and its untrusted
+  documents, the pinned tool inventory, the released attack proposal for D02
+  and the declared fault for D04/D05, plus the structured expected outcome
+  (expected effective decision, golden invariants and what would violate
+  them). Context is served read-only from the pinned adapter/plan data with
+  its digest recorded in the session evidence; if that derivation fails, a
+  labelled fallback shows only the curated short description and the static
+  browser strings. Opening or selecting a card still never dispatches work.
+- **Decision-model input/output:** after a lane finishes, each action's
+  "Decision review" expander shows the exact masked projection the reviewer
+  received (goal, policy, tool and arguments, untrusted observations, state
+  view, token count, input digest) and what it returned: the classifier's
+  decision, calibrated risk against the frozen threshold with the logit
+  difference and temperature, and core versus whole-review latency; the LLM
+  reviewer's decision, raw verdict JSON, prompt version and whole-review
+  latency. Both routes review the same input for a given action digest; live
+  SSE events stay terse and whitelisted, and these richer values appear only
+  in the post-run summary. Fault controls label their input as the
+  wiring-control projection with no model verdict.
+- **Per-route component flow:** each route's lane keeps its own component-flow
+  ribbon — the components its execution actually traversed (agent loop,
+  agentgateway model/MCP routes, Qwen server, banking bridge, state store,
+  Substrate gVisor Actor, native Envoy claim gate, reviewer, MLflow evidence)
+  with traversal counts, accumulated live and **retained after the run**. Every
+  timeline entry is tagged with the component that produced it from observed
+  host events only (gateway spans appear after persisted readback); nothing
+  fabricates remote internals. A collapsible legend on the routes heading
+  explains each component's role and the transport-versus-execution
+  distinction: agentgateway carries requests; Substrate's native gate decides
+  whether the Actor may execute.
+- **Paired final outcome:** each route shows a verdict banner (expected versus
+  observed effective decision with executed/blocked/error counts), and the
+  paired table joins actions across routes on the frozen input digest where a
+  golden label exists — classifier decision, core ms and calibrated risk
+  against LLM decision and whole-review ms, with per-route outcome and
+  receipt. When the two agents proposed different actions, unmatched rows
+  remain visible per route and never become a same-input speedup or accuracy
+  claim. A deterministic card-level outcome statement summarizes the run.
 - **Timeline:** actual observed agent proposals, managed model HTTP, MCP, native
   review, Actor/result, original golden check and cleanup events. Host observation
   times are not fabricated remote wall clocks. Exported gateway span durations
@@ -319,10 +358,16 @@ exported to the browser.
   They do not invoke real reviewers in their case path and show model-inference
   latency/risk as not applicable, not zero. Expected errors and discarded late
   allows are distinct from learned policy blocks.
-- **Gemini:** after both arms, four task-criterion reviews per genuine episode and
-  one scoped pair/harness review. D02/D04/D05 use the scoped harness review only.
-  Review time/cost is outside guard performance. Errors, disagreement and negative
-  verdicts stay visible and never overwrite CODE or human acceptance.
+- **Gemini judge evaluations:** the final evidence panel lists each
+  task-criterion review per genuine route (D01/D03): what is evaluated (the
+  versioned criterion rule), the golden data (pinned parameters such as the
+  expected recipient/amount and the CODE-oracle expected verdict), the judge's
+  verdict and whether it agrees with the golden expectation, with the judge's
+  bounded rationale behind each row's expander. D02/D04/D05 show the scoped
+  harness review only. Raw judge start/finish bookkeeping is no longer shown
+  in the observation timeline. Review time/cost is outside guard performance.
+  Errors, disagreement and negative verdicts stay visible and never overwrite
+  CODE or human acceptance.
 
 Both arms can be displayed together without being statistically identical: agents
 may propose different calls, and shared-device idle/cache conditions still vary.
@@ -344,7 +389,8 @@ All failed/partial attempts remain. Public events omit credentials, complete ban
 state, raw prompts and ticket capabilities; tool arguments shown in final panels
 are bounded canonical/redacted synthetic values rendered as text, never HTML.
 
-The loopback API under `/api/live/` has authenticated status, explicit Run POST,
+The loopback API under `/api/live/` has authenticated status, a read-only
+card-context endpoint derived from pinned data, explicit Run POST,
 repeatable run results and resumable SSE observations. It never accepts paths/prompts/commands
 or browser infrastructure credentials. A single worker and operator lock serialize
 the global hook/bridge and both arms. There is no arbitrary live cancel endpoint;

@@ -20,6 +20,8 @@ class ResidentClassifier:
         try:self.inner,self.tokenizer=self.executor.submit(copy_context().run,classifier_guard,artifact,calibration,device=device).result()
         except BaseException:self.executor.shutdown(wait=True);raise
         self.guard_id=self.inner.guard_id;self.stage_timings_ns={}
+        # timed_review reads frozen calibration context off the selected guard.
+        self.calibration=getattr(self.inner,"calibration",None)
 
     def review(self,value):
         def forward():

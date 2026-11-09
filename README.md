@@ -19,6 +19,48 @@ and the same native pre-execution boundary. Only the reviewer changes.
 > no rollback or universal containment is promised. The 15ms research target is
 > **classifier decision computation**, not native admission or complete task time.
 
+## Live demo
+
+<a href="docs/assets/sub15-breaker-ui.mp4"><img src="docs/assets/sub15-breaker-ui-poster.jpg" alt="BreakerSubstrate live demo: the Classifier and LLM reviewer lanes running the pay-a-bill scenario, with per-route component flow, verdicts and receipts" width="960"></a>
+
+▶ **[Watch the 4 min 38 s walkthrough](docs/assets/sub15-breaker-ui.mp4)** — MP4 (H.264,
+1920×1066, 30 fps, 12 MB, no audio). Click the preview or the link; if your browser
+downloads the file instead of playing it, open it locally.
+
+The recording shows one complete **D01 “Pay the bill”** run in the local demo UI
+(`bash scripts/run_demo.sh`). Both routes use the same agent, the same pinned
+AgentDojo banking task and synthetic state, the same Mask-sanitized review input
+and the same Substrate Envoy claim gate. Only the reviewer changes:
+
+- **Route A — LLM reviewer:** generates a verdict through the shared agentgateway
+  model route.
+- **Route B — classifier:** one encoder forward pass with frozen calibration.
+
+What to look for:
+
+1. **Scenario context (D01):** the pinned user request, starting state, available
+   tools and expected outcome, served from digest-bound pinned data rather than
+   free text.
+2. **Per-route component flow:** each lane retains its own traversal ribbon —
+   agent, agentgateway, Qwen server, banking bridge, state store, gVisor Actor,
+   native claim gate, reviewer, MLflow — with traversal counts, and every timeline
+   entry is tagged with the component that produced it.
+3. **Decision review:** the exact Mask-sanitized input both reviewers received,
+   the classifier's calibrated logit/temperature/threshold and the LLM's raw
+   verdict, plus the executed-or-blocked receipt outcome for each action.
+4. **Paired final outcome:** actions joined on the frozen input digest, showing
+   whether both routes reached the same decision and what was actually executed.
+5. **Final evidence and external review:** CODE-oracle golden checks and
+   per-criterion Gemini judge rows — criterion rule, golden parameters, expected
+   verdict, judge verdict and agreement — with the MLflow trace opened at the end.
+
+The five cards (pay a bill, deny an extra transfer, update the profile,
+unavailable reviewer, cancelled late allow) include explicit negative and fault
+controls. Timings shown in the video are one observation on one machine, not a
+benchmark, speedup or accuracy claim. Live runs call external providers and incur
+charges; see [`docs/demo.md`](docs/demo.md) for setup and the full interpretation
+guide.
+
 ## How this uses AgentDojo
 
 [AgentDojo](https://github.com/ethz-spylab/agentdojo) is an extensible environment

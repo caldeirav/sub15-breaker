@@ -76,7 +76,7 @@ class Job:
 
 class Controller:
     """One worker owns global hook/bridge configuration. Each arm runs in order."""
-    def __init__(self, plan, directory, runtime_factory, *, owner_lock=None):
+    def __init__(self, plan, directory, runtime_factory, *, owner_lock=None, context_factory=None):
         self.plan=plan
         self.directory=Path(directory); self.directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.owner_lock=owner_lock or (self.directory/"operator.lock").open("a")
@@ -87,6 +87,7 @@ class Controller:
         self.session_directory=self.directory/"sessions"/uuid4().hex
         self.usage=UsageLog(self.session_directory/"usage")
         self.runtime_factory=runtime_factory; self.runtime=None
+        self.context_factory=context_factory; self._cards=None
         self.lock=threading.RLock(); self.worker=ThreadPoolExecutor(max_workers=1,thread_name_prefix="live-demo")
         self.jobs={}; self.active=None; self.halted=False; self.closing=False; self.close_error=None
         self.prepared=False;self.preparation_phase="not_started";self.preparation_job=None;self.preparation_future=None
@@ -105,6 +106,37 @@ class Controller:
                 cards=list(CARDS),opening_page_runs_models=False,budget_enforced=False,repeatable=True,
                 ready=self.prepared and not self.halted and not self.closing,
                 preparation=dict(phase=self.preparation_phase))
+
+    def cards(self):
+        """Read-only presentation context; cached and digest-recorded.
+
+        Never dispatches work. A failing pinned derivation falls back to the
+        curated metadata (labelled as such) instead of blocking the UI; the
+        failure is recorded privately for operator inspection. The build runs
+        outside the controller lock so a slow pinned load cannot stall status
+        polling; concurrent first requests deterministically rebuild the same
+        value.
+        """
+        with self.lock:
+            if self._cards is not None:
+                return self._cards
+            factory=self.context_factory
+        value=None
+        if factory is not None:
+            try:
+                from src.demo_ui.context import bounded
+                value=bounded(factory(self.plan))
+                private(self.session_directory/"card-context.json",
+                    dict(source=value.get("source"),context_sha256=value.get("context_sha256")))
+            except Exception as exc:
+                private(self.session_directory/"card-context-failure.json",dict(error=type(exc).__name__))
+        if value is None:
+            from src.demo_ui.context import fallback
+            value=fallback(self.plan)
+        with self.lock:
+            if self._cards is None:
+                self._cards=value
+            return self._cards
 
     def prepare(self):
         """Operator opt-in; no presentation card, pair, counter or external review."""

@@ -108,14 +108,23 @@ class Bridge:
                 record["snapshot_prepare_ns"]=perf_counter_ns()-prepare_started
                 emit("prepare", "finished", tool=call.name, duration_ns=record["snapshot_prepare_ns"])
                 # Context is caller/backend-owned, never model-supplied authority.
-                materialize=perf_counter_ns();issues=()
+                materialize=perf_counter_ns();issues=();token_bounds=None
                 if self.review_builder:
                     projected=self.review_builder(snapshot,call.name,arguments,self.actions)
                     review=projected.value;issues=projected.issues
+                    token_bounds=(projected.token_count,projected.maximum_tokens)
                 else:
                     review=ReviewInput(snapshot["context"]["user_request"],"banking-wiring-v1",
                         "Synthetic banking wiring control; learned policy evaluation is not claimed.",call.name,arguments,
                         state={"state_version":snapshot["state_version"]})
+                # Retain the masked projection the registered reviewer receives.
+                # This is the review input shown by evidence/UI summaries; the
+                # registry still binds the authoritative object by digest.
+                rendered=dict(goal=review.goal,policy_id=review.policy_id,policy=review.policy,tool=review.tool,
+                    arguments=review.arguments,observations=list(review.observations),state=review.state,
+                    input_issues=list(issues))
+                if token_bounds:rendered.update(input_tokens=token_bounds[0],maximum_tokens=token_bounds[1])
+                record["review_input"]=self.mask(rendered)
                 record["review_materialization_ns"]=perf_counter_ns()-materialize
                 emit("projection", "finished", tool=call.name, duration_ns=record["review_materialization_ns"])
                 self.registry.register(ticket,review,self.guard,parent=span,input_issues=issues)

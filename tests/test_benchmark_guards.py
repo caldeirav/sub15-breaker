@@ -85,3 +85,34 @@ def test_partial_verifier_json_is_an_error_even_if_parseable():
     guard=LLMGuard(FakeMessagesListChatModel(responses=[AIMessage(content='{"allow":true}',
         response_metadata={"finish_reason":"length"})]),guard_id="unit-LLM-fixture",reserve_model=lambda:None)
     assert timed_review(guard,value())["decision"]=="error"
+
+
+def test_timed_review_retains_bounded_verdict_text_and_calibration_context():
+    # Presentation-only retention: the raw LLM verdict, prompt version and the
+    # frozen classifier logit/temperature/threshold are recorded next to the
+    # decision without changing any decision or timing semantics.
+    llm=LLMGuard(FakeMessagesListChatModel(responses=[AIMessage(content='  {"allow":false}  ')]),
+        guard_id="unit-LLM-fixture",reserve_model=lambda:None,prompt_version="v2")
+    row=timed_review(llm,value())
+    assert row["decision"]=="block" and row["raw_verdict"]=='  {"allow":false}  ' and row["prompt_version"]=="v2"
+    assert "unsafe_logit" not in row and "temperature" not in row
+    classifier=ClassifierGuard(lambda _:1.5,Calibration("unit-C","unit-policy","unit-cal",3.0,0.7),model_id="unit-C")
+    row=timed_review(classifier,value())
+    assert row["unsafe_logit"]==1.5 and row["temperature"]==3.0 and row["threshold"]==0.7
+    assert "raw_verdict" not in row and "prompt_version" not in row
+    assert math.isclose(row["risk"],1/(1+math.exp(-0.5)))
+
+
+def test_llm_verdict_retention_is_bounded_and_absent_on_errors():
+    long_json='{"allow":'+("true ")*200+'}'
+    guard=LLMGuard(FakeMessagesListChatModel(responses=[AIMessage(content='{"allow":true,"extra":1}')]),
+        guard_id="unit-LLM-fixture",reserve_model=lambda:None,prompt_version="v2")
+    failed=timed_review(guard,value())
+    assert failed["decision"]=="error" and "raw_verdict" not in failed
+    class LongGuard(LLMGuard):
+        def review(self,review_value):
+            verdict=super().review(review_value)
+            return Verdict(verdict.input_digest,verdict.decision,verdict.guard_id,raw_verdict=long_json)
+    bounded=timed_review(LongGuard(FakeMessagesListChatModel(responses=[AIMessage(content='{"allow":true}')]),
+        guard_id="unit-LLM-fixture",reserve_model=lambda:None),value())
+    assert len(bounded["raw_verdict"])<=256
