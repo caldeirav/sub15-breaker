@@ -19,8 +19,8 @@ and the same native pre-execution boundary. Only the reviewer changes.
 > closed with no human-escalation path, although Agent Substrate supports one
 > ([#74](https://github.com/caldeirav/sub15-breaker/issues/74)). Denial, stopping
 > an Actor and undoing prior effects are different; no rollback or universal
-> containment is promised. The 15ms research target is **classifier decision
-> computation**, not native admission or complete task time.
+> containment is promised. The 15ms research target is
+> **classifier decision computation**, not native admission or complete task time.
 
 ## Talk: Agent Substrate Day at ATECon 2026
 
