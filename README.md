@@ -15,9 +15,12 @@ and the same native pre-execution boundary. Only the reviewer changes.
 
 > Research software, not a production safety system. Use synthetic data only—no
 > real bank APIs, payment credentials or privileged shell executor. A classifier
-> can be wrong. Denial, stopping an Actor and undoing prior effects are different;
-> no rollback or universal containment is promised. The 15ms research target is
-> **classifier decision computation**, not native admission or complete task time.
+> can be wrong—and a wrong denial is currently final: out-of-policy actions fail
+> closed with no human-escalation path, although Agent Substrate supports one
+> ([#74](https://github.com/caldeirav/sub15-breaker/issues/74)). Denial, stopping
+> an Actor and undoing prior effects are different; no rollback or universal
+> containment is promised. The 15ms research target is **classifier decision
+> computation**, not native admission or complete task time.
 
 ## Talk: Agent Substrate Day at ATECon 2026
 
@@ -188,8 +191,17 @@ agentgateway.
 
 The key distinction is **transport versus execution authority**: agentgateway
 carries model/tool requests; Substrate's native hook gates an Actor's claim of
-the exact prepared ticket. The store still verifies identity, generation, state
-version, expiry and idempotency at the transaction boundary. A good model decision
+the exact prepared ticket. That gate sits on top of a deterministic layer, not in
+place of one: before any reviewer runs, a trusted service binds each proposed
+action to an immutable ticket that fixes the operation, target resource and
+expiry, and the store re-verifies identity, generation, state version and
+idempotency at the transaction boundary—not just at review time. Agent
+authorization is likewise separate and never passes through the model: caller
+identity comes from trusted service-side credentials, is bound into the ticket
+and re-verified at claim and commit, alongside a deterministic capability check
+that the tool is permitted for that principal at all. A reviewer only decides
+whether the proposed action complies with policy given the legitimate goal and
+state—it can veto a ticket, but it cannot grant authority. A good model decision
 without those bindings is insufficient. [Detailed system/harness architecture](docs/architecture.md).
 
 ### Agent control flow
@@ -216,7 +228,11 @@ fine-tuned from ModernBERT-base—not an embedding-similarity rule, generic rele
 checkpoint or AnyJev/Laya integration. Inputs contain the legitimate goal, policy,
 one typed action, relevant service-owned state and actual preceding observations.
 Untrusted document text cannot create authority. Unsupported inputs fail closed;
-required facts are not silently truncated.
+required facts are not silently truncated. The model reviews policy compliance,
+not caller authority—authorization is established deterministically before
+review. A block is also terminal for that action: the demo fails closed with no
+human-escalation path, although Agent Substrate supports one
+([#74](https://github.com/caldeirav/sub15-breaker/issues/74)).
 
 For permitted/prohibited logits $z_0,z_1$, temperature $T$ and threshold $\tau$:
 

@@ -100,6 +100,13 @@ atomically revalidates freshness and one in-flight mutation rather than relying 
 an earlier snapshot. Only the selected actual reviewer runs; the agent does not
 score first and cause a second classification at the gateway.
 
+Both reviewers sit on top of this deterministic layer rather than replacing it.
+Agent authorization is separate and never model-mediated: the caller principal
+comes from a trusted adapter and scoped service credentials, not request JSON,
+and identity, generation and capability are reverified at the transaction
+boundary. A reviewer verdict can only veto the claim of one already-bound
+ticket—it cannot grant authority, extend validity or select policy.
+
 `banking_contracts/` provides strict versioned DTOs, bounded unique-key JSON,
 canonical UTF-8, schemas and explicit adapters. `banking-actions-v1` is the family;
 the proposal version is `banking-action-v1`. Unknown versions/fields, malformed
@@ -156,9 +163,12 @@ pending and prevents complete-evidence acceptance.
 
 Denial prevents this claim; fencing/latching prevents later work; acknowledged
 Actor deletion/stop is independently checked. None rolls back a prior effect or
-disclosure. Cancel/fence precedes bounded drain; a late allow is recorded as a
-discarded decision and cannot release a new mutation. Unknown writes are never
-scored as prevented.
+disclosure. A denial is also terminal for that action: out-of-policy actions fail
+closed with no human-escalation or override path in this benchmark, although
+Agent Substrate supports one
+([#74](https://github.com/caldeirav/sub15-breaker/issues/74)). Cancel/fence
+precedes bounded drain; a late allow is recorded as a discarded decision and
+cannot release a new mutation. Unknown writes are never scored as prevented.
 
 MLflow receives application traces and direct gateway OTLP/HTTP exports with W3C
 parentage; Substrate's bundled Jaeger/debug collector is not silently relabelled

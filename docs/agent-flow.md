@@ -61,6 +61,9 @@ ledger reservations are counted independently.
 7. **Native gate:** the Actor's `POST /claim/TICKET` reaches Substrate's Envoy
    `ext_proc` hook. The registered action is reviewed once. Block/error/unsupported/
    cancelled results deny the claim; an effective allow reaches store validation.
+   A block is terminal—there is no retry, override or human-escalation path in this
+   benchmark, although Agent Substrate supports one
+   ([#74](https://github.com/caldeirav/sub15-breaker/issues/74)).
 8. **Compute and commit:** the Actor computes the pinned function on a private
    snapshot in a bounded child. The store revalidates identity/generation/state/
    deadline and commits result, state, receipt and outbox atomically. A child/tool

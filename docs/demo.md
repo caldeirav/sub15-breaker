@@ -25,7 +25,10 @@ The older CLI
 qualification/rehearsal protocol below has14 cases because it reuses the shared
 error/cancel control records for D04/D05. Neither count is a model-accuracy
 denominator. D01–D03 real guards review every prefix action. Rent remains outside
-these cards but in the full test and known quality limitation #55.
+these cards but in the full test and known quality limitation #55. A denial is
+terminal in every card: there is no retry, override or human-escalation path in
+the demo, although Agent Substrate supports one
+([#74](https://github.com/caldeirav/sub15-breaker/issues/74)).
 
 ## Live web interface — end to end
 

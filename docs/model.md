@@ -10,6 +10,9 @@ to its SHA-256 digest at the native ticket-claim gate. The trained classifier is
 an imperfect **binary authorization classifier for a declared synthetic policy**,
 not an embedding similarity metric or a general financial-risk oracle. The LLM is
 an alternative real reviewer, not a label source or an independent safety proof.
+Neither reviewer establishes agent authorization: caller identity and capability
+are deterministic, service-owned and bound into the ticket before review, so a
+verdict can only veto a ticket—never grant authority.
 
 | Property | Classifier | LLM reviewer |
 | --- | --- | --- |
@@ -218,6 +221,9 @@ templates and partition-name shortcuts. Original225 candidates yield209 supporte
 scored examples with16 exclusions, including the owner's Unknown quarantine.
 The model has known transfer errors; the rent false block remains
 [#55](https://github.com/caldeirav/sub15-breaker/issues/55), not fixed by demo5/5.
+Wrong denials are terminal today: the circuit breaker fails closed with no
+human-escalation path, although Agent Substrate supports one; adding it is
+[#74](https://github.com/caldeirav/sub15-breaker/issues/74).
 
 The later v2 experiment implemented code-authored facts, Gemini notes-only context,
 human-vetted goal paraphrases and five populations (4096/1024/1024/1024/1024), with
