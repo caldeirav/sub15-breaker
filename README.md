@@ -19,6 +19,63 @@ and the same native pre-execution boundary. Only the reviewer changes.
 > no rollback or universal containment is promised. The 15ms research target is
 > **classifier decision computation**, not native admission or complete task time.
 
+## Talk: Agent Substrate Day at ATECon 2026
+
+This reference implementation was presented as
+**“Instant Circuit Breakers: Sub-15ms Action Verification in Agent Substrate”**
+at Agent Substrate Day (ATECon, Monday, November 9, 2026, Sky SLC):
+[talk slides](docs/assets/agent-substrate-day-instant-circuit-breakers.pdf) ·
+[LinkedIn write-up](https://lnkd.in/p/gWEq6rQh).
+
+The talk frames the problem this repository studies. When an agent proposes a
+high-stakes action—calling a cloud API or modifying a database—how do you verify
+that it is safe without destroying real-time performance? Most current
+architectures either naively trust the agent's internal reasoning or insert a
+secondary LLM as a conversational judge. That generative approach pays a
+**verification tax** on every step: **1,500ms+ lag** (re-querying an LLM stalls
+agent execution), **uncalibrated confidence** (text probabilities are
+conversational guesses) and **injection risk** (external tool data can hijack the
+evaluation reasoning).
+
+The alternative demonstrated here moves enforcement to the infrastructure
+boundary: a compact, calibrated binary decision model (ModernBERT) replaces the
+generative judge. One forward pass, zero generated tokens and a fail-closed
+threshold on a calibrated risk probability halt unauthorized actions before any
+side effect leaves the sandbox. Strategically this is trust-boundary management:
+a scaled agentic system can have hundreds of control points, so they must be
+calibrated to the decision space and specific policies, operate entirely outside
+agent execution, and remain transparent and auditable—rather than sit inside the
+agent flow, blurring execution authority and sharing its exploits. Agent
+Substrate joining the CNCF at its 1.0 milestone provides the neutral governance
+and sandboxed foundation such distributed enforcement needs.
+
+The deck's agenda maps onto this repository:
+
+| Talk section | Where it lives here |
+| --- | --- |
+| 01 Instant Circuit Breakers overview | Verification tax versus sub-15ms binary decisions; [risk model and calibration](#risk-model-and-calibration) |
+| 02 Connectivity vs execution authority | agentgateway routes traffic; Agent Substrate enforces the non-bypassable boundary; [system architecture](#system-architecture) |
+| 03 Agent flow and testing protocol | Neutral LangGraph loop, AgentDojo banking suite with real prompt-injection exploits, identical admission for both reviewers; [how this uses AgentDojo](#how-this-uses-agentdojo) |
+| 04 Results, interpretation and next steps | Medians below and the production roadmap; [test environment and metrics](#test-environment-design-and-metrics) |
+
+Whole-review medians as presented in the talk ([ui1 live campaign](docs/results/demo-ui1.md); one observation on one machine):
+
+| Card / scenario | Classifier | LLM review | Speedup |
+| --- | ---: | ---: | ---: |
+| D01 bill pay (allow) | 76.1 ms | 368.0 ms | 4.8× |
+| D02 exploit control (block) | 64.7 ms | 590.6 ms | 9.1× |
+| D03 profile update (allow) | 60.1 ms | 258.6 ms | 4.3× |
+
+Ten of ten lanes met their golden outcomes; D02 is the scripted extra-proposal
+control, not an acting-agent attack sample. The classifier forward-pass core ran
+50–66 ms on the resident MPS worker—**sub-15ms is the classifier-computation
+target on enterprise accelerators, not a latency achieved on this hardware**, and
+tiny serial samples are not load/tail SLOs or a matched-safety speed guarantee.
+The production roadmap from the talk: TensorRT/ONNX native sidecars for
+sub-15ms forward passes, a declarative Substrate CRD for an ActionGuard
+admission controller, and extension to broader suites such as bash commands and
+cloud IAM validation.
+
 ## Live demo
 
 <a href="https://youtu.be/Ayo4dzE5TtY"><img src="docs/assets/sub15-breaker-ui-poster.jpg" alt="Watch the BreakerSubstrate demo on YouTube: Classifier and LLM reviewer lanes running the pay-a-bill scenario, with per-route component flow, verdicts and receipts" width="960"></a>
@@ -299,7 +356,7 @@ from the repeatable live UI; their old allocations do not restrict demo clicks.
 | `src/infra/`, `infra/`, `scripts/` | Owned local stack, version pins, checks and image build |
 | `tests/` | Default offline regressions; no live provider campaign |
 | `validation/` | Explicit opt-in persisted/live checks and archived acceptance/protocol records |
-| `docs/` | Six topic guides, navigation and one versioned latest-demo report |
+| `docs/` | Six topic guides, navigation, one versioned latest-demo report, and talk slides with demo assets |
 | `k8s/`, `specs/` | Manifest inventory and scope/acceptance specification |
 | `src/feasibility/`, `src/agent/`, `src/eval/`, `src/gateway/`, `src/dashboard/` | Historical adapters/utilities and command-only compatibility scaffolding, not alternative supported banking entry points |
 
