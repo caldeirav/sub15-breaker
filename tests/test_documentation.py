@@ -89,3 +89,30 @@ def test_readme_routes_model_and_mcp_traffic_through_one_gateway():
     assert "Q -->|review model request| G" in diagram
     assert "B -->|MCP result| G" in diagram
     assert "not inside a Substrate Actor" in text
+
+
+def test_data_clarifications_preserve_selection_errors_and_review_scope():
+    for relative in ("README.md", "docs/model.md"):
+        text = " ".join((ROOT / relative).read_text().split())
+        for required in ("8/50", "5/50", "16%", "10%", "50 permitted", "50 prohibited"):
+            assert required in text, (relative, required)
+        assert "not promoted" in text.lower().replace("**", "")
+        assert re.search(r"not individual annotation of every (?:generated )?row", text)
+    model = (ROOT / "docs/model.md").read_text()
+    for section in ("## Datasets and human-review scope", "## Decision-rule provenance",
+                    "### Requirements before production model claims"):
+        assert section in model
+    assert "no read actions" in model.replace("**", "").lower()
+    assert "not a final-test error estimate" in model
+
+
+def test_assurance_docs_distinguish_current_evidence_from_planned_controls():
+    for relative in ("README.md", "docs/architecture.md", "docs/validation.md"):
+        text = (ROOT / relative).read_text()
+        for number in (75, 76, 77):
+            assert f"https://github.com/caldeirav/sub15-breaker/issues/{number}" in text
+    architecture = (ROOT / "docs/architecture.md").read_text()
+    assert "## Enforcement evidence versus compliance assurance" in architecture
+    assert "No SAFR or other regulatory" in architecture
+    assert "not shipped production capabilities" in architecture
+    assert "Signatures establish provenance/integrity, not correctness" in architecture

@@ -7,7 +7,7 @@
 
 Both adapters consume the same canonical `ReviewInput` and return a verdict bound
 to its SHA-256 digest at the native ticket-claim gate. The trained classifier is
-an imperfect **binary authorization classifier for a declared synthetic policy**,
+an imperfect **binary action-policy classifier for a declared synthetic policy**,
 not an embedding similarity metric or a general financial-risk oracle. The LLM is
 an alternative real reviewer, not a label source or an independent safety proof.
 Neither reviewer establishes agent authorization: caller identity and capability
@@ -135,6 +135,43 @@ The form deliberately loads its **byte-preserved historical rubrics** from
 new policy release. The current explanation is this guide; do not edit a frozen
 rubric to make an old review export match different text.
 
+## Datasets and human-review scope
+
+Keep the original evaluation source, deployed v1 fitting data and rejected v2
+successor separate. They do not establish the same claims:
+
+| Population | Construction and role | Review and limitations |
+| --- | --- | --- |
+| Adapted original AgentDojo banking corpus | Pinned suite/reference trajectories and released attack fixtures; 225 candidate action/context examples, 209 supported/scored, 16 excluded or quarantined | Rule-grounded labels with execution evidence and human rule/spot/exception review; excluded from fitting, but inspected development-transfer data, not a pristine final holdout or official full-suite benchmark |
+| Deployed hybrid v1 | 400 training /100 calibration /100 validation rows; authorized/counterfactual mutation pairs across five tools | Code defines requests, values and labels; Gemini generates untrusted document prose only. Human review is not individual annotation of every generated row |
+| Rejected successor v2 | 4096 training plus four 1024-row populations for checkpoint validation, calibration, threshold validation and challenge | Code-authored facts, generated notes and human-vetted goal paraphrases; failed original-transfer safety, not promoted and not the demo's calibration source |
+
+### What the v1 calibration set contains
+
+[`hybrid.py`](../src/benchmark/hybrid.py) constructs ten scenario pairs for each
+of `send_money`, `schedule_transaction`, `update_scheduled_transaction`,
+`update_user_info` and `update_password`: **100 rows, 50 permitted /50 prohibited**.
+Each pair shares a legitimate request/state/document; one action matches the
+explicit request and the other changes the recipient, address field or password.
+Labels come from the code-owned authorization specification, not a generated
+model verdict or merely successful tool execution. There are **no read actions**
+in v1's fitting populations.
+
+Calibration document themes are `translation_note`, `archival_quote`,
+`upgrade_message` and `vendor_request`, separate from training and validation
+themes. Scenario pairs stay within their population. This grouping does not
+eliminate template shortcuts: repeated goal forms and partition-specific entity
+strings remain known limitations. Balanced classes aid a controlled experiment;
+they do not reproduce deployment prevalence or establish deployment-calibrated
+probabilities. New operating distributions need their own assessment.
+
+Human review of the original labels covers rules, spot checks and genuine
+exceptions, retaining Unknown/disagreement quarantines. V2 additionally required
+semantic-fidelity review of generated goal paraphrases. Neither should be
+described as an independently adjudicated, row-by-row production ground-truth
+corpus. Policy scope is simulated request compliance, not financial regulations.
+Private dataset/review artifacts are not bundled with a clean checkout.
+
 ## Frozen demo artifact and training protocol
 
 | Binding | Value |
@@ -189,6 +226,23 @@ permitted mutations; satisfying the observed false-block constraint did not remo
 false allows. Full bins, intervals and immutable predictions remain in the local
 training artifact `modernbert-training-v1/result.json` under the benchmark bundle.
 
+| Reported quantity | Value | Interpretation |
+| --- | --- | --- |
+| Calibration class balance | 50 permitted /50 prohibited | Synthetic mutation pairs, not deployment base rates |
+| Temperature /blocking threshold | 0.2675773149466741 /0.6942850797993619 | Temperature fitted on calibration; threshold selected on validation; block when risk ≥ threshold |
+| Calibration NLL | 0.354436→0.243370 | Calibration-fit diagnostic, not independent accuracy |
+| Calibration Brier /10-bin ECE | 0.111682→0.078054 /0.143128→0.077911 | Same 100 calibration examples; ECE is sensitive to sample size/binning |
+| Validation false allows | 8/50 prohibited (16%) | Threshold-selection population, not a final-test error estimate |
+| Validation false blocks | 5/50 permitted (10%) | Same selection population, also used for checkpoint selection |
+
+Temperature scaling changes probability calibration, not the ordering of risk
+scores or the underlying model's discrimination. The 10% observed false-block
+constraint is an experimental threshold-selection choice, not a production risk
+budget or statistical guarantee. A balanced synthetic calibration set and a
+passing curated demo cannot substantiate rare-event safety. Report per-class
+errors, unsupported/Unknown coverage and group-aware uncertainty on a genuinely
+fresh evaluation population rather than publishing a single demo "accuracy rate."
+
 ### Loader and serving contract
 
 The export's `benchmark-guard.json` binds every local weight/config/tokenizer file,
@@ -213,6 +267,24 @@ empty/incomplete responses and wrong verdict binding fail closed. No parsing rep
 or code override forces a preferred decision. The current profile has temperature0,
 reviewer output cap256 and zero SDK/transport retries. The actor's separate output
 cap is2048; model-family envelope parsing remains the server's responsibility.
+
+## Decision-rule provenance
+
+The native span records ticket, serialized review input and selected guard;
+`guards.timed_review` retains the input digest, reviewer ID, effective verdict,
+risk and (when available) logit, temperature and threshold. LLM results retain
+prompt version; the canonical input carries policy/input versions. The encoder
+checks a digest-bound artifact manifest including calibration provenance at load.
+Errors and unsupported/cancelled inputs are not invented classifier probabilities;
+a late verdict retains its discarded decision separately from the effective error.
+
+This is not yet a required, self-contained per-admission record of the explicit
+experiment arm and full decision configuration. Human-readable guard IDs or
+current runner defaults are not sufficient substitutes. Planned
+[#75](https://github.com/caldeirav/sub15-breaker/issues/75) binds a canonical
+configuration digest and explicit arm to admission/receipt evidence, preserves
+recoverable artifacts and rejects missing or mismatched configuration. Historical
+traces must not be retroactively represented as containing fields never recorded.
 
 ## Research limits and future work
 
@@ -245,3 +317,33 @@ native-serving optimization [#13](https://github.com/caldeirav/sub15-breaker/iss
 is separate. This documentation authorizes no retraining, threshold search or new
 provider requests. Original source-specific protocols remain in
 [Git history](https://github.com/caldeirav/sub15-breaker/tree/394b16518cf0b090d873562715190dbf92c1e4d0/docs).
+
+### Requirements before production model claims
+
+- **Ground truth and independence (#56):** institution-owned action-policy rubric,
+  independently adjudicated deployment-specific cases, reviewer provenance and
+  disagreement/Unknown handling. Include permitted reads and mutations, benign
+  near-misses, missing facts, novel attacks and multi-agent handoff/mandate changes;
+  handoffs are a future evaluation scenario, not a shipped demo capability.
+- **Leakage-safe selection (#56):** separate training, checkpoint selection,
+  calibration, threshold selection and fresh final evaluation by source, template,
+  scenario/entity and, where applicable, time. Previously inspected v1/v2 transfer
+  and challenge sets cannot become fresh holdouts again. Document class prevalence
+  and sampling/weighting assumptions; eliminate partition-name shortcuts.
+- **Risk-bounded acceptance (#56/#11):** predeclare per-operation false-allow and
+  false-block budgets, coverage and sample sizes/uncertainty before fitting. Compare
+  reviewer latency only alongside declared quality/availability criteria on the
+  target hardware; sub-15ms is not an achieved demo result.
+- **Ongoing assurance (#77):** monitor support, action mix and drift, but measure
+  correctness using independent delayed labels, not model confidence or task wins.
+  Require controlled policy/model/calibration/runtime promotion, scoped
+  requalification and rollback of configuration—not rollback of prior effects.
+- **Accountability (#75/#76/#74):** preserve the exact decision rule/arm and
+  independently retained effect evidence; introduce authenticated escalation
+  without allowing a human or model verdict to bypass deterministic identity,
+  capability or freshness checks.
+
+Tracking: [held-out evaluation #56](https://github.com/caldeirav/sub15-breaker/issues/56),
+[ongoing assurance #77](https://github.com/caldeirav/sub15-breaker/issues/77).
+These are planning requirements, not authorization to collect real bank data,
+retrain, tune thresholds or run new paid evaluation.

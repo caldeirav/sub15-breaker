@@ -5,10 +5,10 @@ These guides describe implemented behavior, not an old sprint plan.
 
 | Guide | Details |
 | --- | --- |
-| [System and harness architecture](architecture.md) | Component roles, Substrate versus agentgateway, authority, tickets, transactions, isolation and technical decisions |
+| [System and harness architecture](architecture.md) | Component roles, authority, tickets, transactions, isolation, and enforcement evidence versus compliance assurance |
 | [Agent flow](agent-flow.md) | Compiled graph, messages, tool sequence, native review, cancellation and failure semantics |
-| [Model and calibration](model.md) | Shared review input, labels, training populations, frozen artifact, risk calculation, LLM protocol and research limits |
-| [Testing and validation](validation.md) | AgentDojo data/checkers, metrics, controls, MLflow ownership, offline tests and full live A/B procedure |
+| [Model and calibration](model.md) | Original/v1/v2 populations, human-review scope, calibration/error rates, decision provenance and production qualification gaps |
+| [Testing and validation](validation.md) | AgentDojo checkers, metrics, controls, MLflow ownership, provenance/audit gaps, offline tests and full live A/B procedure |
 | [Local infrastructure](infra.md) | Prerequisites, versions, owned-stack setup, artifact handoff, credentials, checks and teardown |
 | [Demo guide](demo.md) | Owner-accepted repeatable five-card UI, no allocations/budgets, `--prepare`, sequential runs, golden/timing panels, prerequisites and separate saved-review API |
 | [Latest live UI results — ui1](results/demo-ui1.md) | Versioned sequential five-card browser campaign, golden/effect checks, measured guard/component performance, startup costs, reviews and evidence IDs |

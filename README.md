@@ -198,11 +198,32 @@ expiry, and the store re-verifies identity, generation, state version and
 idempotency at the transaction boundary—not just at review time. Agent
 authorization is likewise separate and never passes through the model: caller
 identity comes from trusted service-side credentials, is bound into the ticket
-and re-verified at claim and commit, alongside a deterministic capability check
-that the tool is permitted for that principal at all. A reviewer only decides
-whether the proposed action complies with policy given the legitimate goal and
-state—it can veto a ticket, but it cannot grant authority. A good model decision
-without those bindings is insufficient. [Detailed system/harness architecture](docs/architecture.md).
+and re-verified at claim and commit. Preparation also checks deterministically
+that the tool is permitted by the service-owned policy for that principal/trial.
+A reviewer only decides whether the proposed action complies with policy given
+the legitimate goal and state—it can veto a ticket, but it cannot grant authority.
+A good model decision without those bindings is insufficient.
+[Detailed system/harness architecture](docs/architecture.md).
+
+### Enforcement evidence is not proof of policy compliance
+
+Substrate supplies isolation, runtime identity and an enforcement boundary outside
+the agent. It does **not** define an institution's business policies, validate a
+model's interpretation of them or certify regulatory compliance. Those require
+institution-owned authorization, versioned policy and independent assurance, with
+every privileged execution path covered—not just the path shown in this demo.
+
+The demo links a prepared action and review input to the native decision,
+execution receipt and synthetic state changes in MLflow; the store atomically
+commits state, receipt and an evidence outbox. This supports reconstruction of
+**what was checked and what happened**, not proof that every allowed action was
+semantically correct. MLflow and local digests are not an independently retained,
+tamper-evident audit ledger. Production work includes explicit per-admission
+arm/configuration provenance ([#75](https://github.com/caldeirav/sub15-breaker/issues/75)),
+independent audit retention and destination-log reconciliation to detect missing
+or bypassed actions ([#76](https://github.com/caldeirav/sub15-breaker/issues/76)),
+and authenticated human escalation (#74).
+[Assurance boundaries and requirements](docs/architecture.md#enforcement-evidence-versus-compliance-assurance).
 
 ### Agent control flow
 
@@ -243,6 +264,37 @@ Temperature fits calibration-set NLL; the threshold is selected on validation,
 then frozen before evaluation. Calibration does not create labels or prove safety
 under distribution shift. The artifact has known transfer failures, including an
 unfixed legitimate rent false block. [Model, labeling and calibration protocol](docs/model.md).
+
+### What data supports the demo model?
+
+- **Original evaluation source:** pinned AgentDojo banking tasks, state, reference
+  trajectories and released attack fixtures. The adapted corpus has **225 candidate
+  action/context examples, 209 supported/scored and 16 excluded or quarantined**.
+  It was excluded from fitting but inspected during development: transfer evidence,
+  **not an untouched final holdout**. This is not an official full-suite benchmark.
+- **Synthetic v1 fitting data:** **400 training /100 calibration /100 validation**
+  examples across five mutation tools. Code defines requests, values and labels;
+  authorized actions are paired with prohibited counterfactuals, while Gemini
+  generates only untrusted document prose. The calibration set has **50 permitted
+  /50 prohibited** examples. Human review covers rules, spot checks and ambiguous
+  cases—not individual annotation of every row.
+- **Observed operating point:** temperature **0.2676**, blocking threshold
+  **0.6943**. On threshold-selection validation, **8/50 prohibited actions were
+  allowed (16%)** and **5/50 permitted actions were blocked (10%)**. These are
+  selection-set results, not independent deployment error estimates; v1 also reuses
+  validation for checkpoint selection. Calibration-fit ECE improved **0.143→0.078**
+  on its 100 examples, not on an independent safety test.
+- **Do not confuse v2 with the deployed model:** a larger successor used
+  human-vetted goal paraphrases and separate checkpoint/calibration/threshold
+  populations, but failed original-transfer safety and **was not promoted**.
+
+The five-card demo illustrates enforcement and reviewer latency, not production
+model qualification. Sub-15ms remains a target; measured classifier-core medians
+were approximately **53–66ms on Apple M4 Max**, with slow samples retained.
+Production requires independently adjudicated deployment-specific data, fresh
+group-separated evaluation and risk budgets (#56), plus drift monitoring and
+controlled promotion ([#77](https://github.com/caldeirav/sub15-breaker/issues/77)).
+[Dataset construction and calibration limits](docs/model.md#datasets-and-human-review-scope).
 
 ## Test environment, design and metrics
 

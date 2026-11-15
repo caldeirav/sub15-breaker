@@ -123,6 +123,24 @@ needed in the demo report.
 
 ## Trace and score ownership
 
+### Reconstruction is not semantic compliance proof
+
+Evidence that a gate ran is different from evidence that its decision was correct.
+The demo's original task checkers, action-policy labels, model judgments and
+post-run Gemini assessments have different semantics and cannot substitute for
+one another. Substrate enforces the configured runtime boundary; institutional
+policy correctness and exhaustive execution-path coverage need separate assurance.
+See [architecture assurance boundaries](architecture.md#enforcement-evidence-versus-compliance-assurance).
+
+For dataset provenance, review scope and v1/v2 separation see
+[model populations](model.md#datasets-and-human-review-scope). In particular,
+v1's 16% false-allow and 10% false-block observations are from threshold-selection
+validation, not an independent final test; the five-card report is not a competing
+general-accuracy estimate. Calibration-fit improvements do not demonstrate
+transfer quality, and previously inspected original cases are not fresh holdouts.
+
+### Current records and production gaps
+
 MLflow is the system of record, not only a run-average dashboard. Actual graph,
 model, tool/MCP, native guard, lifecycle, receipt and judge attempts—including
 failures—must retain source/parent/action/target ownership and persisted readback.
@@ -145,6 +163,30 @@ just names or global counts. Legacy feasibility runs use a different experiment.
 Private keys/tokens/passwords/raw sensitive state are not public evidence; keyed
 fingerprints preserve facts without exposing guessable secret hashes. Sanitization
 is bounded/known-schema handling, not arbitrary-secret detection.
+
+The native input includes the serialized policy/input versions; normal classifier
+results retain guard ID, input digest, risk, temperature/threshold and available
+logit. Full model/calibration manifest validation occurs at artifact loading.
+Do not infer that every error/control record contains an inferred score or the
+entire artifact manifest. Current evidence is not yet the mandatory explicit
+arm/full-configuration envelope proposed in
+[#75](https://github.com/caldeirav/sub15-breaker/issues/75).
+
+An acceptance-grade provenance test should deliberately omit/swap the experiment
+arm, change a threshold under the same friendly model ID, substitute policy or
+artifact bytes, and mismatch requested versus actual reviewer. New records must
+identify/reject these rather than let a report silently inherit runner defaults.
+Keep legacy evidence labelled as legacy; do not manufacture missing metadata.
+
+Production audit work [#76](https://github.com/caldeirav/sub15-breaker/issues/76)
+must independently protect retained records and reconcile decisions against
+destination-side effects, testing missing/deleted evidence, direct-path bypass,
+outbox/sink failure, duplicate delivery and unknown remote writes. MLflow trace
+presence and local digests alone do not prove tamper resistance or exhaustive
+coverage. The demo's local atomic state/receipt/outbox commit does not extend to
+external financial systems. Ongoing model assurance and promotion gates are
+[#77](https://github.com/caldeirav/sub15-breaker/issues/77), separate from #56's
+fresh held-out validation and #11's load/tail measurements.
 
 Native Gemini task judges see criterion-specific observations and closed rules,
 not measured answers/checker Python or final-answer claims. Their three-choice

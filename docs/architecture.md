@@ -103,8 +103,9 @@ score first and cause a second classification at the gateway.
 Both reviewers sit on top of this deterministic layer rather than replacing it.
 Agent authorization is separate and never model-mediated: the caller principal
 comes from a trusted adapter and scoped service credentials, not request JSON,
-and identity, generation and capability are reverified at the transaction
-boundary. A reviewer verdict can only veto the claim of one already-bound
+with the tool capability checked against service-owned policy at preparation.
+Identity/generation and ticket deadline are checked at claim and commit; commit
+also checks the expected state version. A reviewer verdict can only veto one bound
 ticket—it cannot grant authority, extend validity or select policy.
 
 `banking_contracts/` provides strict versioned DTOs, bounded unique-key JSON,
@@ -175,6 +176,55 @@ parentage; Substrate's bundled Jaeger/debug collector is not silently relabelled
 the MLflow path. Exact attempts, actions, receipt/state effects, scalar score
 ownership and late remote spans are reconciled before claiming completeness.
 See [trace contracts and acceptance](validation.md#trace-and-score-ownership).
+
+## Enforcement evidence versus compliance assurance
+
+Substrate is the runtime enforcement foundation, not the owner of business policy
+or a regulatory compliance oracle. It supplies sandbox isolation, runtime identity
+and external mediation hooks; the integration must configure and test those hooks
+and cover every privileged destination and credential path. A runtime trace alone
+does not establish that policy is complete, a delegated mandate is valid or a
+learned decision is correct. Institutional policy owners, destination authorization
+and independent assurance remain necessary. No SAFR or other regulatory
+certification is claimed by this demo.
+
+The implemented evidence chain links prepared action/context and policy/input
+versions to the selected reviewer, native decision, ticket, receipt and actual
+synthetic state effects. The trusted store commits state/receipt/outbox atomically;
+MLflow readback and reconciliation expose missing evidence rather than treating
+an export attempt as durable acceptance. Post-run Gemini assessments are scoped
+opinions on saved evidence, not authorization or independent ground-truth labels.
+This demonstrates enforcement on the scoped banking path—not semantic compliance
+of every possible agent action, host-compromise resistance or distributed
+exactly-once financial execution.
+
+Production assurance would require a reconstructable chain of **delegated
+authority → canonical action/resource → applicable policy and decision rule →
+effective decision → actual effect**, with explicit scope and residual trust:
+
+- **Decision provenance (#75):** a required explicit arm and canonical full
+  decision-configuration digest on each admission, linked to recoverable policy,
+  model/calibration or prompt artifacts. Current span fields and validated manifests
+  are useful but not that complete mandatory envelope; never infer an arm from an
+  unrecorded runner default.
+- **Integrity and completeness (#76):** independently administered append-only or
+  retention-locked evidence, authenticated writers, signed/hash-linked records
+  with protected anchors and key rotation, gap detection and privacy/retention
+  controls. Local hashes and MLflow persistence do not supply this trust separation.
+  Signatures establish provenance/integrity, not correctness of the recorded facts.
+- **Execution coverage (#76):** inventory and test alternate execution paths;
+  reconcile decisions with independent destination transaction logs to detect
+  orphan effects, bypasses and unresolved outcomes. Remote side effects are not
+  atomic with this demo's SQLite outbox; specify idempotency and recovery instead
+  of promising rollback or exactly-once execution.
+- **Policy/model assurance (#56/#77) and escalation (#74):** independently reviewed
+  labels, deployment-specific risk budgets, ongoing adjudicated monitoring and
+  authenticated human decisions that still respect deterministic authorization.
+
+These are tracked design requirements, not shipped production capabilities:
+[#75](https://github.com/caldeirav/sub15-breaker/issues/75),
+[#76](https://github.com/caldeirav/sub15-breaker/issues/76),
+[#77](https://github.com/caldeirav/sub15-breaker/issues/77).
 
 ## Deliberate non-goals and compatibility boundaries
 
