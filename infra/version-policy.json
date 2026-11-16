@@ -3,7 +3,7 @@
   "review_due": "2026-11-23",
   "review_disposition": "Owner-approved temporary retention of the research demo pins through 2026-11-23 inclusive (UTC), selected after disclosure of release drift and security risk. Manual runtime checks are deferred, not passed; no installed software or historical evidence is changed. No automatic renewal.",
   "review_reference": "https://github.com/caldeirav/sub15-breaker/issues/78",
-  "policy": "Use recent published releases within reviewed compatible lines. Detect drift; never install automatically. Runtime observation and capability tests remain separate from release freshness.",
+  "policy": "Preserve the frozen, reproducible demo baseline rather than track latest releases. Release freshness review is on demand only: report drift, expired reviews/exceptions and unverified metadata honestly; never install or renew exceptions automatically. Review security and compatibility before operating or refreshing the demo. Runtime observation and capability tests remain separate from release freshness.",
   "libkrun_helper": {
     "minimum_krunkit": "1.3.1",
     "reviewed_bundle_krunkit": "1.3.2",

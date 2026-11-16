@@ -89,7 +89,8 @@ def audit(policy, pins, *, fetch=github_releases, today=None):
 def markdown_summary(result, trigger):
     """Explain maintenance status without equating an exception with a patched runtime."""
     lines = ["## Infrastructure release freshness", "",
-             f"Trigger: `{trigger}`. Weekly schedule: Monday 07:17 UTC (GitHub may start late).",
+             f"Trigger: `{trigger}`. Release review is on demand; there is no automatic schedule.",
+             "Pins describe a frozen demo baseline, not a commitment to track latest releases.",
              "This check only reads release metadata; it does not install or inspect the running stack.", "",
              f"Checked: {result['checked_on']}; manual review due: {result['review_due']}.",
              f"Manual review overdue: **{result['manual_review_overdue']}**."]
@@ -110,7 +111,8 @@ def markdown_summary(result, trigger):
             lines.append(f"- **{item['component']}:** release lookup unverified ({item['error']}).")
     lines += ["", "### Manual checks / deferred work", *[f"- {check}" for check in result["manual_release_checks"]],
               "", f"**Overall: {'PASS (current or explicitly excepted)' if result['passed'] else 'FAIL — review/update required'}.**",
-              "A retention exception accepts known drift/risk; it is not a security, runtime-readiness or latest-version certification."]
+              "A retention exception accepts known drift/risk; it is not a security, runtime-readiness or latest-version certification.",
+              "A failed on-demand review records findings; it does not require an upgrade or automatic exception renewal."]
     return "\n".join(lines) + "\n"
 
 
@@ -118,7 +120,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--summary", type=Path, help="Write a human-readable CI step summary")
-    parser.add_argument("--trigger", choices=("local", "schedule", "workflow_dispatch"), default="local")
+    parser.add_argument("--trigger", choices=("local", "workflow_dispatch"), default="local")
     args = parser.parse_args()
     policy = json.loads((ROOT/"infra/version-policy.json").read_text())
     pins = json.loads((ROOT/"infra/versions.json").read_text())

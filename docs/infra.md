@@ -43,14 +43,38 @@ loaded krunkit helper is checked separately; an unrelated PATH binary is not pro
 The preflight rejects known-risk helpers below1.3.1. Do not automatically restart
 a disappearing VM and call recovery a stability pass.
 
-### Weekly freshness trigger and temporary retention
+### On-demand release review
 
-`.github/workflows/infra-freshness.yml` runs **Mondays at 07:17 UTC** via
-`schedule`, or explicitly via `workflow_dispatch`; GitHub can start scheduled
-jobs late. It is not triggered by a documentation push and never installs or
-upgrades software. The Actions summary reports trigger, review deadline,
-current/excepted/unverified components and deferred manual checks; the JSON
-artifact remains the machine-readable record. Offline tests do not query releases.
+This repository preserves a **frozen, reproducible demo baseline**, not an
+always-current infrastructure deployment. Normal unit/contract tests still run
+automatically on pushes to `main` and pull requests; they do not query releases.
+`.github/workflows/infra-freshness.yml` has only `workflow_dispatch`: no scheduled,
+push or pull-request trigger. It never installs or upgrades software.
+
+When planning a demo refresh or reviewing security/compatibility before operating
+the stack, run it explicitly:
+
+- **GitHub:** Actions → Infrastructure version freshness → **Run workflow**.
+- **CLI** (from an authenticated checkout):
+
+  ```bash
+  gh workflow run infra-freshness.yml --ref main
+  ```
+
+The local `python -m src.infra.releases` command above is also opt-in. The Actions
+summary reports trigger, review deadline, current/excepted/unverified components
+and deferred manual checks; the JSON artifact is the machine-readable record.
+
+A manual run can legitimately fail because releases have moved on, review dates
+or exceptions expired, or metadata could not be verified. Keep those findings
+visible; they do not create a standing obligation to upgrade this demo. Do not
+renew exceptions just to keep a badge green, remove expiry/error checks or relabel
+unknown software as current. Review the intended use and security exposure, then
+explicitly approve any refresh and requalification; a new deployment should not
+blindly reuse old risk acceptance. Disabling automatic freshness does not make
+the retained software patched or safe for untrusted workloads.
+
+### Historical retention decision — 2026-11-16
 
 The [November 16 scheduled failure](https://github.com/caldeirav/sub15-breaker/actions/runs/43824625220)
 started at 07:32 UTC. The November 8 review/exception had expired; Kubernetes
@@ -59,8 +83,8 @@ November 9 scheduled run had already failed. This was a valid maintenance alert,
 not a regression caused by README changes.
 
 On **2026-11-16**, after disclosure of drift and applicable security risk, the
-owner selected **“Retain demo pins temporarily.”** The release-review disposition
-and three exact-version exceptions now expire **2026-11-23 inclusive (UTC)**.
+owner selected **“Retain demo pins temporarily.”** That release-review disposition
+and three exact-version exceptions expire **2026-11-23 inclusive (UTC)**.
 They accept only Kubernetes 1.37.0→1.37.2, Substrate rc.1→1.0.0 and Podman
 5.8.9→5.8.10 drift; a newer release, changed retained version, expired deadline or
 metadata failure does not inherit that approval. No automatic renewal or pin
@@ -76,11 +100,14 @@ app/MLX release currency and loaded software, bundled digests and historical-run
 readback remain deferred manual work, not passed checks. No services were
 restarted or requalified, and no historical evidence was changed.
 
-[#78](https://github.com/caldeirav/sub15-breaker/issues/78) records sources,
-approval, risks and required backup/compatibility/requalification work before
-expiry. Any shared VM restart, host/guest upgrade or cluster cutover needs separate
-approval and data-preservation planning. Do not merely move dates forward or
-change a configured pin to pretend the installed runtime was upgraded.
+[#78](https://github.com/caldeirav/sub15-breaker/issues/78) records the historical
+sources, approval, risks and proposed backup/compatibility/requalification work.
+The subsequent demo-only policy removes automatic freshness runs, not those
+findings or expiry dates; no ongoing weekly renewal or upgrade is required just
+to preserve the reference. Any shared VM restart, host/guest upgrade or cluster
+cutover needs separate approval and data-preservation planning. Do not merely
+move dates forward or change a configured pin to pretend the installed runtime
+was upgraded.
 
 ## 1. Install dependencies and project tools
 

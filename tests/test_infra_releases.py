@@ -3,6 +3,7 @@ from datetime import date
 import json
 
 import pytest
+import yaml
 
 from src.infra.common import ROOT
 from src.infra.releases import assess, audit, markdown_summary, release_version
@@ -78,10 +79,12 @@ def test_retained_policy_reports_known_risk_and_still_fails_on_expiry_or_metadat
     assert result["passed"] and not result["manual_review_overdue"]
     retained={item["component"] for item in result["results"] if item["status"]=="exception_active"}
     assert retained=={"kubernetes","substrate","podman-host-and-guest"}
-    summary=markdown_summary(result,"schedule")
-    for required in ("Monday 07:17 UTC", "exception_active", "CVE-2026-111361", "deferred, not passed",
+    summary=markdown_summary(result,"workflow_dispatch")
+    for required in ("on demand", "no automatic schedule", "frozen demo baseline",
+                     "exception_active", "CVE-2026-111361", "deferred, not passed",
                      "issues/78", "not a security, runtime-readiness or latest-version certification"):
         assert required in summary
+    assert "Weekly schedule" not in summary
     after=date.fromordinal(due.toordinal()+1)
     assert not audit(policy,pins,fetch=fetch,today=after)["passed"]
     assert audit(policy,pins,fetch=fetch,today=after)["manual_review_overdue"]
@@ -90,3 +93,13 @@ def test_retained_policy_reports_known_risk_and_still_fails_on_expiry_or_metadat
     assert not failed["passed"]
     assert all(item["status"]=="unverified" for item in failed["results"])
     assert "secret-upstream-body" not in markdown_summary(failed,"workflow_dispatch")
+
+
+def test_freshness_is_manual_only_and_normal_tests_remain_automatic():
+    # BaseLoader preserves the YAML key 'on' instead of treating it as boolean.
+    workflows=ROOT/".github/workflows"
+    freshness=yaml.load((workflows/"infra-freshness.yml").read_text(),Loader=yaml.BaseLoader)
+    assert set(freshness["on"])=={"workflow_dispatch"}
+    tests=yaml.load((workflows/"tests.yaml").read_text(),Loader=yaml.BaseLoader)
+    assert {"push","pull_request"} <= set(tests["on"])
+    assert tests["on"]["push"]["branches"]==["main"]

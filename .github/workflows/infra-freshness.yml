@@ -1,9 +1,7 @@
 name: Infrastructure version freshness
 on:
+  # Opt-in review of the frozen demo baseline; no automatic freshness runs.
   workflow_dispatch:
-  schedule:
-    # Monday 07:17 UTC; scheduled jobs may start later on GitHub-hosted runners.
-    - cron: '17 7 * * 1'
 permissions:
   contents: read
 jobs:
