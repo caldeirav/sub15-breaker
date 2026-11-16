@@ -1,7 +1,7 @@
 """Read-only release freshness check; never upgrades infrastructure or certifies readiness."""
 import argparse
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date
+from datetime import date, datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -44,7 +44,12 @@ def assess(component, pins, releases, today):
         raise ValueError("Configured version is newer than the verified published releases")
     drift = latest > selected
     until = component.get("exception_until")
-    active = bool(component.get("exception") and until and today <= date.fromisoformat(until))
+    accepted_current = component.get("exception_version")
+    accepted_latest = component.get("exception_latest_version")
+    within_exception = (
+        (accepted_current is None or selected == release_version(accepted_current, allow_rc)) and
+        (accepted_latest is None or latest == release_version(accepted_latest, allow_rc)))
+    active = bool(component.get("exception") and until and today <= date.fromisoformat(until) and within_exception)
     return dict(component=component["name"], configured_or_reviewed_version=current,
                 latest_in_reviewed_line=release["tag_name"], release_url=release.get("html_url"),
                 installed_runtime_observed=False, drift=drift,
@@ -63,7 +68,7 @@ def github_releases(repo):
 
 
 def audit(policy, pins, *, fetch=github_releases, today=None):
-    today = today or date.today()
+    today = today or datetime.now(timezone.utc).date()
     def check(component):
         try:
             return assess(component, pins, fetch(component["repo"]), today)
@@ -76,13 +81,44 @@ def audit(policy, pins, *, fetch=github_releases, today=None):
     overdue = today > due
     return dict(scope="release-freshness-only-not-runtime-readiness", checked_on=today.isoformat(),
                 review_due=due.isoformat(), manual_review_overdue=overdue,
+                review_disposition=policy.get("review_disposition"), review_reference=policy.get("review_reference"),
                 manual_release_checks=policy["manual_release_checks"], results=results,
                 passed=not overdue and all(item["passed"] for item in results))
+
+
+def markdown_summary(result, trigger):
+    """Explain maintenance status without equating an exception with a patched runtime."""
+    lines = ["## Infrastructure release freshness", "",
+             f"Trigger: `{trigger}`. Weekly schedule: Monday 07:17 UTC (GitHub may start late).",
+             "This check only reads release metadata; it does not install or inspect the running stack.", "",
+             f"Checked: {result['checked_on']}; manual review due: {result['review_due']}.",
+             f"Manual review overdue: **{result['manual_review_overdue']}**."]
+    if result.get("review_disposition"):
+        lines += ["", result["review_disposition"]]
+    if result.get("review_reference"):
+        lines += ["", f"Review record: {result['review_reference']}"]
+    lines += ["", "| Component | Pinned/reviewed | Latest in reviewed line | Status | Exception through |",
+              "| --- | --- | --- | --- | --- |"]
+    for item in result["results"]:
+        lines.append("| " + " | ".join(str(item.get(key, "—") or "—") for key in
+                     ("component", "configured_or_reviewed_version", "latest_in_reviewed_line", "status", "exception_until")) + " |")
+    lines += ["", "### Retention exceptions / lookup failures"]
+    for item in result["results"]:
+        if item.get("exception"):
+            lines.append(f"- **{item['component']} ({item['status']}):** {item['exception']}")
+        if item.get("error"):
+            lines.append(f"- **{item['component']}:** release lookup unverified ({item['error']}).")
+    lines += ["", "### Manual checks / deferred work", *[f"- {check}" for check in result["manual_release_checks"]],
+              "", f"**Overall: {'PASS (current or explicitly excepted)' if result['passed'] else 'FAIL — review/update required'}.**",
+              "A retention exception accepts known drift/risk; it is not a security, runtime-readiness or latest-version certification."]
+    return "\n".join(lines) + "\n"
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--summary", type=Path, help="Write a human-readable CI step summary")
+    parser.add_argument("--trigger", choices=("local", "schedule", "workflow_dispatch"), default="local")
     args = parser.parse_args()
     policy = json.loads((ROOT/"infra/version-policy.json").read_text())
     pins = json.loads((ROOT/"infra/versions.json").read_text())
@@ -90,6 +126,8 @@ def main():
     text = json.dumps(result, indent=2) + "\n"
     if args.output:
         args.output.write_text(text)
+    if args.summary:
+        args.summary.write_text(markdown_summary(result, args.trigger))
     print(text, end="")
     return 0 if result["passed"] else 1
 

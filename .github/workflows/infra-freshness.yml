@@ -2,6 +2,7 @@ name: Infrastructure version freshness
 on:
   workflow_dispatch:
   schedule:
+    # Monday 07:17 UTC; scheduled jobs may start later on GitHub-hosted runners.
     - cron: '17 7 * * 1'
 permissions:
   contents: read
@@ -17,7 +18,10 @@ jobs:
       - name: Check reviewed versions and expiring exceptions (no installation)
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: python -m src.infra.releases --output infra-freshness.json
+          FRESHNESS_TRIGGER: ${{ github.event_name }}
+        run: >-
+          python -m src.infra.releases --output infra-freshness.json
+          --summary "$GITHUB_STEP_SUMMARY" --trigger "$FRESHNESS_TRIGGER"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

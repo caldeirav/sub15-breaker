@@ -43,6 +43,45 @@ loaded krunkit helper is checked separately; an unrelated PATH binary is not pro
 The preflight rejects known-risk helpers below1.3.1. Do not automatically restart
 a disappearing VM and call recovery a stability pass.
 
+### Weekly freshness trigger and temporary retention
+
+`.github/workflows/infra-freshness.yml` runs **Mondays at 07:17 UTC** via
+`schedule`, or explicitly via `workflow_dispatch`; GitHub can start scheduled
+jobs late. It is not triggered by a documentation push and never installs or
+upgrades software. The Actions summary reports trigger, review deadline,
+current/excepted/unverified components and deferred manual checks; the JSON
+artifact remains the machine-readable record. Offline tests do not query releases.
+
+The [November 16 scheduled failure](https://github.com/caldeirav/sub15-breaker/actions/runs/43824625220)
+started at 07:32 UTC. The November 8 review/exception had expired; Kubernetes
+1.37.2, Substrate 1.0.0 and Podman 5.8.10 differed from the pinned baseline. The
+November 9 scheduled run had already failed. This was a valid maintenance alert,
+not a regression caused by README changes.
+
+On **2026-11-16**, after disclosure of drift and applicable security risk, the
+owner selected **“Retain demo pins temporarily.”** The release-review disposition
+and three exact-version exceptions now expire **2026-11-23 inclusive (UTC)**.
+They accept only Kubernetes 1.37.0→1.37.2, Substrate rc.1→1.0.0 and Podman
+5.8.9→5.8.10 drift; a newer release, changed retained version, expired deadline or
+metadata failure does not inherit that approval. No automatic renewal or pin
+upgrade is authorized. A pass means **current or explicitly excepted within the
+reviewed lines**, not that every component is latest, patched or runtime-qualified.
+
+**Residual risk:** Podman 5.8.10 includes fixes for CVE-2026-121885,
+CVE-2026-111361 and CVE-2026-123876; they are not installed, and applicability to
+this host/guest has not been independently established. Use only the retained
+synthetic research profile, not untrusted images/workloads or real credentials.
+Go 1.27.4 and MLflow 3.18.0 are published, but baseline versions remain retained;
+app/MLX release currency and loaded software, bundled digests and historical-run
+readback remain deferred manual work, not passed checks. No services were
+restarted or requalified, and no historical evidence was changed.
+
+[#78](https://github.com/caldeirav/sub15-breaker/issues/78) records sources,
+approval, risks and required backup/compatibility/requalification work before
+expiry. Any shared VM restart, host/guest upgrade or cluster cutover needs separate
+approval and data-preservation planning. Do not merely move dates forward or
+change a configured pin to pretend the installed runtime was upgraded.
+
 ## 1. Install dependencies and project tools
 
 ```bash

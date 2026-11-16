@@ -1,6 +1,8 @@
 {
-  "reviewed_on": "2026-11-01",
-  "review_due": "2026-11-08",
+  "reviewed_on": "2026-11-16",
+  "review_due": "2026-11-23",
+  "review_disposition": "Owner-approved temporary retention of the research demo pins through 2026-11-23 inclusive (UTC), selected after disclosure of release drift and security risk. Manual runtime checks are deferred, not passed; no installed software or historical evidence is changed. No automatic renewal.",
+  "review_reference": "https://github.com/caldeirav/sub15-breaker/issues/78",
   "policy": "Use recent published releases within reviewed compatible lines. Detect drift; never install automatically. Runtime observation and capability tests remain separate from release freshness.",
   "libkrun_helper": {
     "minimum_krunkit": "1.3.1",
@@ -9,19 +11,19 @@
   },
   "components": [
     {"name": "kind", "pin": "kind", "repo": "kubernetes-sigs/kind", "line": [0]},
-    {"name": "kubernetes", "pin": "kubectl", "repo": "kubernetes/kubernetes", "line": [1, 37], "exception_until": "2026-11-08", "exception": "Owner selected temporary retention of the existing 1.37.0 single-node Kind cluster on 2026-11-01. 1.37.2 has no published kindest/node image; replacement would require a separately authorized backup/restore/cutover. Track in #38."},
+    {"name": "kubernetes", "pin": "kubectl", "repo": "kubernetes/kubernetes", "line": [1, 37], "exception_until": "2026-11-23", "exception_version": "v1.37.0", "exception_latest_version": "v1.37.2", "exception": "Owner renewed research-only retention on 2026-11-16 (#78). Kind 0.33.0 release notes list the pinned 1.37.0 node, not 1.37.2; this is not proof no newer image exists elsewhere. Cluster replacement requires an approved backup/restore/cutover. No patch or runtime requalification claimed."},
     {"name": "helm", "pin": "helm", "repo": "helm/helm", "line": [3]},
     {"name": "cilium", "pin": "cilium", "repo": "cilium/cilium", "line": [1, 20]},
     {"name": "gateway-api", "pin": "gateway_api", "repo": "kubernetes-sigs/gateway-api", "line": [1]},
     {"name": "agentgateway", "pin": "agentgateway", "repo": "agentgateway/agentgateway", "line": [1]},
-    {"name": "substrate", "pin": "substrate", "repo": "agent-substrate/substrate", "line": [1], "allow_published_rc": true},
-    {"name": "podman-host-and-guest", "pin": "podman", "repo": "podman-container-tools/podman", "line": [5, 8]}
+    {"name": "substrate", "pin": "substrate", "repo": "agent-substrate/substrate", "line": [1], "allow_published_rc": true, "exception_until": "2026-11-23", "exception_version": "v1.0.0-rc.1", "exception_latest_version": "v1.0.0", "exception": "Owner approved temporary research-only retention on 2026-11-16 (#78). Stable 1.0.0 is published; source/image/CLI and native claim-hook, identity and bundled-runtime compatibility need review before migration. Retaining rc.1 does not qualify it as current or production-safe."},
+    {"name": "podman-host-and-guest", "pin": "podman", "repo": "podman-container-tools/podman", "line": [5, 8], "exception_until": "2026-11-23", "exception_version": "v5.8.9", "exception_latest_version": "v5.8.10", "exception": "Owner approved temporary research-only retention on 2026-11-16 after security-risk disclosure (#78). 5.8.10 fixes CVE-2026-121885, CVE-2026-111361 and CVE-2026-123876; patches are NOT installed and host/guest applicability is not established. Review and approve host/guest upgrade and downtime before changing shared infrastructure."}
   ],
   "manual_release_checks": [
-    "Go: https://go.dev/dl/?mode=json; reviewed go1.27.3",
-    "LM Studio: official stable changelog; reviewed app 0.4.28+2",
+    "Go: https://go.dev/dl/?mode=json advertises go1.27.4 on 2026-11-16; retain pinned go1.27.3 under owner-approved temporary disposition #78, not a latest-release claim.",
+    "LM Studio: pinned app 0.4.28+2; changelog endpoint serves Bionic notes on 2026-11-16. App/engine release currency remains unverified and manual review is explicitly deferred under #78, not passed.",
     "MLX: owner-approved profile evolution to 1.14.0 on 2026-11-05 (#68); verify mapped libllm_engine.dylib and live preparation separately. Historical 1.13.1 evidence is not requalified by this pin change.",
     "Bundled Substrate runtime/storage/telemetry images: release source and actual digests; do not upgrade components independently without compatibility tests",
-    "MLflow: actual configured /version and historical-run readback; reviewed 3.17.2"
+    "MLflow: published v3.18.0 observed on 2026-11-16; retain baseline 3.17.2 under #78. Actual configured /version and historical-run readback are not re-observed or requalified by this release review."
   ]
 }

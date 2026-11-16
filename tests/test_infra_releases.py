@@ -1,9 +1,11 @@
 """Release freshness is not live-runtime acceptance or upgrade authorization."""
 from datetime import date
+import json
 
 import pytest
 
-from src.infra.releases import assess, audit, release_version
+from src.infra.common import ROOT
+from src.infra.releases import assess, audit, markdown_summary, release_version
 
 
 def release(tag, **changes):
@@ -48,3 +50,43 @@ def test_release_lookup_failure_and_overdue_manual_checks_fail_closed():
 def test_wrong_line_or_unverified_future_pin_cannot_pass(configured):
     with pytest.raises(ValueError):
         assess(dict(name="helm",pin="helm",line=[3]),{"helm":configured},[release("v3.22.1")],date(2026,11,1))
+
+
+def test_retention_is_bound_to_exact_reviewed_drift_and_inclusive_expiry():
+    spec=dict(name="podman",pin="podman",line=[5,8],exception="owner-approved research retention",
+              exception_until="2026-11-23",exception_version="v5.8.9",exception_latest_version="v5.8.10")
+    def check(current, latest, day=date(2026,11,23)):
+        return assess(spec,{"podman":current},[release(latest)],day)
+    result=check("v5.8.9","v5.8.10")
+    assert result["status"]=="exception_active" and result["drift"] and result["passed"]
+    for result in (check("v5.8.9","v5.8.10",date(2026,11,24)),
+                   check("v5.8.9","v5.8.11"),check("v5.8.8","v5.8.10")):
+        assert result["status"]=="update_required" and not result["passed"]
+    assert check("v5.8.10","v5.8.10")["status"]=="current"
+
+
+def test_retained_policy_reports_known_risk_and_still_fails_on_expiry_or_metadata_failure():
+    policy=json.loads((ROOT/"infra/version-policy.json").read_text())
+    pins=json.loads((ROOT/"infra/versions.json").read_text())
+    reviewed=date.fromisoformat(policy["reviewed_on"])
+    due=date.fromisoformat(policy["review_due"])
+    assert (due-reviewed).days==7
+    def fetch(repo):
+        spec=next(item for item in policy["components"] if item["repo"]==repo)
+        return [release(spec.get("exception_latest_version",pins[spec["pin"]]))]
+    result=audit(policy,pins,fetch=fetch,today=reviewed)
+    assert result["passed"] and not result["manual_review_overdue"]
+    retained={item["component"] for item in result["results"] if item["status"]=="exception_active"}
+    assert retained=={"kubernetes","substrate","podman-host-and-guest"}
+    summary=markdown_summary(result,"schedule")
+    for required in ("Monday 07:17 UTC", "exception_active", "CVE-2026-111361", "deferred, not passed",
+                     "issues/78", "not a security, runtime-readiness or latest-version certification"):
+        assert required in summary
+    after=date.fromordinal(due.toordinal()+1)
+    assert not audit(policy,pins,fetch=fetch,today=after)["passed"]
+    assert audit(policy,pins,fetch=fetch,today=after)["manual_review_overdue"]
+    def fail(_):raise RuntimeError("secret-upstream-body")
+    failed=audit(policy,pins,fetch=fail,today=reviewed)
+    assert not failed["passed"]
+    assert all(item["status"]=="unverified" for item in failed["results"])
+    assert "secret-upstream-body" not in markdown_summary(failed,"workflow_dispatch")
