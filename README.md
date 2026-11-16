@@ -22,6 +22,11 @@ and the same native pre-execution boundary. Only the reviewer changes.
 > containment is promised. The 15ms research target is
 > **classifier decision computation**, not native admission or complete task time.
 
+Infrastructure versions are a **frozen demo baseline**, not a promise to track
+latest releases. Normal tests run automatically; release freshness is
+[on demand only](docs/infra.md#on-demand-release-review), before a planned demo
+refresh or security/compatibility review. No automatic upgrades are performed.
+
 ## Talk: Agent Substrate Day at ATECon 2026
 
 This reference implementation was presented as
